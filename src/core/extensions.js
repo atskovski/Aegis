@@ -227,12 +227,24 @@ class AegisExtensionRuntime{
     if(m==='runtime.getPlatformInfo')return {os:process.platform==='darwin'?'mac':'unknown',arch:process.arch==='arm64'?'arm':'x86-64'};
     if(m==='permissions.contains'){const set=new Set(permissions(e.manifest));return [...(a[0]?.permissions||[]),...(a[0]?.origins||[])].every((x)=>set.has(x))}
     if(m.startsWith('storage.')){const [,area,op]=m.split('.'),file=path.join(this.dataDir,e.id,'storage.json'),store=area==='local'?readStore(file):(this.sessionStores.get(e.id)||{});this.sessionStores.set(e.id,store);if(op==='get')return getKeys(store,a[0]);if(op==='set')Object.assign(store,a[0]||{});if(op==='remove')for(const k of Array.isArray(a[0])?a[0]:[a[0]])delete store[k];if(op==='clear')for(const k of Object.keys(store))delete store[k];if(area==='local'&&op!=='get')writeStore(file,store);return;}
+    const extensionVisible=(t)=>Boolean(t && !t.disableExtensions && t.securityDomain!=='anonymous' && t.securityDomain!=='hardened');
     const pub=(t)=>({id:t.id,url:t.url||'',title:t.title||'',active:t.id===this.getActiveId(),incognito:true,status:t.loading?'loading':'complete'});
-    if(m==='tabs.query')return tabs.filter((t)=>!a[0]?.active||t.id===this.getActiveId()).map(pub);
+    if(m==='tabs.query')return tabs.filter(extensionVisible).filter((t)=>!a[0]?.active||t.id===this.getActiveId()).map(pub);
     if(m==='tabs.create')return pub(await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false));
-    if(m==='tabs.update')return this.updateTab(typeof a[0]==='number'?a[0]:source?.id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
-    if(m==='tabs.remove'){for(const id of (Array.isArray(a[0])?a[0]:[a[0]]))this.removeTab(Number(id));return}
-    if(m==='tabs.sendMessage'){const t=tabs.find((x)=>x.id===Number(a[0]));if(!t)throw new Error('Tab not found');const targetExt=this.items.get(e.id); return t.view.webContents.executeJavaScriptInIsolatedWorld(targetExt.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+'):undefined'}])}
+    if(m==='tabs.update'){
+      const id=typeof a[0]==='number'?a[0]:source?.id, target=tabs.find((t)=>t.id===Number(id));
+      if(!extensionVisible(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');
+      return this.updateTab(id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
+    }
+    if(m==='tabs.remove'){
+      for(const id of (Array.isArray(a[0])?a[0]:[a[0]])){
+        const target=tabs.find((t)=>t.id===Number(id));
+        if(!extensionVisible(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');
+        this.removeTab(Number(id));
+      }
+      return;
+    }
+    if(m==='tabs.sendMessage'){const t=tabs.find((x)=>x.id===Number(a[0]));if(!t||!extensionVisible(t))throw new Error('Tab unavailable to extensions');const targetExt=this.items.get(e.id); return t.view.webContents.executeJavaScriptInIsolatedWorld(targetExt.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+'):undefined'}])}
     if(m==='runtime.sendMessage')return this.sendRuntimeMessage(e, source, a[0]);
     throw new Error('Unsupported extension API: '+m);
   }
@@ -293,7 +305,7 @@ class AegisExtensionRuntime{
     return new Promise((resolve)=>{
       const timer=setTimeout(()=>{this.pendingMessages.delete(messageId);resolve(undefined)},2500);
       this.pendingMessages.set(messageId,{extensionId:ext.id,resolve:(value)=>{clearTimeout(timer);resolve(value)}});
-      host.webContents.send('extension:runtime-message',{extensionId:ext.id,messageId,message,sender:sourceTab?{tab:{id:sourceTab.id,url:sourceTab.url||'',title:sourceTab.title||'',incognito:true}}:{id:ext.id}});
+      host.webContents.send('extension:runtime-message',{extensionId:ext.id,messageId,message,sender:sourceTab&&!sourceTab.disableExtensions&&sourceTab.securityDomain!=='anonymous'&&sourceTab.securityDomain!=='hardened'?{tab:{id:sourceTab.id,url:sourceTab.url||'',title:sourceTab.title||'',incognito:true}}:{id:ext.id}});
     });
   }
   handleBackgroundResponse(sender,payload={}){
