@@ -245,7 +245,7 @@ class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion,notifyExtension}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
     this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.notifyExtension=typeof notifyExtension==='function'?notifyExtension:null;
-    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.browserVersion=String(browserVersion||'1.1');
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.browserVersion=String(browserVersion||'1.1');
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
@@ -625,6 +625,38 @@ class AegisExtensionRuntime{
       return this.sendRuntimeMessage(e,source,a[0]);
     }
 
+    if(m==='runtime.portOpen'){
+      const details=a[0]||{},portId=String(details.portId||''),name=String(details.name||'').slice(0,120);
+      if(!/^[a-zA-Z0-9._:-]{8,160}$/.test(portId))throw new Error('Invalid extension Port id.');
+      let target=this.backgroundHosts.get(e.id);
+      if((!target||target.isDestroyed())&&e.enabled!==false){await this.startBackground(e);target=this.backgroundHosts.get(e.id)}
+      if(!target||target.isDestroyed())throw new Error('Extension background context is unavailable for runtime.connect().');
+      this.ports.set(portId,{extensionId:e.id,name,a:sender,b:target.webContents});
+      target.webContents.send('extension:event',{extensionId:e.id,type:'runtime.onConnect',args:[{__aegisPort:true,portId,name,sender:source?{tab:this.publicTab(e,source),id:e.id}:{id:e.id}}]});
+      return {portId,name};
+    }
+    if(m==='tabs.connect'){
+      requireTabs();
+      const target=this.tabById(a[0]);if(!target||!this.canAccessTab(e,target,{inject:true}))throw new Error('Tab unavailable to this extension.');
+      const details=a[1]||{},portId=String(details.portId||''),name=String(details.name||'').slice(0,120);
+      if(!/^[a-zA-Z0-9._:-]{8,160}$/.test(portId))throw new Error('Invalid extension Port id.');
+      this.ports.set(portId,{extensionId:e.id,name,a:sender,b:target.view.webContents});
+      target.view.webContents.send('extension:event',{extensionId:e.id,type:'runtime.onConnect',args:[{__aegisPort:true,portId,name,sender:{id:e.id}}]});
+      return {portId,name};
+    }
+    if(m==='runtime.portPost'){
+      const portId=String(a[0]||''),entry=this.ports.get(portId);if(!entry||entry.extensionId!==e.id)throw new Error('Extension Port is closed.');
+      const target=entry.a===sender?entry.b:(entry.b===sender?entry.a:null);if(!target)throw new Error('Extension Port sender mismatch.');
+      try{target.send('extension:event',{extensionId:e.id,type:'runtime.portMessage',args:[portId,a[1]]})}catch{this.ports.delete(portId);throw new Error('Extension Port destination is unavailable.')}
+      return true;
+    }
+    if(m==='runtime.portDisconnect'){
+      const portId=String(a[0]||''),entry=this.ports.get(portId);if(!entry||entry.extensionId!==e.id)return false;
+      const other=entry.a===sender?entry.b:(entry.b===sender?entry.a:null);this.ports.delete(portId);
+      if(other)try{other.send('extension:event',{extensionId:e.id,type:'runtime.portDisconnect',args:[portId]})}catch{}
+      return true;
+    }
+
     if(m==='permissions.contains'){const set=new Set(permissions(e.manifest));return [...(a[0]?.permissions||[]),...(a[0]?.origins||[])].every((x)=>set.has(x))}
     if(m==='permissions.getAll')return {permissions:permissions(e.manifest).filter((x)=>!/:\/\//.test(x)&&x!=='<all_urls>'),origins:hostPermissions(e.manifest)};
     if(m==='permissions.request')return false;
@@ -637,6 +669,12 @@ class AegisExtensionRuntime{
       const store=persistent?readStore(file):(this.sessionStores.get(e.id)||{});
       const before={...store};if(!persistent)this.sessionStores.set(e.id,store);
       if(op==='get')return getKeys(store,a[0]);
+      if(op==='getKeys')return Object.keys(store);
+      if(op==='getBytesInUse'){
+        const selected=getKeys(store,a[0]);
+        return Buffer.byteLength(JSON.stringify(selected),'utf8');
+      }
+      if(area==='managed'&&['set','remove','clear'].includes(op))throw new Error('storage.managed is read-only.');
       if(op==='set')Object.assign(store,a[0]||{});
       if(op==='remove')for(const k of Array.isArray(a[0])?a[0]:[a[0]])delete store[k];
       if(op==='clear')for(const k of Object.keys(store))delete store[k];
@@ -813,6 +851,6 @@ class AegisExtensionRuntime{
     if(!pending||pending.extensionId!==id||!host||host.webContents!==sender)return false;
     this.pendingMessages.delete(String(payload.messageId));pending.resolve(payload.response);return true;
   }
-  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear()}
+  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear();this.ports.clear()}
 }
 module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,scanUsedApiRoots,validateExtractedTree,bootstrap,AegisExtensionRuntime};
