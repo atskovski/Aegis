@@ -7,11 +7,11 @@ const os=require('node:os');
 const {execFileSync}=require('node:child_process');
 const {AegisExtensionRuntime}=require('../src/core/extensions');
 
-function makeXpi(root,version='1.0.0'){
+function makeChromeLifecycleZip(root,version='1.0.0'){
   const pkg=path.join(root,'pkg-'+version);fs.mkdirSync(pkg,{recursive:true});
   const manifest={
     manifest_version:2,name:'Aegis Test Extension',version,description:'Integration test package',
-    browser_specific_settings:{gecko:{id:'aegis-test@example'}},
+    key:Buffer.from('aegis-runtime-6-lifecycle-key').toString('base64'),
     permissions:['storage','tabs','https://example.com/*'],
     browser_action:{default_title:'Aegis Test',default_popup:'popup.html',default_icon:{32:'icon.svg'}},
     options_ui:{page:'options.html',open_in_tab:false},
@@ -19,25 +19,27 @@ function makeXpi(root,version='1.0.0'){
     background:{scripts:['background.js']}
   };
   fs.writeFileSync(path.join(pkg,'manifest.json'),JSON.stringify(manifest));
-  fs.writeFileSync(path.join(pkg,'content.js'),"browser.storage.local.get('x'); browser.runtime.sendMessage({hello:true});");
-  fs.writeFileSync(path.join(pkg,'background.js'),"browser.runtime.onMessage.addListener(()=>({ok:true})); browser.tabs.query({active:true});");
+  fs.writeFileSync(path.join(pkg,'content.js'),"chrome.storage.local.get('x'); chrome.runtime.sendMessage({hello:true});");
+  fs.writeFileSync(path.join(pkg,'background.js'),"chrome.runtime.onMessage.addListener(()=>({ok:true})); chrome.tabs.query({active:true});");
   fs.writeFileSync(path.join(pkg,'popup.html'),'<!doctype html><script src="popup.js"></script>');
-  fs.writeFileSync(path.join(pkg,'popup.js'),"browser.runtime.getBrowserInfo();");
+  fs.writeFileSync(path.join(pkg,'popup.js'),"chrome.runtime.getBrowserInfo();");
   fs.writeFileSync(path.join(pkg,'options.html'),'<!doctype html><script src="options.js"></script>');
-  fs.writeFileSync(path.join(pkg,'options.js'),"browser.storage.local.set({configured:true});");
+  fs.writeFileSync(path.join(pkg,'options.js'),"chrome.storage.local.set({configured:true});");
   fs.writeFileSync(path.join(pkg,'icon.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32"/></svg>');
-  const xpi=path.join(root,'extension-'+version+'.xpi');
-  execFileSync('/usr/bin/zip',['-qr',xpi,'.'],{cwd:pkg});
-  return xpi;
+  const zip=path.join(root,'extension-'+version+'.zip');
+  execFileSync('/usr/bin/zip',['-qr',zip,'.'],{cwd:pkg});
+  return zip;
 }
 
-test('real XPI package can be inspected staged installed updated and removed',async()=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-xpi-lifecycle-'));
+test('Chrome ZIP package can be inspected staged installed updated and removed',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-chrome-lifecycle-'));
   try{
     const runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{},browserVersion:'test'});
-    const first=makeXpi(root,'1.0.0');
+    const first=makeChromeLifecycleZip(root,'1.0.0');
     const staged=await runtime.stage(first);
-    assert.equal(staged.summary.id,'aegis-test@example');
+    const stableId=staged.summary.id;
+    assert.match(stableId,/^[a-p]{32}$/);
+    assert.equal(staged.summary.ecosystem,'chrome');
     assert.equal(staged.summary.manifestVersion,2);
     assert.equal(staged.summary.action.popup,'popup.html');
     assert.equal(staged.summary.optionsPage,'options.html');
@@ -45,15 +47,16 @@ test('real XPI package can be inspected staged installed updated and removed',as
     assert.ok(staged.summary.detectedApis.includes('runtime'));
     assert.ok(staged.summary.detectedApis.includes('storage'));
     const installed=await runtime.installStaged(staged.token);
-    assert.equal(installed.id,'aegis-test@example');
+    assert.equal(installed.id,stableId);
     assert.equal(installed.version,'1.0.0');
     assert.equal(installed.action.popup,'popup.html');
     assert.ok(installed.optionsPage.includes('aegis-extension://'));
     const internalBefore=runtime.items.get(installed.id);
     const resourceToken=internalBefore.resourceToken,installedAt=internalBefore.installedAt;
 
-    const second=makeXpi(root,'1.1.0');
+    const second=makeChromeLifecycleZip(root,'1.1.0');
     const update=await runtime.stage(second);
+    assert.equal(update.summary.id,stableId);
     const updated=await runtime.installStaged(update.token);
     assert.equal(updated.version,'1.1.0');
     assert.equal(runtime.items.get(updated.id).resourceToken,resourceToken);
@@ -64,6 +67,17 @@ test('real XPI package can be inspected staged installed updated and removed',as
     assert.equal(runtime.list().length,0);
     assert.equal(fs.existsSync(internalBefore.path),false);
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
+test('Firefox XPI packages are rejected by Chrome-only Runtime 6',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-xpi-reject-'));
+  try{
+    const pkg=path.join(root,'firefox');fs.mkdirSync(pkg,{recursive:true});
+    fs.writeFileSync(path.join(pkg,'manifest.json'),JSON.stringify({manifest_version:2,name:'Firefox Only',version:'1',browser_specific_settings:{gecko:{id:'firefox@example'}}}));
+    const xpi=path.join(root,'firefox.xpi');execFileSync('/usr/bin/zip',['-qr',xpi,'.'],{cwd:pkg});
+    const runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    await assert.rejects(()=>runtime.stage(xpi),/Firefox XPI packages are no longer supported/);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
 
