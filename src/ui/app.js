@@ -2,7 +2,7 @@
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
-let state = { activeId: null, tabs: [], settings: {}, engine: {}, searchEngines: {}, bookmarks: [], downloads: [], network: {}, securitySuite: null };
+let state = { activeId: null, tabs: [], settings: {}, engine: {}, searchEngines: {}, bookmarks: [], downloads: [], network: {}, securitySuite: null, extensions: [], privacyControls: [] };
 let draftSettings = null;
 let toastTimer;
 let commandIndex = 0;
@@ -11,6 +11,7 @@ let permissionQueue = [];
 let activePermissionPrompt = null;
 let lastUiLayerKey = '';
 let currentSettingsPage = 'privacy';
+let sentinelMode = 'simple';
 
 const PROFILE_VALUES = {
   standard: { privacyLevel: 'standard', letterbox: false, blockTrackers: true, blockAds: true, blockSocialTrackers: true, heuristicTrackingProtection: false, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: false, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: false },
@@ -284,6 +285,109 @@ function renderTabs() {
   $('#tabs').replaceChildren(...nodes);
 }
 
+
+function applySentinelMode(mode = 'simple') {
+  sentinelMode = mode === 'advanced' ? 'advanced' : 'simple';
+  const panel = $('#privacyPanel');
+  if (panel) panel.dataset.sentinelMode = sentinelMode;
+  $('#sentinelSimple')?.classList.toggle('active', sentinelMode === 'simple');
+  $('#sentinelAdvanced')?.classList.toggle('active', sentinelMode === 'advanced');
+  $('.sentinel-advanced-only').forEach((el) => el.classList.toggle('hidden-by-mode', sentinelMode !== 'advanced'));
+}
+
+function renderSentinelSummary(tab) {
+  if (!tab) return;
+  const stats = tab.stats || {};
+  const suite = state.securitySuite || {};
+  const ip = suite.publicIp?.ip || 'Not verified';
+  $('#sentinelIp').textContent = ip;
+  const route = suite.route?.mode || tab.networkRoute?.mode || state.settings.proxy?.mode || 'system';
+  const provider = suite.publicIp?.provider ? ' · ' + suite.publicIp.provider : '';
+  const routeWarnings = suite.route?.warnings?.length ? ' · warning: ' + suite.route.warnings[0] : '';
+  $('#sentinelRoute').textContent = titleCase(route) + ' route' + provider + routeWarnings;
+  $('#sentinelTrackers').textContent = stats.blockedTrackers || 0;
+  $('#sentinelThirdParty').textContent = tab.siteIntelligence?.network?.uniqueThirdParties || stats.thirdPartyRequests || 0;
+  $('#sentinelFingerprint').textContent = tab.siteIntelligence?.totals?.fingerprintCategories || 0;
+  $('#sentinelPermissions').textContent = stats.blockedPermissions || 0;
+
+  const degraded = (state.privacyControls || []).filter((x) => x.enabled && x.status === 'degraded').length;
+  const allowed = Number(tab.siteIntelligence?.network?.allowedUnique || 0);
+  let text = 'Sentinel is watching this tab locally.';
+  if (!tab.fingerprintReady && state.settings.privacyLevel !== 'standard') text = 'Fingerprint defenses are not fully confirmed for this tab. Run Security Suite.';
+  else if (degraded) text = degraded + ' enabled privacy control' + (degraded === 1 ? ' is' : 's are') + ' not yet confirmed as enforced.';
+  else if (allowed) text = allowed + ' third-party domain' + (allowed === 1 ? ' was' : 's were') + ' contacted; open Advanced for details.';
+  else if ((stats.blockedTrackers || 0) > 0) text = 'Aegis blocked ' + stats.blockedTrackers + ' tracker request' + (stats.blockedTrackers === 1 ? '' : 's') + ' on this tab.';
+  $('#sentinelHeadline').textContent = text;
+}
+
+function renderControlAssurance() {
+  const box = $('#privacyControlResults');
+  if (!box) return;
+  const controls = state.privacyControls || [];
+  box.replaceChildren();
+  if (!controls.length) {
+    const empty = document.createElement('div'); empty.className = 'suite-empty';
+    empty.innerHTML = '<b>No control evidence available</b><span>Open a web tab to inspect runtime enforcement.</span>';
+    box.append(empty); return;
+  }
+  controls.forEach((item) => {
+    const row = document.createElement('div'); row.className = 'assurance-row assurance-' + item.status;
+    const badge = document.createElement('span'); badge.className = 'assurance-status ' + item.status;
+    badge.textContent = item.status === 'enforced' ? 'ENFORCED' : (item.status === 'degraded' ? 'DEGRADED' : 'DISABLED');
+    const copy = document.createElement('span'); copy.className = 'assurance-copy';
+    const title = document.createElement('b'); title.textContent = item.label;
+    const detail = document.createElement('small'); detail.textContent = item.evidence;
+    copy.append(title, detail);
+    const layer = document.createElement('em'); layer.textContent = titleCase(item.layer || 'runtime');
+    row.append(badge, copy, layer); box.append(row);
+  });
+}
+
+function renderAddons() {
+  const list = $('#addonList');
+  if (!list) return;
+  const addons = state.extensions || [];
+  list.replaceChildren();
+  if (!addons.length) {
+    const empty = document.createElement('div'); empty.className = 'suite-empty';
+    const b = document.createElement('b'); b.textContent = 'No add-ons installed';
+    const s = document.createElement('span'); s.textContent = 'Install a Firefox WebExtension .xpi to review its permissions and Aegis compatibility.';
+    empty.append(b, s); list.append(empty); return;
+  }
+  addons.forEach((addon) => {
+    const card = document.createElement('div'); card.className = 'addon-card';
+    const head = document.createElement('div'); head.className = 'addon-head';
+    const copy = document.createElement('span');
+    const name = document.createElement('b'); name.textContent = addon.name + ' ' + addon.version;
+    const score = document.createElement('small'); score.textContent = 'Aegis compatibility ' + Number(addon.compatibility?.score || 0) + '% · ' + (addon.enabled ? 'Enabled' : 'Disabled');
+    copy.append(name, score);
+    const toggle = document.createElement('button'); toggle.className = addon.enabled ? 'secondary addon-toggle active' : 'secondary addon-toggle'; toggle.textContent = addon.enabled ? 'Disable' : 'Enable';
+    toggle.addEventListener('click', async () => {
+      const result = await window.aegis.invoke('extensions:set-enabled', { id:addon.id, enabled:!addon.enabled });
+      if (!result?.ok) showToast({message:'Could not update add-on: ' + (result?.error || 'unknown error'),tone:'danger'});
+    });
+    head.append(copy, toggle); card.append(head);
+
+    const unsupported = addon.compatibility?.unsupported || [];
+    const perms = addon.risk || [];
+    const details = document.createElement('div'); details.className = 'addon-details';
+    const api = document.createElement('span'); api.innerHTML = '<b>Unsupported APIs</b><small></small>';
+    api.querySelector('small').textContent = unsupported.length ? unsupported.map((x) => x.api).join(', ') : 'None detected';
+    const risk = document.createElement('span'); risk.innerHTML = '<b>Permissions</b><small></small>';
+    risk.querySelector('small').textContent = perms.length ? perms.map((x) => x.permission + ' (' + x.level + ')').join(', ') : 'No declared permissions';
+    details.append(api, risk); card.append(details);
+
+    const foot = document.createElement('div'); foot.className = 'addon-foot';
+    const remove = document.createElement('button'); remove.className = 'text-btn danger-text'; remove.textContent = 'Remove';
+    remove.addEventListener('click', async () => {
+      if (!confirm('Remove ' + addon.name + ' and its local extension data?')) return;
+      const result = await window.aegis.invoke('extensions:remove', addon.id);
+      if (!result?.ok) showToast({message:'Could not remove add-on.',tone:'danger'});
+    });
+    foot.append(remove); card.append(foot); list.append(card);
+  });
+}
+
 function renderPrivacyPanel(tab) {
   if (!tab) return;
   const score = privacyScore(tab);
@@ -307,6 +411,8 @@ function renderPrivacyPanel(tab) {
   renderIdentitySurfaces(tab);
   renderPrivacyTimeline(tab);
   renderProtectionLayers(tab);
+  renderSentinelSummary(tab);
+  applySentinelMode(sentinelMode);
   $('#shieldToggle').checked = Boolean(tab.shieldsEnabled);
   $('#jsToggle').checked = Boolean(tab.javascriptEnabled);
   $('#httpToggle').checked = Boolean(tab.allowHttp);
@@ -506,6 +612,8 @@ function render() {
   renderLibrary();
   renderNetworkDiagnostics();
   renderSecuritySuite();
+  renderControlAssurance();
+  renderAddons();
   if (!$('#settingsPanel').classList.contains('hidden') && !draftSettings) draftSettings = deepClone(state.settings);
   if (!$('#settingsPanel').classList.contains('hidden')) renderSettingsDraft();
 }
@@ -848,6 +956,8 @@ $('#libraryBtn').addEventListener('click', () => showPanel('libraryPanel'));
 $('#settingsBtn').addEventListener('click', () => openSettings());
 $('#commandBtn').addEventListener('click', openCommandPalette);
 $('#privacyBeacon').addEventListener('click', () => showPanel('privacyPanel'));
+$('#sentinelSimple').addEventListener('click', () => applySentinelMode('simple'));
+$('#sentinelAdvanced').addEventListener('click', () => applySentinelMode('advanced'));
 $('#openFullSettings').addEventListener('click', () => openSettings('privacy'));
 $$('[data-close]').forEach((b) => b.addEventListener('click', hidePanels));
 
@@ -861,6 +971,15 @@ $('#resetSitePermissions').addEventListener('click', () => window.aegis.send('si
 $('#clearDownloads').addEventListener('click', () => window.aegis.send('downloads:clear'));
 $('#runNetworkTest').addEventListener('click', runNetworkTest);
 $('#runSecuritySuite').addEventListener('click', runSecuritySuite);
+$('#installXpi').addEventListener('click', async () => {
+  const button = $('#installXpi'); button.disabled = true; button.textContent = 'Reviewing…';
+  try {
+    const result = await window.aegis.invoke('extensions:install');
+    if (result?.ok) showToast({ message:'Installed ' + result.extension.name + '. Matching content scripts will run in isolated extension worlds.', tone:'success' });
+    else if (!result?.canceled) showToast({ message:'Extension install failed: ' + (result?.error || 'unknown error'), tone:'danger' });
+  } catch (err) { showToast({ message:'Extension install failed: ' + err.message, tone:'danger' }); }
+  finally { button.disabled = false; button.textContent = 'Install .xpi'; }
+});
 $('#networkTestFromNetwork').addEventListener('click', () => { openSettings('diagnostics'); runNetworkTest(); });
 $$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
 
