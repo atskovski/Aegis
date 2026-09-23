@@ -5,7 +5,7 @@ test('enterprise URL allow and block boundaries',()=>{
  const s={enterpriseMode:true,enterprise:{urlAllowlist:['*.corp.example'],urlBlocklist:['evil.corp.example']}};
  assert.equal(evaluateUrl('https://portal.corp.example',s).allowed,true);
  assert.equal(evaluateUrl('https://public.example',s).allowed,false);
- assert.equal(evaluateUrl('https://evil.corp.example',s).allowed,true); // explicit allow boundary wins by design
+ assert.equal(evaluateUrl('https://evil.corp.example',s).allowed,false); // explicit deny wins fail-closed
 });
 test('blocklist denies destinations without allow override',()=>{
  const s={enterpriseMode:true,enterprise:{urlAllowlist:[],urlBlocklist:['tracker.example']}};
