@@ -24,6 +24,7 @@ test('hardened compartment forces maximum browser privacy controls',()=>{
   assert.equal(s.blockThirdPartyRequests,true);
   assert.equal(s.disableServiceWorkers,true);
   assert.equal(s.permissionDefaults.camera,'block');
+  assert.deepEqual(s.sitePermissions,{});
   assert.equal(s.sponsorBlock.enabled,false);
 });
 
