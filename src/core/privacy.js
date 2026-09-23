@@ -76,7 +76,10 @@ function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onSta
     const highConfidence = known && (!category || categoryEnabled(settings, category));
     const firstPartyAnalytics = Boolean(settings.heuristicTrackingProtection && !thirdParty && looksFirstPartyAnalytics(details.url, details.resourceType));
     const explicitScriptTracker = Boolean(isKnownScriptTrackerUrl(details.url));
-    const shouldBlock = tab.shieldsEnabled && !tab.compatibilityMode && ((thirdParty && (highConfidence || fpScript || learned || explicitScriptTracker)) || firstPartyAnalytics);
+    // Known script hosts are telemetry evidence, but blocking still obeys the category-specific toggles above.
+    // Do not let a generic script-host helper silently override Block Ads / Social / Trackers preferences.
+    const uncategorizedScriptTracker = explicitScriptTracker && !category && settings.blockTrackers !== false;
+    const shouldBlock = tab.shieldsEnabled && !tab.compatibilityMode && ((thirdParty && (highConfidence || fpScript || learned || uncategorizedScriptTracker)) || firstPartyAnalytics);
     if (shouldBlock) {
       tab.stats.blockedTrackers += 1;
       if (category === 'ads') tab.stats.adsBlocked += 1;
@@ -128,4 +131,4 @@ function freshSeed() { return crypto.randomBytes(24).toString('hex'); }
 function safeDownloadName(name) { return String(name || 'download').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 180); }
 function isRiskyDownload(filename) { return /\.(?:dmg|pkg|app|exe|msi|scr|bat|cmd|com|ps1|vbs|js|jse|jar|sh|command|desktop|deb|rpm|apk|iso)$/i.test(filename || ''); }
 function defaultDownloadPath(app, filename) { return path.join(app.getPath('downloads'), 'Aegis Downloads', safeDownloadName(filename)); }
-module.exports = { makeTabStats, configurePrivacySession, buildGenericUA, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, permissionKeys, permissionAllowed, permissionDecision };
+module.exports = { makeTabStats, configurePrivacySession, buildGenericUA, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled };

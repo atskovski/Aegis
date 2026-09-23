@@ -41,6 +41,26 @@
       <button class="icon-btn close" data-close="privacyPanel">×</button>
     </div>
 
+    <div class="sentinel-mode" role="tablist" aria-label="Sentinel detail level">
+      <button id="sentinelSimple" class="sentinel-mode-btn active" type="button">Simple</button>
+      <button id="sentinelAdvanced" class="sentinel-mode-btn" type="button">Advanced</button>
+    </div>
+
+    <div class="sentinel-simple-summary">
+      <div class="sentinel-route-card">
+        <span class="eyebrow">NETWORK IDENTITY</span>
+        <strong id="sentinelIp">Not verified</strong>
+        <small id="sentinelRoute">Run Security Suite to verify the public route</small>
+      </div>
+      <div class="sentinel-quick-grid">
+        <div><b id="sentinelTrackers">0</b><span>trackers blocked</span></div>
+        <div><b id="sentinelThirdParty">0</b><span>third parties seen</span></div>
+        <div><b id="sentinelFingerprint">0</b><span>fingerprint surfaces</span></div>
+        <div><b id="sentinelPermissions">0</b><span>permissions denied</span></div>
+      </div>
+      <div id="sentinelHeadline" class="sentinel-headline">Sentinel is watching this tab locally.</div>
+    </div>
+
     <div class="score-card">
       <div class="score-ring"><strong id="scoreValue">100</strong><span>/100</span></div>
       <div><b id="scoreLabel">Hardened</b><small>Current tab protection posture</small></div>
@@ -61,33 +81,39 @@
       <div><span class="posture-dot activity"></span><span>Protections</span><b id="protectionCount">0</b></div>
     </div>
 
-    <div class="panel-section intelligence-section">
+    <div class="panel-section sentinel-advanced-only intelligence-section">
       <div class="section-title-row"><div><div class="eyebrow">LIVE PAGE INTELLIGENCE</div><h3>What this page is seeking</h3></div><span id="signalCount" class="count-badge">0</span></div>
       <p class="intelligence-help">Observed locally inside this tab. Nothing in this activity ledger is uploaded by Aegis.</p>
       <div id="dataAccessList" class="signal-list"><div class="signal-empty"><b>No sensitive access observed</b><span>Aegis will show permission requests, storage access, and fingerprint surfaces as the page uses them.</span></div></div>
     </div>
 
-    <div class="panel-section network-intelligence-section">
+    <div class="panel-section sentinel-advanced-only network-intelligence-section">
       <div class="section-title-row"><div><div class="eyebrow">NETWORK PRIVACY</div><h3>Third-party connections</h3></div><span id="thirdPartyUnique" class="count-badge">0</span></div>
       <p class="intelligence-help">Hostnames only. Aegis does not store full third-party request URLs in this inspector.</p>
       <div class="network-mini-stats"><span><b id="thirdPartyBlockedUnique">0</b> blocked domains</span><span><b id="thirdPartyAllowedUnique">0</b> contacted domains</span></div>
       <div id="thirdPartyList" class="third-party-list"><div class="signal-empty"><b>No third-party connections yet</b><span>Domains contacted by this page will appear here.</span></div></div>
     </div>
 
-    <div class="panel-section">
+    <div class="panel-section sentinel-advanced-only">
       <div class="section-title-row"><div><div class="eyebrow">IDENTITY SHIELD</div><h3>What Aegis is exposing</h3></div><span id="exposureScore" class="count-badge">100</span></div>
       <p class="intelligence-help">A local explanation of identity surfaces visible to the current page. “Protected” means reduced or standardized, not invisible.</p>
       <div id="identitySurfaceList" class="identity-surface-list"></div>
     </div>
 
-    <div class="panel-section">
+    <div class="panel-section sentinel-advanced-only">
       <div class="section-title-row"><div><div class="eyebrow">LOCAL ACTIVITY LEDGER</div><h3>Recent privacy events</h3></div><span class="count-badge" id="timelineCount">0</span></div>
       <div id="privacyTimeline" class="privacy-timeline"><div class="signal-empty"><b>No privacy events yet</b><span>Recent sensitive API and network events will appear here.</span></div></div>
     </div>
 
-    <div class="panel-section">
+    <div class="panel-section sentinel-advanced-only">
       <div class="eyebrow">ACTIVE PROTECTION LAYERS</div>
       <div id="protectionLayers" class="protection-layers"></div>
+    </div>
+
+    <div class="panel-section sentinel-advanced-only">
+      <div class="section-title-row"><div><div class="eyebrow">RUNTIME EVIDENCE</div><h3>Enforcement internals</h3></div></div>
+      <p class="intelligence-help">Shows whether Aegis actually installed the tab-level engines that back the privacy controls.</p>
+      <div id="sentinelRuntimeEvidence" class="runtime-evidence"></div>
     </div>
 
     <div class="panel-section compact">
@@ -108,7 +134,7 @@
       <p id="sitePermissionHint" class="help">Permissions remain blocked unless you explicitly allow them for this origin.</p>
     </div>
 
-    <div class="facts">
+    <div class="facts sentinel-advanced-only">
       <p><span>Connection</span><b id="connectionState">—</b></p>
       <p><span>Route</span><b id="routeState">System</b></p>
       <p><span>Storage</span><b>Ephemeral per tab</b></p>
@@ -146,6 +172,7 @@
         <button class="settings-nav-item" data-settings-target="network"><span>⇄</span>Network</button>
         <button class="settings-nav-item" data-settings-target="search"><span>⌕</span>Search</button>
         <button class="settings-nav-item" data-settings-target="appearance"><span>✦</span>Appearance</button>
+        <button class="settings-nav-item" data-settings-target="addons"><span>⬡</span>Add-ons</button>
         <button class="settings-nav-item" data-settings-target="diagnostics"><span>⌁</span>Diagnostics</button>
         <button class="settings-nav-item" data-settings-target="about"><span>i</span>About</button>
       </nav>
@@ -164,6 +191,7 @@
             <div class="setting-row"><div><b>Block trackers</b><small>High-confidence analytics, telemetry, attribution and tracking endpoints.</small></div><label class="switch"><input id="blockTrackers" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Block ads</b><small>Native network-level ad request blocking inspired by uBlock-style filtering.</small></div><label class="switch"><input id="blockAds" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Block social trackers</b><small>Blocks third-party social pixels and embedded tracking infrastructure.</small></div><label class="switch"><input id="blockSocialTrackers" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Block cryptominers</b><small>Blocks known browser-mining scripts and mining endpoints before execution.</small></div><label class="switch"><input id="blockCryptominers" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Behavioral tracker learning</b><small>Memory-only learning flags third parties repeatedly seen across unrelated sites. Resets with New Identity.</small></div><label class="switch"><input id="heuristicTrackingProtection" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Site Privacy Intelligence</b><small>Locally observes sensitive API use, permission attempts, storage access, and fingerprint surfaces so the Site Privacy Inspector can explain what each page is trying to access. No telemetry is uploaded.</small></div><label class="switch"><input id="siteIntelligence" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Fingerprinting-script defense</b><small>Blocks high-confidence third-party fingerprinting endpoints before they load.</small></div><label class="switch"><input id="blockFingerprintingScripts" type="checkbox"><span></span></label></div>
@@ -273,6 +301,16 @@
           </div>
         </section>
 
+        <section class="settings-page" data-settings-page="addons">
+          <div class="page-title"><h3>Add-ons & WebExtensions</h3><p>Install Firefox-style .xpi WebExtensions through the Aegis Extension Runtime. Aegis validates permissions and reports unsupported APIs before installation.</p></div>
+          <div class="addon-hero">
+            <div><span class="eyebrow">AEGIS EXTENSION RUNTIME</span><h4>Install an XPI</h4><p>Content scripts run in a dedicated isolated world with no Node.js access. Extensions cannot silently replace Aegis routing, disable the privacy firewall, or use native messaging.</p></div>
+            <button id="installXpi" class="primary">Install .xpi</button>
+          </div>
+          <div class="info-callout warning"><b>Compatibility is explicit</b><span>Firefox and Chromium WebExtension APIs differ. Aegis shows a compatibility score and unsupported APIs instead of pretending an add-on works when it does not.</span></div>
+          <div id="addonList" class="addon-list"><div class="suite-empty"><b>No add-ons installed</b><span>Install a Firefox WebExtension package to see its permissions and compatibility.</span></div></div>
+        </section>
+
         <section class="settings-page" data-settings-page="diagnostics">
           <div class="page-title"><h3>Security Suite & Diagnostics</h3><p>Verify what is actually working. Aegis separates configured policy from behavioral tests and external proof so a green status is backed by evidence.</p></div>
 
@@ -289,6 +327,9 @@
           <div id="securitySuiteResults" class="suite-results" aria-live="polite">
             <div class="suite-empty"><b>Verification has not been run</b><span>Run the Security Suite to collect current protection evidence.</span></div>
           </div>
+
+          <div class="diagnostic-divider"><span>Privacy-control enforcement</span></div>
+          <div id="privacyControlResults" class="control-assurance"></div>
 
           <div class="diagnostic-divider"><span>Connectivity-only test</span></div>
           <div class="diagnostic-hero">

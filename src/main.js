@@ -17,6 +17,8 @@ const { analyzeUrl } = require('./core/safety');
 const { youtubeVideoId, fetchSponsorSegments, sponsorSkipScript } = require('./core/sponsor');
 const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNetworkEvent, publicSiteIntelligence, buildSiteAuditScript } = require('./core/site-intelligence');
 const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
+const { AegisExtensionRuntime } = require('./core/extensions');
+const { controlAssurance } = require('./core/control-registry');
 
 app.setName('Aegis Privacy Browser');
 // Keep the wire-level User-Agent generic. Product branding belongs in browser chrome, not in requests sites can fingerprint.
@@ -29,6 +31,8 @@ if (!gotSingleInstanceLock) {
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'aegis', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false }
+},{
+  scheme: 'aegis-extension', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
 }]);
 
 // Chromium hardening that must be configured before app readiness.
@@ -66,6 +70,7 @@ const temporaryPermissions = new Map();
 let uiLayer = { mode: 'none', reserveRight: 0 };
 let trackerLearner = new TrackerLearner();
 let filterRules = parseFilterRules('');
+let extensionRuntime = null;
 
 function startupLog(message, extra = '') {
   const suffix = extra ? ` ${String(extra)}` : '';
@@ -117,11 +122,42 @@ function internalProtocolHandler(request) {
   });
 }
 
+function extensionProtocolHandler(request) {
+  if (!extensionRuntime) return new Response('Extension runtime unavailable', { status: 503 });
+  let u; try { u = new URL(request.url); } catch { return new Response('Bad request', { status: 400 }); }
+  if (u.hostname !== 'ext') return new Response('Not found', { status: 404 });
+  const parts = u.pathname.split('/').filter(Boolean);
+  const token = parts.shift() || '';
+  let rel = '';
+  try { rel = decodeURIComponent(parts.join('/')); } catch { return new Response('Bad resource path', { status: 400 }); }
+  const resource = extensionRuntime.resolveResource(token, rel);
+  if (!resource) return new Response('Not found', { status: 404 });
+  const ext = path.extname(resource.path).toLowerCase();
+  const mime = ({
+    '.html':'text/html; charset=utf-8','.htm':'text/html; charset=utf-8','.css':'text/css; charset=utf-8',
+    '.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8',
+    '.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp',
+    '.woff':'font/woff','.woff2':'font/woff2','.ttf':'font/ttf','.wasm':'application/wasm'
+  })[ext] || 'application/octet-stream';
+  return new Response(fs.readFileSync(resource.path), {
+    status:200,
+    headers:{
+      'Content-Type':mime,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
+      'Access-Control-Allow-Origin':'*',
+      'Content-Security-Policy':"default-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src https: http:; object-src 'none'; base-uri 'none'"
+    }
+  });
+}
+
 function registerInternalProtocol(targetProtocol, label = 'session') {
   if (!targetProtocol) throw new Error(`Missing protocol object for ${label}`);
   if (!targetProtocol.isProtocolHandled('aegis')) {
     targetProtocol.handle('aegis', internalProtocolHandler);
     startupLog(`Registered aegis:// protocol for ${label}.`);
+  }
+  if (extensionRuntime && !targetProtocol.isProtocolHandled('aegis-extension')) {
+    targetProtocol.handle('aegis-extension', extensionProtocolHandler);
+    startupLog(`Registered aegis-extension:// protocol for ${label}.`);
   }
 }
 
@@ -285,8 +321,11 @@ async function runSecuritySuite() {
         v.debugRendererInfo === false ? 'WEBGL_debug_renderer_info is unavailable to the page.' : 'WebGL debug renderer information may remain queryable.', 'behavioral-test'));
       checks.push(makeCheck('ua-product-leak', 'Browser product identifier', /Aegis/i.test(String(v.userAgent || '')) ? 'warning' : 'pass',
         /Aegis/i.test(String(v.userAgent || '')) ? 'The page-visible JavaScript user agent contains an Aegis product token.' : 'The page-visible JavaScript user agent does not contain an Aegis product token.', 'behavioral-test'));
+      const fontExpected = settings.privacyLevel !== 'standard';
+      checks.push(makeCheck('font-metric-protection', 'CSS font enumeration resistance', !fontExpected ? 'info' : (v.fontMetricProtected ? 'pass' : 'fail'),
+        !fontExpected ? 'Standard mode does not normalize off-screen CSS font metric probes.' : (v.fontMetricProtected ? 'Common off-screen font metric probes returned standardized geometry.' : 'Installed-font metric differences remain observable to the active page.'), 'behavioral-test'));
     } else {
-      for (const [id,label] of [['privacy-api-guard','High-entropy & ad API guard'],['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],['ua-product-leak','Browser product identifier']]) checks.push(makeCheck(id,label,'not-tested',surface.evidence,'behavioral-test'));
+      for (const [id,label] of [['privacy-api-guard','High-entropy & ad API guard'],['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],['ua-product-leak','Browser product identifier'],['font-metric-protection','CSS font enumeration resistance']]) checks.push(makeCheck(id,label,'not-tested',surface.evidence,'behavioral-test'));
     }
 
     const webrtc = await testWebRtcLeakSurface((source) => tab.view.webContents.executeJavaScript(source, true));
@@ -296,7 +335,7 @@ async function runSecuritySuite() {
       ['renderer-isolation','Renderer isolation'],['permission-firewall','Permission firewall'],['fingerprint-defense','Fingerprint normalization'],
       ['cosmetic-filtering','Cosmetic ad filtering'],['https-first','HTTPS-first navigation'],['privacy-api-guard','High-entropy & ad API guard'],
       ['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],
-      ['ua-product-leak','Browser product identifier'],['webrtc-behavior','WebRTC local-IP behavioral test']
+      ['ua-product-leak','Browser product identifier'],['font-metric-protection','CSS font enumeration resistance'],['webrtc-behavior','WebRTC local-IP behavioral test']
     ]) checks.push(makeCheck(id, label, 'not-tested', 'No active web tab.', 'runtime'));
   }
 
@@ -304,12 +343,20 @@ async function runSecuritySuite() {
     'Chromium is launched with force-webrtc-ip-handling-policy=disable_non_proxied_udp.', 'startup-policy'));
   checks.push(makeCheck('site-isolation', 'Site-per-process isolation', 'pass',
     'Chromium is launched with site-per-process and every normal tab uses its own non-persistent session partition.', 'startup-policy'));
-  checks.push(makeCheck('third-party-cookies', 'Third-party cookie defense', settings.blockThirdPartyCookies ? 'pass' : 'fail',
-    settings.blockThirdPartyCookies ? 'Cross-site Cookie and Set-Cookie headers are stripped by the session network firewall.' : 'Third-party cookie blocking is disabled in Settings.', 'runtime-policy'));
-  checks.push(makeCheck('tracker-blocking', 'Tracker network filtering', settings.blockTrackers ? 'pass' : 'fail',
-    settings.blockTrackers ? 'Native main-process request blocking is enabled with ad, analytics, social, fingerprinting, telemetry and heuristic rules.' : 'Tracker blocking is disabled in Settings.', 'runtime-policy'));
-  checks.push(makeCheck('tracking-beacons', 'Tracking beacon guard', settings.blockTrackingBeacons !== false ? 'pass' : 'warning',
-    settings.blockTrackingBeacons !== false ? 'Known tracking destinations are suppressed for sendBeacon and anchor ping transports.' : 'Beacon/ping suppression is disabled.', 'runtime-policy'));
+  const assurance = new Map((tab ? controlAssurance(settings, tab) : []).map((item) => [item.key, item]));
+  const addControlCheck = (key, id, label) => {
+    const item = assurance.get(key);
+    if (!settings[key]) return checks.push(makeCheck(id, label, 'warning', 'Disabled in Settings.', 'runtime-policy'));
+    if (!tab || !item) return checks.push(makeCheck(id, label, 'not-tested', 'No active web tab is available to confirm enforcement.', 'runtime-policy'));
+    return checks.push(makeCheck(id, label, item.status === 'enforced' ? 'pass' : 'fail', item.evidence, 'runtime-policy'));
+  };
+  addControlCheck('blockThirdPartyCookies', 'third-party-cookies', 'Third-party cookie defense');
+  addControlCheck('blockTrackers', 'tracker-blocking', 'Generic tracker network filtering');
+  addControlCheck('blockAds', 'ad-blocking', 'Ad network filtering');
+  addControlCheck('blockSocialTrackers', 'social-blocking', 'Social tracker filtering');
+  addControlCheck('blockCryptominers', 'cryptominer-blocking', 'Cryptominer filtering');
+  addControlCheck('blockFingerprintingScripts', 'fingerprinting-script-blocking', 'Fingerprinting-script filtering');
+  addControlCheck('blockTrackingBeacons', 'tracking-beacons', 'Tracking beacon guard');
   checks.push(makeCheck('tls-fingerprint', 'TLS fingerprint visibility', 'info',
     'Sites can still observe Chromium TLS characteristics (for example JA3/JA4-style fingerprints). Aegis does not claim to rewrite the Chromium TLS stack.', 'known-limit'));
 
@@ -400,6 +447,9 @@ function serializeTab(tab) {
     lastError: tab.lastError,
     safety: tab.safety || { risk: 0, warnings: [] },
     fingerprintReady: Boolean(tab.fingerprintReady),
+    fingerprintStatus: tab.fingerprintStatus || null,
+    extensionIds: Array.isArray(tab.extensionIds) ? tab.extensionIds : [],
+    privacySessionReady: Boolean(tab.privacySessionReady),
     networkRoute: tab.networkRoute || null,
     sponsorSegments: tab.sponsorSegments || 0,
     siteIntelligence: publicSiteIntelligence(tab),
@@ -417,6 +467,8 @@ function statePayload() {
     downloads: downloads.map(({ path: _path, ...item }) => item),
     network: { lastTest: lastNetworkTest, proxyMode: settings.proxy?.mode || 'system' },
     securitySuite: lastSecuritySuite,
+    extensions: extensionRuntime ? extensionRuntime.list() : [],
+    privacyControls: controlAssurance(settings, activeTab()),
     engine: {
       appVersion: app.getVersion(),
       electron: process.versions.electron,
@@ -524,53 +576,59 @@ function chromiumMajor() { return String(process.versions.chrome || '152').split
 
 async function installFingerprintDefenses(tab) {
   const dbg = tab?.view?.webContents?.debugger;
-  if (!dbg) return false;
+  tab.fingerprintStatus = { debugger:false, page:false, timezone:false, locale:false, fingerprintPreload:false, privacyPreload:false, sentinelPreload:false, errors:[] };
+  if (!dbg) { tab.fingerprintStatus.errors.push('Debugger interface unavailable.'); return false; }
+  const step = async (name, fn, required = false) => {
+    try { await fn(); tab.fingerprintStatus[name] = true; return true; }
+    catch (err) { tab.fingerprintStatus.errors.push(name + ': ' + err.message); if (required) console.error('Required privacy preload step failed:', name, err.message); else console.warn('Optional privacy preload step failed:', name, err.message); return false; }
+  };
   try {
     if (!dbg.isAttached()) dbg.attach('1.3');
-    await withTimeout(dbg.sendCommand('Runtime.enable'), 1800, 'Privacy Intelligence Runtime.enable');
-    await withTimeout(dbg.sendCommand('Page.enable'), 1800, 'Fingerprint Page.enable');
+    tab.fingerprintStatus.debugger = true;
+  } catch (err) {
+    tab.fingerprintStatus.errors.push('debugger: ' + err.message);
+    return false;
+  }
 
-    if (settings.siteIntelligence !== false) {
-      const bindingName = `__aegisAudit_${tab.seed.slice(0, 12)}`;
-      tab.auditBinding = bindingName;
+  await step('page', () => withTimeout(dbg.sendCommand('Page.enable'), 1800, 'Fingerprint Page.enable'), true);
+  await step('runtime', () => withTimeout(dbg.sendCommand('Runtime.enable'), 1800, 'Privacy Runtime.enable'));
+
+  if (settings.privacyLevel !== 'standard') {
+    await step('timezone', () => withTimeout(dbg.sendCommand('Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense'));
+    await step('locale', () => withTimeout(dbg.sendCommand('Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense'));
+  }
+
+  const fpSource = buildAntiFingerprintScript({ seed: identitySeed + ':' + tab.seed, chromiumMajor: chromiumMajor(), profile: settings.privacyLevel, disableServiceWorkers: settings.disableServiceWorkers, globalPrivacyControl: settings.globalPrivacyControl, doNotTrack: settings.doNotTrack });
+  await step('fingerprintPreload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: fpSource }), 1800, 'Fingerprint preload'), true);
+
+  const privacySource = buildPagePrivacyScript({
+    maximum: settings.privacyLevel === 'maximum',
+    privacyApiGuard: settings.privacyApiGuard !== false,
+    blockTrackingBeacons: settings.blockTrackingBeacons !== false,
+    globalPrivacyControl: settings.globalPrivacyControl !== false
+  });
+  await step('privacyPreload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: privacySource }), 1800, 'Page privacy preload'), true);
+
+  if (settings.siteIntelligence !== false) {
+    const bindingName = '__aegisAudit_' + tab.seed.slice(0, 12);
+    tab.auditBinding = bindingName;
+    const bindingReady = await step('sentinelBinding', () => withTimeout(dbg.sendCommand('Runtime.addBinding', { name: bindingName }), 1400, 'Sentinel binding'));
+    if (bindingReady) {
       if (!tab.auditMessageHandler && typeof dbg.on === 'function') {
         tab.auditMessageHandler = (_event, method, params) => {
           if (settings.siteIntelligence === false || method !== 'Runtime.bindingCalled' || params?.name !== tab.auditBinding) return;
-          try {
-            const payload = JSON.parse(String(params.payload || '{}'));
-            if (recordSiteSignal(tab, payload)) emitState();
-          } catch {}
+          try { const payload = JSON.parse(String(params.payload || '{}')); if (recordSiteSignal(tab, payload)) emitState(); } catch {}
         };
         dbg.on('message', tab.auditMessageHandler);
       }
-      await withTimeout(dbg.sendCommand('Runtime.addBinding', { name: bindingName }), 1400, 'Privacy Intelligence binding');
+      await step('sentinelPreload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName }) }), 1800, 'Sentinel preload'));
     }
-    if (settings.privacyLevel !== 'standard') {
-      await withTimeout(dbg.sendCommand('Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense');
-      await withTimeout(dbg.sendCommand('Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense');
-    }
-    await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-      source: buildAntiFingerprintScript({ seed: `${identitySeed}:${tab.seed}`, chromiumMajor: chromiumMajor(), profile: settings.privacyLevel, disableServiceWorkers: settings.disableServiceWorkers, globalPrivacyControl: settings.globalPrivacyControl, doNotTrack: settings.doNotTrack })
-    }), 1800, 'Fingerprint preload');
-    await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-      source: buildPagePrivacyScript({
-        maximum: settings.privacyLevel === 'maximum',
-        privacyApiGuard: settings.privacyApiGuard !== false,
-        blockTrackingBeacons: settings.blockTrackingBeacons !== false,
-        globalPrivacyControl: settings.globalPrivacyControl !== false
-      })
-    }), 1800, 'Page privacy preload');
-    if (settings.siteIntelligence !== false && tab.auditBinding) {
-      await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName: tab.auditBinding }) }), 1800, 'Privacy Intelligence preload');
-    }
-    tab.fingerprintReady = true;
-    return true;
-  } catch (err) {
-    tab.fingerprintReady = false;
-    console.error('Fingerprint defense initialization failed (fail-soft):', err.message);
-    return false;
   }
+
+  tab.fingerprintReady = Boolean(tab.fingerprintStatus.page && tab.fingerprintStatus.fingerprintPreload && tab.fingerprintStatus.privacyPreload);
+  return tab.fingerprintReady;
 }
+
 
 function applySessionDownloadPolicy(tab) {
   tab.view.webContents.session.on('will-download', (event, item) => {
@@ -630,6 +688,8 @@ function createTabView(tab) {
   const view = new WebContentsView({
     webPreferences: {
       ...REMOTE_RENDERER_POLICY,
+      preload: path.join(__dirname, 'extension-bridge-preload.js'),
+      additionalArguments: extensionRuntime ? extensionRuntime.bridgeArguments() : [],
       session: tab.privateSession,
       javascript: Boolean(tab.javascriptEnabled)
     }
@@ -753,7 +813,7 @@ function wireTabView(tab, view) {
     if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
     tab.httpStatus = { code: httpResponseCode, text: httpStatusText }; scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
   });
-  view.webContents.on('did-finish-load', () => { applyCosmeticFiltering(tab); applySponsorProtection(tab); });
+  view.webContents.on('did-finish-load', () => { applyCosmeticFiltering(tab); applySponsorProtection(tab); extensionRuntime?.inject(tab).then((ids) => { tab.extensionIds = ids; emitState(); }).catch((err) => console.warn('Extension injection failed:', err.message)); });
   view.webContents.on('did-navigate-in-page', (_event, url) => { tab.url = url; emitState(); });
   view.webContents.on('did-fail-load', (_event, code, desc, url, isMainFrame) => {
     if (isMainFrame && code !== -3 && !String(url || '').startsWith('aegis://')) {
@@ -815,7 +875,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
     url: '',
     loading: false,
     stats: makeTabStats(),
-    shieldsEnabled: settings.blockTrackers,
+    shieldsEnabled: true,
     allowHttp: false,
     javascriptEnabled: settings.javascriptDefault,
     compatibilityMode: false,
@@ -858,6 +918,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
     isTemporarilyAllowed: (origin, key) => isTemporarilyAllowed(tab.id, origin, key)
   });
   tab.permissionFirewallReady = true;
+  tab.privacySessionReady = true;
   applySessionDownloadPolicy(tab);
   wireTabView(tab, view);
   if (activate) activateTab(id);
@@ -1073,6 +1134,33 @@ function wireIpc() {
   ipcMain.on('ui:layer', (event, payload) => { if (assertUiSender(event)) applyUiLayer(payload); });
   ipcMain.handle('network:test', (event) => assertUiSender(event) ? runNetworkTest() : { ok: false, error: 'IPC sender denied' });
   ipcMain.handle('security-suite:run', (event) => assertUiSender(event) ? runSecuritySuite() : { testedAt: new Date().toISOString(), checks: [], summary: { pass: 0, warning: 0, info: 0, fail: 0, 'not-tested': 0, total: 0 }, error: 'IPC sender denied' });
+  ipcMain.handle('extensions:list', (event) => assertUiSender(event) && extensionRuntime ? extensionRuntime.list() : []);
+  ipcMain.handle('extensions:install', async (event) => {
+    if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
+    const pick = await dialog.showOpenDialog(mainWindow, { title:'Install Firefox WebExtension (.xpi)', properties:['openFile'], filters:[{name:'Firefox WebExtension',extensions:['xpi']}] });
+    if (pick.canceled || !pick.filePaths?.[0]) return { ok:false, canceled:true };
+    try {
+      const summary = await extensionRuntime.inspect(pick.filePaths[0]);
+      const unsupported = summary.compatibility.unsupported.map((x) => x.api).join(', ') || 'None';
+      const risky = summary.risk.filter((x) => x.level === 'high').map((x) => x.permission).join(', ') || 'None';
+      const signatureNote = summary.signature?.metadataPresent ? 'Mozilla signature metadata: present (not cryptographically verified by this beta).' : 'Mozilla signature metadata: not detected.';
+      const answer = await dialog.showMessageBox(mainWindow, { type:'warning', buttons:['Cancel','Install'], defaultId:0, cancelId:0, title:'Review extension permissions', message:summary.name + ' ' + summary.version, detail:'Aegis compatibility: ' + summary.compatibility.score + '%\nHigh-risk permissions: ' + risky + '\nUnsupported APIs: ' + unsupported + '\n' + signatureNote + '\n\nAegis runs content scripts in an extension-specific isolated world and does not grant Node.js access.' });
+      if (answer.response !== 1) return { ok:false, canceled:true, summary };
+      const installed = await extensionRuntime.install(pick.filePaths[0]);
+      await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
+      emitState(); return { ok:true, extension:installed };
+    } catch (err) { return { ok:false, error:err.message }; }
+  });
+  ipcMain.handle('extensions:set-enabled', async (event, payload) => {
+    if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
+    try { const extension=await extensionRuntime.setEnabled(String(payload?.id||''), Boolean(payload?.enabled)); await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))); emitState(); return { ok:true, extension }; } catch (err) { return { ok:false, error:err.message }; }
+  });
+  ipcMain.handle('extensions:remove', (event, id) => {
+    if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
+    const ok=extensionRuntime.remove(String(id||'')); Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))).then(emitState); return { ok };
+  });
+  ipcMain.handle('extension:call', (event, payload) => extensionRuntime ? extensionRuntime.call(event.sender, payload) : Promise.reject(new Error('Extension runtime unavailable.')));
+  ipcMain.on('extension:message-response', (event, payload) => { if (extensionRuntime) extensionRuntime.handleBackgroundResponse(event.sender, payload); });
 
   ipcMain.on('nav', (event, value) => { if (assertUiSender(event)) navigateTab(activeTab(), value); });
   ipcMain.on('tab:new', (event, value) => { if (assertUiSender(event)) createTab(value || settings.homePage || 'https://duckduckgo.com/'); });
@@ -1225,6 +1313,7 @@ function wireIpc() {
 
   ipcMain.on('settings:update', async (event, patch) => {
     if (!assertUiSender(event) || !patch || typeof patch !== 'object') return;
+    const previousSettings = settings;
     const siteIntelligenceWasEnabled = settings.siteIntelligence !== false;
     settings = sanitizeSettings({
       ...settings,
@@ -1240,20 +1329,25 @@ function wireIpc() {
     const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session)));
     const proxyFailures = proxyResults.filter((result) => result.status === 'rejected').length;
     await awaitCosmeticRefresh();
-    if (!siteIntelligenceWasEnabled && settings.siteIntelligence !== false) {
+    const preloadKeys = ['privacyLevel','privacyApiGuard','blockTrackingBeacons','globalPrivacyControl','doNotTrack','disableServiceWorkers','siteIntelligence'];
+    const preloadChanged = preloadKeys.some((key) => previousSettings[key] !== settings[key]);
+    if (preloadChanged) {
+      await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
+    }
+    if (!preloadChanged && !siteIntelligenceWasEnabled && settings.siteIntelligence !== false) {
       await Promise.allSettled([...tabs.values()].map(async (tab) => {
         await installFingerprintDefenses(tab);
         if (tab.auditBinding && tab.url && !String(tab.url).startsWith('aegis://')) {
           try { await tab.view.webContents.executeJavaScript(buildSiteAuditScript({ bindingName: tab.auditBinding }), false); } catch {}
         }
       }));
-    } else if (siteIntelligenceWasEnabled && settings.siteIntelligence === false) {
+    } else if (!preloadChanged && siteIntelligenceWasEnabled && settings.siteIntelligence === false) {
       for (const tab of tabs.values()) resetSiteIntelligence(tab, tab.url, safeOrigin(tab.url));
     }
     emitState();
     toast(proxyFailures
       ? `Settings saved, but ${proxyFailures} tab network session${proxyFailures === 1 ? '' : 's'} could not apply the new routing. Run Diagnostics.`
-      : 'Settings saved. Network controls are live; fingerprint-profile changes fully apply to new tabs.', proxyFailures ? 'warning' : 'success');
+      : (preloadChanged ? 'Settings saved. Privacy preload controls were rebuilt in every active tab.' : 'Settings saved. Privacy and network controls are live.'), proxyFailures ? 'warning' : 'success');
   });
 }
 
@@ -1327,10 +1421,22 @@ app.whenReady().then(async () => {
   loadSettings();
   saveSettings(); // persist schema migrations and sanitized network defaults
   loadBookmarks();
+  extensionRuntime = new AegisExtensionRuntime({
+    rootDir: app.getPath('userData'),
+    getTabs: () => [...tabs.values()],
+    getActiveId: () => activeId,
+    BrowserWindow,
+    electronSession,
+    registerProtocols: registerInternalProtocol,
+    createTab,
+    updateTab: async (id, props = {}) => { const tab=tabs.get(Number(id)); if(!tab) throw new Error('Tab not found'); if(props.url) await navigateTab(tab, props.url); if(props.active) activateTab(tab.id); return serializeTab(tab); },
+    removeTab: (id) => closeTab(id)
+  });
 
   registerInternalProtocol(protocol, 'default UI session');
 
   wireIpc();
+  await extensionRuntime.startAll();
   await createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -1360,6 +1466,7 @@ app.on('second-instance', () => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => {
+  try { extensionRuntime?.stopAll(); } catch {}
   for (const [id, pending] of pendingPermissions) {
     clearTimeout(pending.timer);
     try { pending.complete(false); } catch {}

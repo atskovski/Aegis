@@ -1,5 +1,23 @@
 # Aegis Privacy Browser — Changelog
 
+## v1.0.0-beta.1 — Sentinel 2.0 / Extension Runtime
+
+- Added Simple and Advanced Sentinel views with routed IP, third-party/tracker, fingerprint and permission intelligence.
+- Added a privacy-control enforcement registry with ENFORCED / DEGRADED / DISABLED evidence.
+- Fixed privacy preload initialization so an optional CDP/Sentinel step cannot abort GPC, API guard, screen normalization and fingerprint preloads.
+- Privacy-preload-affecting setting changes now rebuild active tab renderers so changes apply immediately rather than only to new tabs.
+- Added Firefox-style XPI inspection/install flow with explicit permission review and compatibility reporting.
+- Added per-extension isolated worlds and an identity-bound extension bridge with no Node.js exposure.
+- Added supported runtime/storage/tabs/permissions/i18n WebExtension compatibility surfaces.
+- Unsupported background/privileged extension APIs are explicitly reported instead of silently ignored.
+- Added cryptominer control to the UI and fixed independent category blocking semantics.
+- Increased Sentinel/add-on/enforcement-detail typography and responsive layout.
+- Added extension, isolation-world, privacy-control and Sentinel UI regression tests.
+
+### Release boundary
+
+This remains a beta until native macOS end-to-end verification, BrowserLeaks/EFF reruns, extension package testing, signing/notarization and external security review are complete. Universal Firefox XPI compatibility is not claimed on the Electron engine.
+
 ## v0.9.0 — Guardian
 
 - Added first-party cosmetic ad filtering with user-origin CSS and custom cosmetic-rule support.

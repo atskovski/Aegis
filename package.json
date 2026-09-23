@@ -1,6 +1,6 @@
 {
   "name": "aegis-privacy-browser",
-  "version": "0.9.0",
+  "version": "1.0.0-beta.1",
   "private": true,
   "description": "A hardened privacy browser with isolated sessions, native filtering, anti-fingerprinting, automatic cleanup, safety intelligence, diagnostics, bookmarks and downloads.",
   "main": "src/main.js",
@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "verify": "node --test && node --check src/main.js && node --check src/preload.js && node --check src/ui/app.js && node --check src/ui/start.js && node --check src/ui/error.js && node --check src/core/blocklist.js && node --check src/core/content-filter.js && node --check src/core/filter-rules.js && node --check src/core/fingerprint.js && node --check src/core/navigation.js && node --check src/core/network.js && node --check src/core/privacy.js && node --check src/core/safety.js && node --check src/core/settings.js && node --check src/core/site-intelligence.js && node --check src/core/security-suite.js && node --check src/core/sponsor.js && node --check src/core/tracker-learning.js && node --check src/core/url.js && node scripts/self-check.js"
+    "verify": "node --test && node --check src/main.js && node --check src/preload.js && node --check src/ui/app.js && node --check src/ui/start.js && node --check src/ui/error.js && node --check src/extension-bridge-preload.js && node --check src/extension-host-preload.js && node --check src/core/extensions.js && node --check src/core/control-registry.js && node --check src/core/blocklist.js && node --check src/core/content-filter.js && node --check src/core/filter-rules.js && node --check src/core/fingerprint.js && node --check src/core/navigation.js && node --check src/core/network.js && node --check src/core/privacy.js && node --check src/core/safety.js && node --check src/core/settings.js && node --check src/core/site-intelligence.js && node --check src/core/security-suite.js && node --check src/core/sponsor.js && node --check src/core/tracker-learning.js && node --check src/core/url.js && node scripts/self-check.js"
   },
   "devDependencies": {
     "electron": "44.4.3"
