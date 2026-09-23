@@ -250,6 +250,41 @@ test('registered content scripts support MV3 dynamic scripting metadata', () => 
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
+test('all_frames content scripts use the sandboxed subframe bridge', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-all-frames-'));
+  try{
+    const extRoot=path.join(root,'extension');fs.mkdirSync(extRoot,{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'content.js'),'globalThis.__frameWorked=true;');
+    const mainFrame={framesInSubtree:[]};
+    const frame={processId:77,routingId:88,url:'https://sub.example.com/frame',parent:{url:'https://example.com/'},isDestroyed:()=>false};
+    mainFrame.framesInSubtree=[mainFrame,frame];
+    let runtime;
+    let payloadSeen=null;
+    const contents={
+      mainFrame,
+      isDestroyed:()=>false,
+      sendToFrame:(_frameId,channel,payload)=>{
+        assert.equal(channel,'extension:frame-inject');
+        payloadSeen=payload;
+        setImmediate(()=>runtime.handleFrameInjectionResult(contents,frame,{
+          requestId:payload.requestId,extensionId:payload.extensionId,ok:true,scriptCount:2,cssCount:0,failures:[]
+        }));
+      }
+    };
+    const tab={id:1,url:'https://example.com/',securityDomain:'private',disableExtensions:false,view:{webContents:contents},extensionInjectionKeys:new Set()};
+    const manifest={manifest_version:3,name:'All Frames',version:'1',host_permissions:['<all_urls>'],content_scripts:[{matches:['<all_urls>'],all_frames:true,js:['content.js']}]};
+    runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[tab],getActiveId:()=>1,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'all-frames',path:extRoot,resourceToken:'frametoken',enabled:true,manifest,detectedApis:['runtime'],compatibility:compatibility(manifest,['runtime'])};
+    runtime.items.set(e.id,e);
+    assert.equal(runtime.requiresSubFramePreload(tab),true);
+    const ids=await runtime.injectFrame(tab,frame,'idle');
+    assert.deepEqual(ids,['all-frames']);
+    assert.equal(payloadSeen.world,'ISOLATED');
+    assert.equal(payloadSeen.scripts.length,2);
+    assert.match(payloadSeen.scripts[1].code,/__frameWorked/);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
 test('MAIN-world scripting executes packaged files without the isolated API bootstrap', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-main-world-'));
   try{
