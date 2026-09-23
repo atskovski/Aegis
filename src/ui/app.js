@@ -394,7 +394,7 @@ function renderAddonInstallReview() {
   score.className = 'addon-score compat-' + compat.status;
   $('#addonReviewId').textContent = summary.id || 'Generated after install';
   $('#addonReviewDigest').textContent = summary.digest || '—';
-  $('#addonReviewSignature').textContent = summary.signature?.metadataPresent ? 'Metadata present · cryptographic verification not claimed' : 'Metadata not detected';
+  $('#addonReviewSignature').textContent = summary.signature?.metadataPresent ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature metadata present · cryptographic verification not claimed') : 'Signature metadata not detected';
 
   const featureBox = $('#addonReviewFeatures'); featureBox.replaceChildren();
   addonFeatureLabels(summary.features).forEach((item) => featureBox.append(makeAddonChip(item, 'supported')));
@@ -561,7 +561,7 @@ function renderAddons() {
     const title = document.createElement('h5'); title.textContent = addon.name;
     const status = document.createElement('span'); status.className = 'addon-status ' + (addon.enabled ? 'enabled' : 'disabled'); status.textContent = addon.enabled ? 'Enabled' : 'Disabled';
     titleRow.append(title, status);
-    const meta = document.createElement('p'); meta.textContent = 'v' + addon.version + ' · Manifest V' + (addon.manifestVersion || '?') + ' · ' + addon.id;
+    const meta = document.createElement('p'); meta.textContent = 'v' + addon.version + ' · Manifest V' + (addon.manifestVersion || '?') + ' · ' + String(addon.source || 'webextension').toUpperCase() + ' · ' + addon.id;
     const desc = document.createElement('small'); desc.textContent = addon.description || 'No description provided.';
     identity.append(titleRow, meta, desc);
     const score = document.createElement('div'); score.className = 'addon-score compat-' + compat.status; score.textContent = compat.score + '%';
@@ -1433,11 +1433,24 @@ $('#installXpi').addEventListener('click', async () => {
       showToast({title:'Package inspected',message:'Review compatibility, permissions and host access before installing ' + result.summary.name + '.',tone:'default'});
     } else if (!result?.canceled) showToast({title:'Package inspection failed',message:result?.error || 'Could not inspect extension package.',tone:'danger'});
   } catch (err) { showToast({title:'Package inspection failed',message:err.message,tone:'danger'}); }
-  finally { button.disabled = false; button.textContent = 'Choose package'; }
+  finally { button.disabled = false; button.textContent = 'Choose CRX / XPI / ZIP'; }
+});
+$('#loadUnpackedExtension').addEventListener('click', async () => {
+  const button=$('#loadUnpackedExtension');button.disabled=true;button.textContent='Inspecting…';
+  try{
+    const result=await window.aegis.invoke('extensions:pick-unpacked');
+    if(result?.ok){
+      pendingAddonInstall={token:result.token,summary:result.summary,expiresAt:result.expiresAt};
+      renderAddonInstallReview();
+      $('#addonReview').scrollIntoView({behavior:state.settings.appearance?.reduceMotion?'auto':'smooth',block:'nearest'});
+      showToast({title:'Unpacked extension inspected',message:'Review '+result.summary.name+' before loading it into Aegis.',tone:'default'});
+    }else if(!result?.canceled)showToast({title:'Unpacked extension failed',message:result?.error||'Could not inspect extension folder.',tone:'danger'});
+  }catch(err){showToast({title:'Unpacked extension failed',message:err.message,tone:'danger'});}
+  finally{button.disabled=false;button.textContent='Load unpacked';}
 });
 $('#installAddonUrl').addEventListener('click', async () => {
   const button=$('#installAddonUrl'),input=$('#addonUrlInput'),url=String(input.value||'').trim();
-  if(!url){showToast({title:'Extension URL required',message:'Paste a direct HTTPS .xpi or .zip package URL.',tone:'warning'});input.focus();return;}
+  if(!url){showToast({title:'Extension source required',message:'Paste a Chrome Web Store URL, Chrome extension ID, or direct HTTPS .crx/.xpi/.zip URL.',tone:'warning'});input.focus();return;}
   button.disabled=true;button.textContent='Downloading…';
   try{
     const result=await window.aegis.invoke('extensions:install-url',url);
@@ -1448,7 +1461,7 @@ $('#installAddonUrl').addEventListener('click', async () => {
       showToast({title:'Package downloaded and inspected',message:'Review '+result.summary.name+' before installing.',tone:'default'});
     }else showToast({title:'Extension download failed',message:result?.error||'Could not download extension package.',tone:'danger'});
   }catch(err){showToast({title:'Extension download failed',message:err.message,tone:'danger'});}
-  finally{button.disabled=false;button.textContent='Inspect URL';}
+  finally{button.disabled=false;button.textContent='Download & inspect';}
 });
 $('#addonUrlInput').addEventListener('keydown',(e)=>{if(e.key==='Enter'){e.preventDefault();$('#installAddonUrl').click();}});
 $('#addonSearch').addEventListener('input',renderAddons);
