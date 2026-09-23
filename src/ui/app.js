@@ -293,7 +293,7 @@ function applySentinelMode(mode = 'simple') {
   if (panel) panel.dataset.sentinelMode = sentinelMode;
   $('#sentinelSimple')?.classList.toggle('active', sentinelMode === 'simple');
   $('#sentinelAdvanced')?.classList.toggle('active', sentinelMode === 'advanced');
-  $('.sentinel-advanced-only').forEach((el) => el.classList.toggle('hidden-by-mode', sentinelMode !== 'advanced'));
+  $$('.sentinel-advanced-only').forEach((el) => el.classList.toggle('hidden-by-mode', sentinelMode !== 'advanced'));
 }
 
 function renderSentinelSummary(tab) {
@@ -468,7 +468,7 @@ function renderPrivacyPanel(tab) {
 
   const internal = !tab.origin;
   const compartmentLocked = tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous';
-  $('#sitePermissionGrid select').forEach((select) => {
+  $$('#sitePermissionGrid select').forEach((select) => {
     select.disabled = internal || compartmentLocked;
     select.value = currentSitePermission(select.dataset.sitePermission);
   });
@@ -945,13 +945,13 @@ function syncUiLayer() {
 }
 
 function showPanel(id) {
-  ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $('#' + x).classList.toggle('hidden', x !== id));
+  ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $$('#' + x).classList.toggle('hidden', x !== id));
   if (id !== 'settingsPanel') draftSettings = null;
   requestAnimationFrame(syncUiLayer);
 }
 
 function hidePanels() {
-  ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $('#' + x).classList.add('hidden'));
+  ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $$('#' + x).classList.add('hidden'));
   draftSettings = null;
   applyAppearance(state.settings);
   requestAnimationFrame(syncUiLayer);
@@ -1111,8 +1111,8 @@ $('#pickAdElement')?.addEventListener('click',async()=>{closeSettings();const r=
 $('#exportSecurityEvents').addEventListener('click',async()=>{const r=await window.aegis.invoke('enterprise:export-events');if(r?.ok)showToast(`Exported ${r.count} redacted security events.`,'success');else if(!r?.canceled)showToast(r?.error||'Evidence export failed.','danger');});
 $('#importManagedPolicy').addEventListener('click',async()=>{const r=await window.aegis.invoke('enterprise:import-policy');if(r?.ok){state.settings=await window.aegis.invoke('settings:get');loadSettings();showToast('Signed managed policy verified and applied.','success');}else if(!r?.canceled)showToast(r?.error||'Managed policy import failed.','danger');});
 $('#networkTestFromNetwork').addEventListener('click', () => { openSettings('diagnostics'); runNetworkTest(); });
-$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
-$('[data-security-test]').forEach((button) => button.addEventListener('click', async () => {
+$$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
+$$('[data-security-test]').forEach((button) => button.addEventListener('click', async () => {
   button.disabled=true;
   try {
     const result=await window.aegis.invoke('security-test:open',button.dataset.securityTest);
@@ -1136,7 +1136,7 @@ const draftControlIds = [
   'enterpriseMode','enterpriseBlockExtensions','enterpriseDisablePrinting','enterpriseDisableClipboard','enterpriseDisableCapture','enterpriseUrlAllowlist','enterpriseUrlBlocklist','enterpriseExtensionAllowlist','proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','filterListAutoUpdate','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
 ];
-draftControlIds.forEach((id) => $('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
+draftControlIds.forEach((id) => $$('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
 $$('[data-permission-default]').forEach((el) => el.addEventListener('change', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
 
 $('#torPreset').addEventListener('click', () => {
