@@ -1649,6 +1649,10 @@ function wireIpc() {
         extensionRuntime.cancelStage(staged.token);
         throw new Error('Chrome package identity mismatch. Expected '+expectedChromeId+' but package reported '+staged.summary.id+'.');
       }
+      if(expectedChromeId&&staged.summary.signature?.verified!==true){
+        extensionRuntime.cancelStage(staged.token);
+        throw new Error('Chrome Web Store package signature verification failed.');
+      }
       return {ok:true,...staged,sourceUrl:input,chromeWebStore:Boolean(expectedChromeId)};
     }catch(err){try{fs.rmSync(file,{force:true})}catch{}return {ok:false,error:err.message}}
   });
