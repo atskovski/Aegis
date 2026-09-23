@@ -1451,7 +1451,7 @@ $('#loadUnpackedExtension').addEventListener('click', async () => {
 });
 $('#installAddonUrl').addEventListener('click', async () => {
   const button=$('#installAddonUrl'),input=$('#addonUrlInput'),url=String(input.value||'').trim();
-  if(!url){showToast({title:'Extension source required',message:'Paste a Chrome Web Store URL, Chrome extension ID, or direct HTTPS .crx/.xpi/.zip URL.',tone:'warning'});input.focus();return;}
+  if(!url){showToast({title:'Extension source required',message:'Paste a Chrome Web Store URL, Firefox Add-ons URL, Chrome extension ID, or direct HTTPS .crx/.xpi/.zip URL.',tone:'warning'});input.focus();return;}
   button.disabled=true;button.textContent='Downloading…';
   try{
     const result=await window.aegis.invoke('extensions:install-url',url);
