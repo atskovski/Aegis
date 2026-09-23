@@ -164,7 +164,7 @@ function compareFingerprintCohort(samples = []) {
   };
 }
 
-async function testNetworkIdentity(ses, expected = {}) {
+async function testNetworkIdentity(ses, expected = {}, installObserver = null) {
   if (!ses?.webRequest) return { status:'not-tested', ok:false, evidence:'Session webRequest API unavailable.' };
   const token = 'aegis-identity-' + Date.now() + '-' + Math.random().toString(16).slice(2);
   let observed = null;
@@ -173,10 +173,12 @@ async function testNetworkIdentity(ses, expected = {}) {
       if (String(details.url || '').includes(token)) observed = { ...(details.requestHeaders || {}) };
     } catch {}
   };
+  const observerOwnsWebRequest = typeof installObserver !== 'function';
   try {
-    ses.webRequest.onBeforeSendHeaders({ urls:['https://example.com/*'] }, listener);
+    if (observerOwnsWebRequest) ses.webRequest.onBeforeSendHeaders({ urls:['https://example.com/*'] }, listener);
+    else await installObserver(listener);
     try { await timeout(ses.fetch('https://example.com/?' + token, { method:'GET', cache:'no-store' }), 5000, 'Network identity probe'); } catch {}
-    if (!observed) return { status:'not-tested', ok:false, evidence:'The disposable session did not expose probe request headers.' };
+    if (!observed) return { status:'not-tested', ok:false, evidence:'The disposable session did not expose post-policy probe request headers.' };
     const find = (name) => Object.entries(observed).find(([k])=>k.toLowerCase()===name.toLowerCase())?.[1] || '';
     const ua = String(find('user-agent'));
     const dnt = String(find('dnt'));
@@ -189,13 +191,15 @@ async function testNetworkIdentity(ses, expected = {}) {
     return {
       status: ok ? 'pass' : 'warning', ok, headers:{ ua,dnt,gpc,highEntropy },
       evidence: ok
-        ? 'Network User-Agent/privacy signals are coherent and high-entropy UA Client Hints were absent from the observed request.'
+        ? 'Observed post-policy request headers match the normalized network identity and privacy-signal policy.'
         : `Network identity drift detected (UA match=${!expected.ua || ua===expected.ua}, DNT=${dnt||'absent'}, Sec-GPC=${gpc||'absent'}, high-entropy hints=${highEntropy.join(', ')||'none'}).`
     };
   } catch (err) {
     return { status:'not-tested', ok:false, evidence:`Network identity probe unavailable: ${err.message}` };
   } finally {
-    try { ses.webRequest.onBeforeSendHeaders(null); } catch {}
+    if (observerOwnsWebRequest) {
+      try { ses.webRequest.onBeforeSendHeaders(null); } catch {}
+    }
   }
 }
 
