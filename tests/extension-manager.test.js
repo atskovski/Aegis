@@ -89,8 +89,12 @@ test('extension runtime hosts the major WebExtension execution surfaces',()=>{
   assert.match(runtime,/bg\.page/);
 });
 
-test('shared shim and extension page preload expose matching WebExtension namespaces',()=>{
+test('shared shim and extension page preload expose matching Chrome extension namespaces',()=>{
   for(const api of ['runtime','storage','tabs','windows','cookies','permissions','i18n','alarms','commands','scripting','webNavigation','webRequest','declarativeNetRequest','privacy','notifications','menus','contextMenus','action','browserAction','pageAction']){
+    assert.ok(shim.includes(api),api+' missing from shared shim');
+    assert.ok(pagePreload.includes(api),api+' missing from extension page preload');
+  }
+  for(const api of ['OnResponseStartedOptions','alternateErrorPagesEnabled','topicsEnabled','adMeasurementEnabled','fledgeEnabled']){
     assert.ok(shim.includes(api),api+' missing from shared shim');
     assert.ok(pagePreload.includes(api),api+' missing from extension page preload');
   }
