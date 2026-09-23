@@ -349,7 +349,39 @@ class AegisExtensionRuntime{
   notifyTabRemoved(tabId,wasVisible=true){if(!wasVisible)return;this.emitEventAll('tabs.onRemoved',[Number(tabId),{windowId:1,isWindowClosing:false}])}
   notifyNavigation(type,tab,url,error=''){
     const eventName=String(type||'');
-    this.emitEventAll(eventName,(e)=>this.publicTab(e,tab)?[{tabId:tab.id,url:String(url||''),frameId:0,parentFrameId:-1,timeStamp:Date.now(),error:String(error||'')}]:null);
+    this.emitEventAll(eventName,(e)=>{
+      if(!permissions(e.manifest).includes('webNavigation')||!this.publicTab(e,tab))return null;
+      return [{tabId:tab.id,url:String(url||''),frameId:0,parentFrameId:-1,timeStamp:Date.now(),error:String(error||'')}];
+    });
+  }
+  commandMatchesInput(shortcut,input={}){
+    const parts=String(shortcut||'').split('+').map((x)=>x.trim()).filter(Boolean);if(!parts.length)return false;
+    const key=String(parts.pop()||'').toLowerCase(),actual=String(input.key||'').toLowerCase();
+    const aliases={comma:',',period:'.',space:' ',pageup:'pageup',pagedown:'pagedown',home:'home',end:'end',insert:'insert',delete:'delete'};
+    const expected=aliases[key]||key;
+    if(actual!==expected&&String(input.code||'').toLowerCase()!==expected)return false;
+    const wantShift=parts.some((x)=>/^shift$/i.test(x));
+    const wantAlt=parts.some((x)=>/^(?:alt|option)$/i.test(x));
+    const wantCtrl=parts.some((x)=>/^(?:ctrl|control|macctrl)$/i.test(x));
+    const wantMeta=parts.some((x)=>/^(?:command|cmd|meta|commandorcontrol)$/i.test(x));
+    const commandOrControl=parts.some((x)=>/^commandorcontrol$/i.test(x));
+    if(Boolean(input.shift)!==wantShift||Boolean(input.alt)!==wantAlt)return false;
+    if(commandOrControl){if(!(input.meta||input.control))return false;}
+    else if(Boolean(input.control)!==wantCtrl||Boolean(input.meta)!==wantMeta)return false;
+    return true;
+  }
+  dispatchCommandInput(input={}){
+    if(String(input.type||'').toLowerCase()!=='keydown')return false;
+    let handled=false;
+    for(const e of this.enabled()){
+      for(const command of commandList(e.manifest)){
+        if(command.shortcut&&this.commandMatchesInput(command.shortcut,input)){
+          this.emitEvent(e,'commands.onCommand',[command.name]);
+          handled=true;
+        }
+      }
+    }
+    return handled;
   }
   alarmKey(id,name){return String(id)+':'+String(name||'')}
   alarmList(id){const prefix=String(id)+':';return [...this.alarmTimers.entries()].filter(([key])=>key.startsWith(prefix)).map(([,value])=>value.alarm)}
