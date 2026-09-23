@@ -31,32 +31,43 @@ const event = (name) => ({
   hasListeners() { return eventList(name).size > 0; }
 });
 const validMethod = (name) => Boolean(name && name.length <= 96 && /^[a-zA-Z0-9_.-]+$/.test(name));
+let runtimeLastError = null;
 const call = (method, ...args) => {
-  const name = String(method || '');
-  if (!validMethod(name)) return Promise.reject(new Error('Invalid extension API.'));
-  return ipcRenderer.invoke('extension:call', { extensionId, method:name, args });
+  const name = String(method || ''), callback = typeof args[args.length - 1] === 'function' ? args.pop() : null;
+  const promise = validMethod(name)
+    ? ipcRenderer.invoke('extension:call', { extensionId, method:name, args })
+    : Promise.reject(new Error('Invalid extension API.'));
+  if (!callback) return promise;
+  promise.then((value) => {
+    runtimeLastError = null;
+    try { callback(value); } finally { runtimeLastError = null; }
+  }).catch((err) => {
+    runtimeLastError = { message:String(err?.message || err || 'Extension API call failed') };
+    try { callback(); } finally { runtimeLastError = null; }
+  });
+  return undefined;
 };
 const area = (name) => ({
-  get: (keys) => call('storage.' + name + '.get', keys),
-  getKeys: () => call('storage.' + name + '.getKeys'),
-  getBytesInUse: (keys) => call('storage.' + name + '.getBytesInUse', keys),
-  set: (items) => call('storage.' + name + '.set', items),
-  remove: (keys) => call('storage.' + name + '.remove', keys),
-  clear: () => call('storage.' + name + '.clear')
+  get: (keys, ...rest) => call('storage.' + name + '.get', keys, ...rest),
+  getKeys: (...args) => call('storage.' + name + '.getKeys', ...args),
+  getBytesInUse: (keys, ...rest) => call('storage.' + name + '.getBytesInUse', keys, ...rest),
+  set: (items, ...rest) => call('storage.' + name + '.set', items, ...rest),
+  remove: (keys, ...rest) => call('storage.' + name + '.remove', keys, ...rest),
+  clear: (...args) => call('storage.' + name + '.clear', ...args)
 });
 const actionApi = (root) => ({
-  setTitle: (details={}) => call(root + '.setTitle', details),
-  getTitle: (details={}) => call(root + '.getTitle', details),
-  setBadgeText: (details={}) => call(root + '.setBadgeText', details),
-  getBadgeText: (details={}) => call(root + '.getBadgeText', details),
-  setBadgeBackgroundColor: (details={}) => call(root + '.setBadgeBackgroundColor', details),
-  setPopup: (details={}) => call(root + '.setPopup', details),
-  getPopup: (details={}) => call(root + '.getPopup', details),
-  setIcon: (details={}) => call(root + '.setIcon', details),
-  enable: (tabId) => call(root + '.enable', tabId),
-  disable: (tabId) => call(root + '.disable', tabId),
-  isEnabled: (tabId) => call(root + '.isEnabled', tabId),
-  openPopup: () => call(root + '.openPopup'),
+  setTitle: (details={}, ...rest) => call(root + '.setTitle', details, ...rest),
+  getTitle: (details={}, ...rest) => call(root + '.getTitle', details, ...rest),
+  setBadgeText: (details={}, ...rest) => call(root + '.setBadgeText', details, ...rest),
+  getBadgeText: (details={}, ...rest) => call(root + '.getBadgeText', details, ...rest),
+  setBadgeBackgroundColor: (details={}, ...rest) => call(root + '.setBadgeBackgroundColor', details, ...rest),
+  setPopup: (details={}, ...rest) => call(root + '.setPopup', details, ...rest),
+  getPopup: (details={}, ...rest) => call(root + '.getPopup', details, ...rest),
+  setIcon: (details={}, ...rest) => call(root + '.setIcon', details, ...rest),
+  enable: (...args) => call(root + '.enable', ...args),
+  disable: (...args) => call(root + '.disable', ...args),
+  isEnabled: (...args) => call(root + '.isEnabled', ...args),
+  openPopup: (...args) => call(root + '.openPopup', ...args),
   onClicked: event(root + '.onClicked')
 });
 function localMessage(key, substitutions) {
@@ -102,13 +113,14 @@ const runtimeConnect = (...args) => {
 
 const runtime = {
   id: extensionId,
+  get lastError() { return runtimeLastError; },
   getManifest: () => manifest,
   getURL: (p='') => 'aegis-extension://' + resourceToken + '/' + String(p).replace(/^\/+/, ''),
-  getPlatformInfo: () => call('runtime.getPlatformInfo'),
-  getBrowserInfo: () => call('runtime.getBrowserInfo'),
-  getContexts: (filter={}) => call('runtime.getContexts', filter),
-  openOptionsPage: () => call('runtime.openOptionsPage'),
-  reload: () => call('runtime.reload'),
+  getPlatformInfo: (...args) => call('runtime.getPlatformInfo', ...args),
+  getBrowserInfo: (...args) => call('runtime.getBrowserInfo', ...args),
+  getContexts: (...args) => call('runtime.getContexts', ...args),
+  openOptionsPage: (...args) => call('runtime.openOptionsPage', ...args),
+  reload: (...args) => call('runtime.reload', ...args),
   sendMessage: (...args) => call('runtime.sendMessage', ...args),
   connect: runtimeConnect,
   onConnect: event('runtime.onConnect'),
@@ -117,19 +129,19 @@ const runtime = {
   onStartup: event('runtime.onStartup')
 };
 const tabs = {
-  query: (q={}) => call('tabs.query', q),
-  get: (id) => call('tabs.get', id),
-  getCurrent: () => call('tabs.getCurrent'),
-  create: (props={}) => call('tabs.create', props),
+  query: (q={}, ...rest) => call('tabs.query', q, ...rest),
+  get: (id, ...rest) => call('tabs.get', id, ...rest),
+  getCurrent: (...args) => call('tabs.getCurrent', ...args),
+  create: (props={}, ...rest) => call('tabs.create', props, ...rest),
   update: (...args) => call('tabs.update', ...args),
-  remove: (ids) => call('tabs.remove', ids),
+  remove: (...args) => call('tabs.remove', ...args),
   reload: (...args) => call('tabs.reload', ...args),
-  sendMessage: (id,msg) => call('tabs.sendMessage', id, msg),
+  sendMessage: (...args) => call('tabs.sendMessage', ...args),
   connect: (id,info={}) => { const portId=newPortId(),port=makePort(portId,info.name||'',{id:extensionId}); call('tabs.connect',id,{...info,portId}).catch((err)=>{port.error=err;ports.delete(portId);port.onDisconnect._emit(port);}); return port; },
   executeScript: (...args) => call('tabs.executeScript', ...args),
   insertCSS: (...args) => call('tabs.insertCSS', ...args),
   removeCSS: (...args) => call('tabs.removeCSS', ...args),
-  getZoom: (id) => call('tabs.getZoom', id),
+  getZoom: (...args) => call('tabs.getZoom', ...args),
   setZoom: (...args) => call('tabs.setZoom', ...args),
   captureVisibleTab: (...args) => call('tabs.captureVisibleTab', ...args),
   onCreated: event('tabs.onCreated'),
@@ -143,28 +155,28 @@ const api = {
   storage: { local:area('local'), sync:area('sync'), session:area('session'), managed:area('managed'), onChanged:event('storage.onChanged') },
   tabs,
   windows: {
-    get:(id,info={})=>call('windows.get',id,info),
-    getCurrent:(info={})=>call('windows.getCurrent',info),
-    getLastFocused:(info={})=>call('windows.getLastFocused',info),
-    getAll:(info={})=>call('windows.getAll',info),
-    update:(id,info={})=>call('windows.update',id,info),
+    get:(...args)=>call('windows.get',...args),
+    getCurrent:(...args)=>call('windows.getCurrent',...args),
+    getLastFocused:(...args)=>call('windows.getLastFocused',...args),
+    getAll:(...args)=>call('windows.getAll',...args),
+    update:(...args)=>call('windows.update',...args),
     onFocusChanged:event('windows.onFocusChanged'),
     onCreated:event('windows.onCreated'),
     onRemoved:event('windows.onRemoved')
   },
   cookies: {
-    get:(details={})=>call('cookies.get',details),
-    getAll:(details={})=>call('cookies.getAll',details),
-    set:(details={})=>call('cookies.set',details),
-    remove:(details={})=>call('cookies.remove',details),
-    getAllCookieStores:()=>call('cookies.getAllCookieStores'),
+    get:(...args)=>call('cookies.get',...args),
+    getAll:(...args)=>call('cookies.getAll',...args),
+    set:(...args)=>call('cookies.set',...args),
+    remove:(...args)=>call('cookies.remove',...args),
+    getAllCookieStores:(...args)=>call('cookies.getAllCookieStores',...args),
     onChanged:event('cookies.onChanged')
   },
   permissions: {
-    contains: (p={}) => call('permissions.contains', p),
-    getAll: () => call('permissions.getAll'),
-    request: (p={}) => call('permissions.request', p),
-    remove: (p={}) => call('permissions.remove', p),
+    contains: (p={}, ...rest) => call('permissions.contains', p, ...rest),
+    getAll: (...args) => call('permissions.getAll', ...args),
+    request: (p={}, ...rest) => call('permissions.request', p, ...rest),
+    remove: (p={}, ...rest) => call('permissions.remove', p, ...rest),
     onAdded: event('permissions.onAdded'),
     onRemoved: event('permissions.onRemoved')
   },
