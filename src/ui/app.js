@@ -14,9 +14,9 @@ let currentSettingsPage = 'privacy';
 let sentinelMode = 'simple';
 
 const PROFILE_VALUES = {
-  standard: { privacyLevel: 'standard', letterbox: false, blockTrackers: true, blockAds: true, blockSocialTrackers: true, heuristicTrackingProtection: false, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: false, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: false },
-  strict: { privacyLevel: 'strict', letterbox: true, blockTrackers: true, blockAds: true, blockSocialTrackers: true, heuristicTrackingProtection: true, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: true, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: false },
-  maximum: { privacyLevel: 'maximum', letterbox: true, blockTrackers: true, blockAds: true, blockSocialTrackers: true, heuristicTrackingProtection: true, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: true, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: true }
+  standard: { privacyLevel: 'standard', letterbox: false, blockTrackers: true, blockAds: true, blockSocialTrackers: true, blockCryptominers: true, heuristicTrackingProtection: false, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: false, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: false },
+  strict: { privacyLevel: 'strict', letterbox: true, blockTrackers: true, blockAds: true, blockSocialTrackers: true, blockCryptominers: true, heuristicTrackingProtection: true, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: true, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: false },
+  maximum: { privacyLevel: 'maximum', letterbox: true, blockTrackers: true, blockAds: true, blockSocialTrackers: true, blockCryptominers: true, heuristicTrackingProtection: true, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: true, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: true }
 };
 
 const COMMANDS = [
