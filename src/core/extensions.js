@@ -251,7 +251,7 @@ function compatibility(m,detectedRoots=[]){
   const features=manifestFeatures(m);
   const contentEntries=Array.isArray(m.content_scripts)?m.content_scripts:[];
   if(contentEntries.some((e)=>e?.run_at==='document_start')) warnings.push({api:'content_scripts.run_at',reason:'document_start uses Aegis early-navigation isolated-world injection; exact Firefox pre-page-script ordering is not guaranteed on every Chromium navigation.'});
-  if(contentEntries.some((e)=>e?.all_frames)) warnings.push({api:'content_scripts.all_frames',reason:'Aegis currently injects into the top-level document only.'});
+  if(contentEntries.some((e)=>e?.all_frames)) warnings.push({api:'content_scripts.all_frames',reason:'Aegis injects declared all_frames scripts into loaded subframes through the sandboxed frame bridge. Exact document_start ordering in newly created subframes can still differ from upstream Chrome/Firefox.'});
   if(Array.isArray(m.optional_permissions)&&m.optional_permissions.length) warnings.push({api:'optional_permissions',reason:'Optional permissions require explicit user approval in Aegis and are not auto-granted.'});
   if(Array.isArray(m.optional_host_permissions)&&m.optional_host_permissions.length) warnings.push({api:'optional_host_permissions',reason:'Optional host access requires explicit user approval in Aegis and is not auto-granted.'});
   if(permissions(m).includes('notifications')) warnings.push({api:'notifications',reason:'Notifications are rendered as prominent Aegis browser-chrome notices; OS notification buttons and native notification-center persistence are not emulated.'});
@@ -426,7 +426,7 @@ class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion,notifyExtension,getSettings}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
     this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.notifyExtension=typeof notifyExtension==='function'?notifyExtension:null;this.getSettings=typeof getSettings==='function'?getSettings:(()=>({}));
-    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.dnrSessionRules=new Map();this.registeredContentScripts=new Map();this.browserVersion=String(browserVersion||'1.1');
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingFrameInjections=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.dnrSessionRules=new Map();this.registeredContentScripts=new Map();this.browserVersion=String(browserVersion||'1.1');
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const rawManifest=normalizeManifest(readJson(path.join(row.path,'manifest.json'))),manifest=localizeManifest(row.path,rawManifest);this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
@@ -497,6 +497,102 @@ class AegisExtensionRuntime{
     return [...this.registeredScriptsFor(e).values()].filter((row)=>!ids||ids.has(row.id)).map(publicRegisteredScript);
   }
   contentScriptsFor(e){return [...(Array.isArray(e.manifest?.content_scripts)?e.manifest.content_scripts:[]),...this.registeredScriptsFor(e).values()]}
+  requiresSubFramePreload(tab=null){
+    if(tab&&!extensionVisibleTab(tab))return false;
+    return this.enabled().some((e)=>this.contentScriptsFor(e).some((entry)=>Boolean(entry?.all_frames??entry?.allFrames)));
+  }
+  frameMatchUrl(tab,frame,entry){
+    const raw=String(frame?.url||'');
+    if(/^https?:\/\//i.test(raw))return raw;
+    const fallback=Boolean(entry?.match_about_blank??entry?.matchAboutBlank??entry?.matchOriginAsFallback);
+    if(!fallback)return raw;
+    let current=frame?.parent||null;
+    while(current){
+      const candidate=String(current.url||'');
+      if(/^https?:\/\//i.test(candidate))return candidate;
+      current=current.parent||null;
+    }
+    return String(tab?.url||'');
+  }
+  frameInjectionKey(e,entry,phase,frame){
+    const entryId=entry.__registered?('registered:'+entry.id):String(this.contentScriptsFor(e).indexOf(entry));
+    return e.id+':'+entryId+':'+phase+':frame:'+String(frame?.processId??'p')+':'+String(frame?.routingId??'r');
+  }
+  sendFrameInjection(contents,frame,payload){
+    if(!contents||contents.isDestroyed?.()||!frame||frame.isDestroyed?.())return Promise.resolve({ok:false,error:'Frame is unavailable.'});
+    const requestId=crypto.randomUUID(),processId=Number(frame.processId),routingId=Number(frame.routingId);
+    return new Promise((resolve)=>{
+      const timer=setTimeout(()=>{this.pendingFrameInjections.delete(requestId);resolve({ok:false,error:'Timed out waiting for the subframe extension bridge.'})},2500);
+      this.pendingFrameInjections.set(requestId,{resolve:(value)=>{clearTimeout(timer);resolve(value)},contents,processId,routingId,extensionId:String(payload.extensionId||'')});
+      try{
+        contents.sendToFrame([processId,routingId],'extension:frame-inject',{...payload,requestId,frameProcessId:processId,frameRoutingId:routingId});
+      }catch(err){
+        clearTimeout(timer);this.pendingFrameInjections.delete(requestId);resolve({ok:false,error:String(err?.message||err)});
+      }
+    });
+  }
+  handleFrameInjectionResult(sender,senderFrame,payload={}){
+    const requestId=String(payload.requestId||''),pending=this.pendingFrameInjections.get(requestId);
+    if(!pending||pending.contents!==sender||pending.extensionId!==String(payload.extensionId||''))return false;
+    const processId=Number(senderFrame?.processId),routingId=Number(senderFrame?.routingId);
+    if(processId!==pending.processId||routingId!==pending.routingId)return false;
+    this.pendingFrameInjections.delete(requestId);pending.resolve(payload);return true;
+  }
+  async injectFrame(tab,frame,phase='idle'){
+    if(!extensionVisibleTab(tab)||!frame||frame.isDestroyed?.())return [];
+    const contents=tab?.view?.webContents;if(!contents||contents.isDestroyed())return [];
+    if(contents.mainFrame===frame)return this.inject(tab,phase,String(frame.url||tab.url||''));
+    if(!tab.extensionInjectionKeys)tab.extensionInjectionKeys=new Set();
+    const done=[];
+    for(const e of this.enabled()){
+      const all=this.contentScriptsFor(e);
+      for(let index=0;index<all.length;index++){
+        const entry=all[index];
+        if(!Boolean(entry?.all_frames??entry?.allFrames)||contentScriptPhase(entry)!==phase)continue;
+        const matchUrl=this.frameMatchUrl(tab,frame,entry);
+        if(!matchingContentScripts({content_scripts:[entry]},matchUrl,phase).length)continue;
+        const entryId=entry.__registered?('registered:'+entry.id):String(index),key=e.id+':'+entryId+':'+phase+':frame:'+String(frame.processId)+':'+String(frame.routingId);
+        if(tab.extensionInjectionKeys.has(key))continue;
+        const js=(Array.isArray(entry.js)?entry.js:[]).map(safeRel).filter(Boolean),css=[];
+        for(const rel of Array.isArray(entry.css)?entry.css:[]){
+          const s=safeRel(rel);if(!s)continue;
+          try{css.push({label:s,code:rewriteCssUrls(fs.readFileSync(this.extensionFile(e,s),'utf8'),e,s)})}
+          catch(err){this.noteRuntimeError(e.id,'content-css:'+s,err)}
+        }
+        const scripts=[];
+        if(String(entry.world||'ISOLATED').toUpperCase()!=='MAIN')scripts.push({label:'__aegis_content_bootstrap.js',code:bootstrap(e),url:extensionResourceUrl(e,'__aegis_content_bootstrap.js')});
+        for(const rel of js){
+          try{scripts.push({label:rel,code:fs.readFileSync(this.extensionFile(e,rel),'utf8')+'\n//# sourceURL='+extensionResourceUrl(e,rel),url:extensionResourceUrl(e,rel)})}
+          catch(err){this.noteRuntimeError(e.id,'content-script:'+rel,err)}
+        }
+        const result=await this.sendFrameInjection(contents,frame,{extensionId:e.id,worldId:e.worldId||extensionWorldId(e.id),world:String(entry.world||'ISOLATED').toUpperCase(),scripts,css});
+        if(!result?.ok){
+          this.noteRuntimeError(e.id,'content-script:frame',new Error(String(result?.error||'Subframe content script injection failed.')));
+          continue;
+        }
+        for(const failure of Array.isArray(result.failures)?result.failures:[]){
+          const label=String(failure?.label||'frame');
+          this.noteRuntimeError(e.id,(failure?.kind==='css'?'content-css:':'content-script:')+label,new Error(String(failure?.message||'Execution failed.')));
+        }
+        if((result.scriptCount||result.cssCount)>0){
+          done.push(e.id);const health=this.healthFor(e.id);health.lastInjectionAt=new Date().toISOString();
+          tab.extensionInjectionKeys.add(key);
+        }
+        if(!(result.failures||[]).length){this.clearRuntimeErrors(e.id,'content-script');this.clearRuntimeErrors(e.id,'content-css')}
+      }
+    }
+    return [...new Set(done)];
+  }
+  async injectAllSubframes(tab,phase='idle'){
+    if(!extensionVisibleTab(tab)||!this.requiresSubFramePreload(tab))return [];
+    const main=tab?.view?.webContents?.mainFrame,frames=Array.isArray(main?.framesInSubtree)?main.framesInSubtree:[];
+    const done=[];
+    for(const frame of frames){
+      if(frame===main||frame?.isDestroyed?.())continue;
+      try{done.push(...await this.injectFrame(tab,frame,phase))}catch(err){this.noteRuntimeError('runtime','content-script:frame-scan',err)}
+    }
+    return [...new Set(done)];
+  }
   dnrFile(e,name){const dir=path.join(this.dataDir,e.id);fs.mkdirSync(dir,{recursive:true,mode:0o700});return path.join(dir,name)}
   dnrEnabledRulesets(e){
     const resources=Array.isArray(e.manifest?.declarative_net_request?.rule_resources)?e.manifest.declarative_net_request.rule_resources:[];
@@ -1267,6 +1363,6 @@ class AegisExtensionRuntime{
     if(!pending||pending.extensionId!==id||!host||host.webContents!==sender)return false;
     this.pendingMessages.delete(String(payload.messageId));pending.resolve(payload.response);return true;
   }
-  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear();this.ports.clear()}
+  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear();for(const pending of this.pendingFrameInjections.values())pending.resolve({ok:false,error:'Extension runtime stopped.'});this.pendingFrameInjections.clear();this.ports.clear()}
 }
 module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,localizeManifest,packageEcosystem,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,scanUsedApiRoots,validateExtractedTree,bootstrap,AegisExtensionRuntime};
