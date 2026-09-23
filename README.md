@@ -1,10 +1,26 @@
 <p align="center"><img src="assets/brand/aegis-lockup.svg" alt="Aegis Privacy Browser" width="430"></p>
 
-# Aegis Privacy Browser 1.1.2 — Stable Security Kernel
+# Aegis Privacy Browser 1.2 — Security Kernel + WebExtension Runtime
 
 Aegis 1.1 is a local-first macOS privacy, security and managed-browser platform built on Electron/Chromium. Its design rule is simple: a security setting is not treated as protection merely because a toggle is enabled. Aegis couples policy, browser-process enforcement, behavioral runtime checks and user-visible evidence.
 
 Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or Tor Browser equivalence. It reduces attack surface and linkability, isolates high-risk activity, can fail closed for selected routes, and reports important residual exposure instead of converting limitations into green badges.
+
+## 1.2 — Add-ons & WebExtensions Runtime 3
+
+Aegis 1.2 rebuilds the Add-ons subsystem around a browser-owned WebExtension compatibility runtime rather than treating XPI extraction as successful installation.
+
+- Install Firefox-style `.xpi` or compatible `.zip` packages from disk, or stage a direct HTTPS package URL for the same permission/compatibility review.
+- Validate manifest V2/V3 structure, package SHA-256, safe extraction paths, referenced scripts/CSS/popups/options/background resources, requested permissions, host access and statically detected API namespaces before activation.
+- Run content scripts in dedicated isolated worlds with Node.js unavailable. Hardened and anonymous compartments continue to exclude extensions.
+- Support early `document_start`, `document_end` and `document_idle` injection phases, while documenting that exact Firefox pre-page-script ordering cannot be guaranteed on every Chromium navigation.
+- Runtime 3 adds `runtime` messaging and same-extension long-lived Ports (`runtime.connect` / `tabs.connect`), `storage.local`, local compatibility `storage.sync`, `storage.session`, read-only `storage.managed`, tabs, windows, host-scoped cookies, scripting, alarms, commands, webNavigation, notifications, context menus and toolbar/page actions.
+- Add action icon/enable/disable state, tab zoom and visible-tab capture, popup/options contexts, local extension resources and per-extension runtime health diagnostics.
+- Add **Health check** and **Repair runtime** controls that validate referenced resources, compatibility bootstrap, background-runtime state and recorded runtime errors, then reinject active private tabs when repair is requested.
+- Rebuild the Add-ons manager with search/filtering, health counts, compatibility tiers, capability matrix, file/URL install flows and explicit unsupported/restricted API reporting.
+- Keep browser-security ownership in Aegis: extensions cannot replace routing, use native messaging, manage other extensions, attach the debugger/devtools, access hardened/anonymous tabs, or disable the Aegis Security Kernel.
+- Blocking `webRequest` / full declarativeNetRequest parity is not claimed. Add-ons such as network blockers that depend on those browser-owned interception APIs should use Aegis's native filtering engine instead.
+- Aegis `storage.sync` is a durable local compatibility area; it does not claim Mozilla Account or cross-device cloud synchronization.
 
 ## 1.1.3 visibility and confirmation UX
 
