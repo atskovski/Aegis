@@ -1469,6 +1469,11 @@ $('#storeInstall').addEventListener('click', () => {
   const input=$('#addonUrlInput');input.value=source;
   setTimeout(()=>$('#installAddonUrl').click(),0);
 });
+$('#installReferenceExtension').addEventListener('click', () => {
+  const input=$('#addonUrlInput');
+  input.value=PRIVACY_BADGER_CHROME_ID;
+  $('#installAddonUrl').click();
+});
 
 $('#commandBtn').addEventListener('click', openCommandPalette);
 $('#privacyBeacon').addEventListener('click', () => showPanel('privacyPanel'));
