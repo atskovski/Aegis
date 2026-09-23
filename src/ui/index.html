@@ -144,7 +144,7 @@
     </div>
 
     <div class="blocked-list"><div class="eyebrow">RECENTLY BLOCKED</div><div id="recentBlocked" class="chips"><span class="muted">Nothing blocked yet</span></div></div>
-    <div class="privacy-actions"><button id="hardenSite" class="primary compact-btn">Harden this site</button><button id="clearTabData" class="secondary">Clear tab data</button><button id="openFullSettings" class="secondary">Full settings</button></div>
+    <div class="privacy-actions"><button id="hardenSite" class="primary compact-btn">Harden this site</button><button id="anonymousTab" class="secondary">New anonymous tab</button><button id="clearTabData" class="secondary">Clear tab data</button><button id="openFullSettings" class="secondary">Full settings</button></div>
     <div class="panel-note">Aegis reduces linkability and tracking surface. No browser can guarantee anonymity or a zero fingerprint.</div>
   </aside>
 
@@ -274,6 +274,18 @@
             <div class="preset-row"><button id="torPreset" class="secondary">Use Tor SOCKS preset</button><span>Sets SOCKS5 to 127.0.0.1:9050. A local Tor service must already be running.</span></div>
           </div>
           <div class="info-callout"><b>Leak resistance</b><span>Aegis forces Chromium’s WebRTC IP handling policy to disable non-proxied UDP. Proxy changes close existing session connections before subsequent requests.</span></div>
+
+          <div class="page-title subsection-title"><h3>Anonymous compartment</h3><p>Tails/Qubes-inspired fail-closed browsing. Aegis requires a locally running Tor SOCKS proxy, verifies the route with the Tor Project before browsing, blocks local-network targets, disables extensions, blocks downloads, removes WebRTC, and uses the Maximum fingerprint profile.</p></div>
+          <div class="settings-card form-card">
+            <label>Tor SOCKS address<input id="anonymousTorProxy" placeholder="127.0.0.1:9050" autocomplete="off" spellcheck="false"></label>
+            <label class="check-row"><input id="anonymousRequireTor" type="checkbox"><span><b>Require Tor verification</b><small>Fail closed instead of browsing when the configured route cannot be verified as Tor.</small></span></label>
+            <label class="check-row"><input id="anonymousBlockLan" type="checkbox"><span><b>Block local/private-network destinations</b><small>Prevents direct access to localhost, RFC1918, link-local and .local targets from anonymous tabs.</small></span></label>
+            <label class="check-row"><input id="anonymousDisableDownloads" type="checkbox"><span><b>Block downloads</b><small>Reduces the risk of opening a downloaded document outside the anonymous route.</small></span></label>
+            <label class="check-row"><input id="anonymousDisableExtensions" type="checkbox"><span><b>Disable add-ons</b><small>Keeps extension code and extension-specific fingerprinting out of anonymous compartments.</small></span></label>
+          </div>
+          <div class="action-card anonymous-action"><div><b>Open anonymous compartment</b><p>Creates a fresh memory-only tab. If Tor verification fails, the tab refuses to browse.</p></div><button id="newAnonymousTabFromNetwork" class="primary">New anonymous tab</button></div>
+          <div id="torRouteStatus" class="info-callout warning"><b>Tor is not bundled</b><span>A local Tor service must already be running. Aegis does not claim Tor Browser-equivalent anonymity on the Electron engine.</span></div>
+
           <div class="action-card"><div><b>Connection test</b><p>Test a disposable Chromium session with the same routing settings, so a broken tab cannot break Diagnostics.</p></div><button id="networkTestFromNetwork" class="secondary">Run test</button></div>
         </section>
 
