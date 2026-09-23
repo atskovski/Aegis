@@ -1640,6 +1640,18 @@ function wireIpc() {
       emitState();return {ok:true,extension};
     } catch (err) { return {ok:false,error:err.message}; }
   });
+  ipcMain.handle('extensions:diagnose', async (event, payload) => {
+    if (!assertUiSender(event) || !extensionRuntime) return {ok:false,error:'IPC sender denied'};
+    try {
+      const id=String(payload?.id||'');
+      const diagnostic=await extensionRuntime.diagnose(id,{repair:Boolean(payload?.repair)});
+      if(payload?.repair){
+        await Promise.allSettled([...tabs.values()].map((tab)=>replaceTabView(tab,tab.javascriptEnabled)));
+      }
+      emitState();
+      return {ok:true,diagnostic,extension:extensionRuntime.list().find((x)=>x.id===id)||null};
+    } catch(err){return {ok:false,error:err.message};}
+  });
   ipcMain.handle('extensions:reload', async (event, id) => {
     if (!assertUiSender(event) || !extensionRuntime) return {ok:false,error:'IPC sender denied'};
     try {
