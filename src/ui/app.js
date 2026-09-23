@@ -802,6 +802,7 @@ function renderSettingsDraft() {
   $('#anonymousDisableDownloads').checked = s.anonymity?.disableDownloads !== false;
   $('#anonymousDisableExtensions').checked = s.anonymity?.disableExtensions !== false;
   $('#anonymousDisableJavaScript').checked = s.anonymity?.disableJavaScript !== false;
+  $('#anonymousDisableJavaScript').checked = s.anonymity?.disableJavaScript !== false;
   $('#homePage').value = s.homePage || 'https://duckduckgo.com/';
   $('#searchEngine').value = s.searchEngine || 'duckduckgo';
   $('#customSearchTemplate').value = s.customSearchTemplate || '';
