@@ -79,13 +79,14 @@ test('extension header removals are case-insensitive and removal-only', () => {
 
 test('privacy session forwards onResponseStarted into the extension event pipeline', () => {
   const handlers={};
+  const filters={};
   const webRequest={
-    onBeforeRequest:(_filter,fn)=>{handlers.beforeRequest=fn;},
-    onBeforeSendHeaders:(_filter,fn)=>{handlers.beforeSendHeaders=fn;},
-    onHeadersReceived:(_filter,fn)=>{handlers.headersReceived=fn;},
-    onResponseStarted:(_filter,fn)=>{handlers.responseStarted=fn;},
-    onCompleted:(_filter,fn)=>{handlers.completed=fn;},
-    onErrorOccurred:(_filter,fn)=>{handlers.errorOccurred=fn;}
+    onBeforeRequest:(filter,fn)=>{filters.beforeRequest=filter;handlers.beforeRequest=fn;},
+    onBeforeSendHeaders:(filter,fn)=>{filters.beforeSendHeaders=filter;handlers.beforeSendHeaders=fn;},
+    onHeadersReceived:(filter,fn)=>{filters.headersReceived=filter;handlers.headersReceived=fn;},
+    onResponseStarted:(filter,fn)=>{filters.responseStarted=filter;handlers.responseStarted=fn;},
+    onCompleted:(filter,fn)=>{filters.completed=filter;handlers.completed=fn;},
+    onErrorOccurred:(filter,fn)=>{filters.errorOccurred=filter;handlers.errorOccurred=fn;}
   };
   const ses={
     webRequest,
@@ -107,6 +108,10 @@ test('privacy session forwards onResponseStarted into the extension event pipeli
     isTemporarilyAllowed:()=>false
   });
   assert.equal(typeof handlers.responseStarted,'function');
+  assert.ok(filters.beforeRequest.urls.includes('ws://*/*'));
+  assert.ok(filters.beforeRequest.urls.includes('wss://*/*'));
+  assert.ok(filters.completed.urls.includes('wss://*/*'));
+  assert.deepEqual(filters.responseStarted.urls,['http://*/*','https://*/*']);
   const details={url:'https://cdn.example.test/pixel.gif',resourceType:'image',responseHeaders:{'set-cookie':['x=1']}};
   handlers.responseStarted(details);
   assert.equal(events.at(-1).type,'webRequest.onResponseStarted');
