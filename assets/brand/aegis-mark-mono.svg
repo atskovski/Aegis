@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Aegis shield mark monochrome">
+  <path d="M128 16 220 49v67c0 60-35 101-92 124-57-23-92-64-92-124V49l92-33Z" fill="none" stroke="currentColor" stroke-width="12" stroke-linejoin="round"/>
+  <path d="m128 56-55 124h28l12-29h30l12 29h28L128 56Zm0 47 17 42h-34l17-42Z" fill="currentColor"/>
+</svg>

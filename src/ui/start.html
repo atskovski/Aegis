@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>New Private Tab</title>
+  <link rel="stylesheet" href="aegis://app/start.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="mark">A</div>
+    <h1>Browse without the baggage.</h1>
+    <p class="lead">Each tab is a disposable browsing identity with its own memory-only storage, network state and privacy controls.</p>
+    <div class="status"><span><i></i>Ephemeral tab</span><span><i></i>HTTPS-first</span><span><i></i>WebRTC hardened</span><span><i></i>No history service</span></div>
+    <form id="privateSearch"><input id="privateSearchInput" name="q" placeholder="Search privately" autofocus autocomplete="off" spellcheck="false"><button type="submit">Search</button></form>
+    <div class="cards">
+      <div class="card"><b>Isolated identity</b><span>Cookies, storage and cache are separated from every other normal tab.</span></div>
+      <div class="card"><b>Fingerprint defense</b><span>Strict mode standardizes high-signal browser surfaces and reduces entropy.</span></div>
+      <div class="card"><b>Permission firewall</b><span>Camera, microphone, location, device APIs and notifications start blocked.</span></div>
+    </div>
+    <div class="foot">Use New Identity to destroy every active tab session and rotate anti-fingerprinting seeds.</div>
+  </div>
+  <script src="aegis://app/start.js"></script>
+</body>
+</html>

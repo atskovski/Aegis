@@ -1,0 +1,16 @@
+:root {
+  --aegis-night: #070A12;
+  --aegis-citadel: #111827;
+  --aegis-rampart: #26334A;
+  --aegis-signal-cyan: #4ED9FF;
+  --aegis-guardian-teal: #4FE1C1;
+  --aegis-ultraviolet: #8A72FF;
+  --aegis-amber: #F1C76A;
+  --aegis-sentinel-red: #FF6F8F;
+  --aegis-ice: #F4F7FB;
+  --aegis-steel: #9AAAC0;
+  --aegis-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --aegis-radius-control: 10px;
+  --aegis-radius-card: 16px;
+  --aegis-radius-panel: 20px;
+}

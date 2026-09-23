@@ -1,0 +1,1378 @@
+'use strict';
+
+const { app, BrowserWindow, WebContentsView, ipcMain, protocol, clipboard, dialog, shell, Menu, session: electronSession } = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const { normalizeInput, stripTrackingParams, cleanNavigationUrl, registrableLike, isAllowedNavigation, shouldUpgradeHttp, upgradeToHttps } = require('./core/url');
+const { configurePrivacySession, makeTabStats, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, buildGenericUA } = require('./core/privacy');
+const { buildAntiFingerprintScript } = require('./core/fingerprint');
+const { sanitizeSettings, searchTemplateFor, profileDefaults, cloneDefaults, SEARCH_ENGINES } = require('./core/settings');
+const { navigationUrl, navigationIsMainFrame, shouldAllowInternalNavigation, failedHttpsCanOfferHttp } = require('./core/navigation');
+const { applyProxyToSession: applyProxyCore, runConnectivityTest } = require('./core/network');
+const { parseFilterRules } = require('./core/filter-rules');
+const { cosmeticCss, buildPagePrivacyScript } = require('./core/content-filter');
+const { TrackerLearner } = require('./core/tracker-learning');
+const { analyzeUrl } = require('./core/safety');
+const { youtubeVideoId, fetchSponsorSegments, sponsorSkipScript } = require('./core/sponsor');
+const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNetworkEvent, publicSiteIntelligence, buildSiteAuditScript } = require('./core/site-intelligence');
+const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
+
+app.setName('Aegis Privacy Browser');
+// Keep the wire-level User-Agent generic. Product branding belongs in browser chrome, not in requests sites can fingerprint.
+app.userAgentFallback = buildGenericUA(process.versions.chrome);
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'aegis', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false }
+}]);
+
+// Chromium hardening that must be configured before app readiness.
+app.enableSandbox();
+app.commandLine.appendSwitch('disable-background-networking');
+app.commandLine.appendSwitch('disable-breakpad');
+app.commandLine.appendSwitch('disable-sync');
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
+app.commandLine.appendSwitch('site-per-process');
+app.commandLine.appendSwitch('no-pings');
+app.commandLine.appendSwitch('lang', 'en-US');
+app.commandLine.appendSwitch('disable-features', [
+  'WebGPU', 'Prerender2', 'BrowsingTopics', 'InterestGroupStorage', 'SharedStorageAPI',
+  'AttributionReporting', 'PrivateAggregationApi', 'FencedFrames'
+].join(','));
+
+const UI_DIR = path.join(__dirname, 'ui');
+const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
+const BOOKMARKS_FILE = () => path.join(app.getPath('userData'), 'bookmarks.json');
+const TOOLBAR_H = 108;
+const LETTERBOX_STEP = 100;
+let mainWindow;
+let activeId = null;
+let nextId = 1;
+let identitySeed = freshSeed();
+const tabs = new Map();
+const pendingPermissions = new Map();
+let settings = cloneDefaults();
+let bookmarks = [];
+let downloads = [];
+const activeDownloadItems = new Map();
+let lastNetworkTest = null;
+let lastSecuritySuite = null;
+const temporaryPermissions = new Map();
+let uiLayer = { mode: 'none', reserveRight: 0 };
+let trackerLearner = new TrackerLearner();
+let filterRules = parseFilterRules('');
+
+function startupLog(message, extra = '') {
+  const suffix = extra ? ` ${String(extra)}` : '';
+  console.log(`[Aegis startup] ${message}${suffix}`);
+}
+
+function internalProtocolHandler(request) {
+  const u = new URL(request.url);
+  if (u.hostname !== 'app') return new Response('Not found', { status: 404 });
+  if (u.pathname === '/search') {
+    const q = String(u.searchParams.get('q') || '').trim();
+    const target = q ? searchTemplateFor(settings).replace('%s', encodeURIComponent(q)) : 'aegis://app/start.html';
+    return Response.redirect(target, 302);
+  }
+
+  if (u.pathname === '/open-http') {
+    const raw = String(u.searchParams.get('url') || '');
+    try {
+      const target = new URL(raw);
+      if (target.protocol !== 'http:') return new Response('Invalid downgrade target', { status: 400 });
+      return Response.redirect(target.toString(), 302);
+    } catch { return new Response('Invalid downgrade target', { status: 400 }); }
+  }
+
+  const requested = decodeURIComponent(u.pathname.replace(/^\//, '') || 'index.html');
+  const target = path.resolve(UI_DIR, requested);
+  const relative = path.relative(UI_DIR, target);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
+    if (requested !== 'index.html') return new Response('Not found', { status: 404 });
+  }
+
+  const ext = path.extname(target).toLowerCase();
+  const mime = ({
+    '.html': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png'
+  })[ext] || 'application/octet-stream';
+  return new Response(fs.readFileSync(target), {
+    status: 200,
+    headers: {
+      'Content-Type': mime,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    }
+  });
+}
+
+function registerInternalProtocol(targetProtocol, label = 'session') {
+  if (!targetProtocol) throw new Error(`Missing protocol object for ${label}`);
+  if (!targetProtocol.isProtocolHandled('aegis')) {
+    targetProtocol.handle('aegis', internalProtocolHandler);
+    startupLog(`Registered aegis:// protocol for ${label}.`);
+  }
+}
+
+
+async function withTimeout(promise, ms, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms); })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function loadSettings() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE(), 'utf8'));
+    settings = sanitizeSettings(raw);
+  } catch {
+    settings = sanitizeSettings(settings);
+  }
+  filterRules = parseFilterRules(settings.customFilterRules || '');
+}
+
+function saveSettings() {
+  try {
+    fs.mkdirSync(path.dirname(SETTINGS_FILE()), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(SETTINGS_FILE(), JSON.stringify(settings, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.error('Could not save settings:', err.message);
+  }
+}
+
+
+function loadBookmarks() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(BOOKMARKS_FILE(), 'utf8'));
+    bookmarks = Array.isArray(raw) ? raw.filter((x) => x && typeof x.url === 'string' && /^https?:\/\//.test(x.url)).slice(0, 500) : [];
+  } catch { bookmarks = []; }
+}
+
+function saveBookmarks() {
+  try {
+    fs.mkdirSync(path.dirname(BOOKMARKS_FILE()), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(BOOKMARKS_FILE(), JSON.stringify(bookmarks, null, 2), { mode: 0o600 });
+  } catch (err) { console.error('Could not save bookmarks:', err.message); }
+}
+
+function bookmarkForUrl(url) { return bookmarks.find((x) => x.url === url); }
+function toggleBookmark(tab) {
+  if (!tab || !/^https?:\/\//.test(tab.url || '')) return false;
+  const existing = bookmarks.findIndex((x) => x.url === tab.url);
+  if (existing >= 0) bookmarks.splice(existing, 1);
+  else bookmarks.unshift({ id: crypto.randomUUID(), url: tab.url, title: tab.title || new URL(tab.url).hostname, createdAt: new Date().toISOString() });
+  bookmarks = bookmarks.slice(0, 500);
+  saveBookmarks(); emitState();
+  return existing < 0;
+}
+
+function addDownloadRecord(item, tab) {
+  const id = crypto.randomUUID();
+  const rec = { id, filename: item.getFilename(), state: 'starting', receivedBytes: 0, totalBytes: item.getTotalBytes() || 0, path: '', startedAt: new Date().toISOString(), source: safeOrigin(tab?.url) };
+  downloads.unshift(rec); downloads = downloads.slice(0, 50); emitState();
+  return rec;
+}
+
+function updateDownloadRecord(rec, item, state) {
+  rec.state = state || rec.state;
+  rec.receivedBytes = item.getReceivedBytes?.() || rec.receivedBytes || 0;
+  rec.totalBytes = item.getTotalBytes?.() || rec.totalBytes || 0;
+  emitState();
+}
+
+async function runNetworkTest() {
+  // Diagnostics deliberately use a disposable Chromium session. This keeps the
+  // test working even when the current tab renderer/session is unhealthy and
+  // prevents a proxy reset from interrupting a page the user is viewing.
+  const ses = electronSession.fromPartition(`aegis-diagnostic-${crypto.randomUUID()}`, { cache: false });
+  try {
+    const route = await applyProxyCore(ses, settings.proxy || {}, {
+      failClosedFixedProxy: false,
+      freshSession: (settings.proxy?.mode || 'system') === 'system'
+    });
+    const result = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: settings.proxy?.mode || 'system' });
+    result.routeWarnings = route.warnings || [];
+    result.usedDisposableSession = true;
+    lastNetworkTest = result;
+    emitState();
+    return result;
+  } catch (err) {
+    const result = { ok: false, error: err.message, testedAt: new Date().toISOString(), proxyMode: settings.proxy?.mode || 'system', elapsedMs: 0, usedDisposableSession: true };
+    lastNetworkTest = result; emitState(); return result;
+  } finally {
+    try { await ses.clearData(); } catch {}
+    try { await ses.clearCache(); } catch {}
+    try { await ses.closeAllConnections(); } catch {}
+  }
+}
+
+function temporaryPermissionKey(tabId, origin, key) { return `${Number(tabId) || 0}\u0000${String(origin || '')}\u0000${String(key || '')}`; }
+function isTemporarilyAllowed(tabId, origin, key) {
+  const mapKey = temporaryPermissionKey(tabId, origin, key);
+  const expiresAt = Number(temporaryPermissions.get(mapKey) || 0);
+  if (!expiresAt) return false;
+  if (Date.now() >= expiresAt) { temporaryPermissions.delete(mapKey); return false; }
+  return true;
+}
+function grantTemporaryPermission(tabId, origin, key, durationMs = 10 * 60 * 1000) {
+  if (!origin || !Object.prototype.hasOwnProperty.call(settings.permissionDefaults || {}, key)) return false;
+  temporaryPermissions.set(temporaryPermissionKey(tabId, origin, key), Date.now() + Math.max(1000, Number(durationMs) || 0));
+  return true;
+}
+function clearTemporaryPermission(tabId, origin, key) { temporaryPermissions.delete(temporaryPermissionKey(tabId, origin, key)); }
+function clearTemporaryPermissionsForOrigin(origin, tabId = null) {
+  const originToken = `\u0000${String(origin || '')}\u0000`;
+  const tabPrefix = tabId == null ? '' : `${Number(tabId) || 0}\u0000`;
+  for (const mapKey of temporaryPermissions.keys()) {
+    if ((tabId == null || mapKey.startsWith(tabPrefix)) && mapKey.includes(originToken)) temporaryPermissions.delete(mapKey);
+  }
+}
+
+async function runSecuritySuite() {
+  const tab = activeTab();
+  const checks = [];
+  const testedAt = new Date().toISOString();
+
+  if (tab) {
+    const policy = tab.rendererPolicy || {};
+    const rendererOk = policy.sandbox === true && policy.contextIsolation === true && policy.nodeIntegration === false && policy.webSecurity === true && policy.devTools === false;
+    checks.push(makeCheck('renderer-isolation', 'Renderer isolation', rendererOk ? 'pass' : 'fail',
+      rendererOk
+        ? 'Active web renderer is sandboxed with context isolation, Node disabled, webSecurity enabled, and DevTools disabled.'
+        : 'One or more required renderer-isolation controls are not active.', 'runtime-policy'));
+    checks.push(makeCheck('permission-firewall', 'Permission firewall', tab.permissionFirewallReady ? 'pass' : 'fail',
+      tab.permissionFirewallReady ? 'Permission request and permission check handlers are installed for this private tab session.' : 'Permission handlers are not confirmed for the active tab.', 'runtime-policy'));
+    const fpNeeded = settings.privacyLevel !== 'standard';
+    checks.push(makeCheck('fingerprint-defense', 'Fingerprint normalization', (!fpNeeded || tab.fingerprintReady) ? 'pass' : 'fail',
+      fpNeeded ? (tab.fingerprintReady ? 'Anti-fingerprint preload and CDP locale/timezone normalization initialized.' : 'Strict/Maximum fingerprint defenses did not report ready.') : 'Standard mode intentionally uses reduced fingerprint normalization.', 'runtime'));
+    checks.push(makeCheck('cosmetic-filtering', 'Cosmetic ad filtering', settings.cosmeticFiltering === false ? 'warning' : (tab.cosmeticFilteringReady || String(tab.url || '').startsWith('aegis://') ? 'pass' : 'not-tested'),
+      settings.cosmeticFiltering === false ? 'Cosmetic filtering is disabled in Settings.' : (tab.cosmeticFilteringReady ? 'User-origin CSS filtering is active in the current document.' : 'No remote document is ready for cosmetic-filter verification.'), 'runtime'));
+    checks.push(makeCheck('https-first', 'HTTPS-first navigation', (!tab.allowHttp && !String(tab.url || '').startsWith('http://')) ? 'pass' : 'fail',
+      (!tab.allowHttp && !String(tab.url || '').startsWith('http://')) ? 'HTTP downgrade is not enabled for this tab.' : 'This tab currently allows or is using insecure HTTP.', 'runtime'));
+
+    const surface = await inspectPrivacySurfaces((source) => tab.view.webContents.executeJavaScript(source, true));
+    if (surface.status === 'pass') {
+      const v = surface.values || {};
+      const guardedSurfacesHidden = !v.bluetooth && !v.usb && !v.serial && !v.hid && !v.localFonts && !v.joinAdInterestGroup && !v.runAdAuction && !v.privateToken;
+      checks.push(makeCheck('privacy-api-guard', 'High-entropy & ad API guard', settings.privacyApiGuard === false ? 'warning' : (guardedSurfacesHidden ? 'pass' : 'fail'),
+        settings.privacyApiGuard === false
+          ? 'Privacy API Guard is disabled in Settings; exposed surfaces are not treated as a verification pass.'
+          : (guardedSurfacesHidden
+            ? 'Local font access, hardware-device APIs, Protected Audience and Private State Token surfaces are not exposed in the active renderer.'
+            : `One or more guarded APIs remain exposed (fonts=${Boolean(v.localFonts)}, bluetooth=${Boolean(v.bluetooth)}, protectedAudience=${Boolean(v.joinAdInterestGroup || v.runAdAuction)}, privateToken=${Boolean(v.privateToken)}).`), 'behavioral-test'));
+      checks.push(makeCheck('gpc-signal', 'Global Privacy Control', settings.globalPrivacyControl === false ? 'warning' : (v.gpc ? 'pass' : 'fail'), settings.globalPrivacyControl === false ? 'Global Privacy Control is disabled in Settings.' : (v.gpc ? 'navigator.globalPrivacyControl reports true and Sec-GPC is sent by the network layer.' : 'The JavaScript GPC signal was not observed as true.'), 'behavioral-test'));
+      const screenOk = settings.privacyLevel === 'standard' || (Array.isArray(v.screen) && v.screen[0] === 1440 && v.screen[1] === 900 && v.screen[2] === 24 && v.screen[3] === 1);
+      checks.push(makeCheck('screen-normalization', 'Screen metric normalization', screenOk ? 'pass' : 'warning',
+        screenOk ? `Observed standardized screen metrics: ${(v.screen || []).join(' × ')}.` : `Observed screen metrics differ from the Strict/Maximum standard: ${(v.screen || []).join(' × ')}.`, 'behavioral-test'));
+      checks.push(makeCheck('webgl-debug-info', 'WebGL debug renderer exposure', v.debugRendererInfo === false ? 'pass' : 'warning',
+        v.debugRendererInfo === false ? 'WEBGL_debug_renderer_info is unavailable to the page.' : 'WebGL debug renderer information may remain queryable.', 'behavioral-test'));
+      checks.push(makeCheck('ua-product-leak', 'Browser product identifier', /Aegis/i.test(String(v.userAgent || '')) ? 'warning' : 'pass',
+        /Aegis/i.test(String(v.userAgent || '')) ? 'The page-visible JavaScript user agent contains an Aegis product token.' : 'The page-visible JavaScript user agent does not contain an Aegis product token.', 'behavioral-test'));
+    } else {
+      for (const [id,label] of [['privacy-api-guard','High-entropy & ad API guard'],['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],['ua-product-leak','Browser product identifier']]) checks.push(makeCheck(id,label,'not-tested',surface.evidence,'behavioral-test'));
+    }
+
+    const webrtc = await testWebRtcLeakSurface((source) => tab.view.webContents.executeJavaScript(source, true));
+    checks.push(makeCheck('webrtc-behavior', 'WebRTC local-IP behavioral test', webrtc.status, webrtc.evidence, 'behavioral-test'));
+  } else {
+    for (const [id,label] of [
+      ['renderer-isolation','Renderer isolation'],['permission-firewall','Permission firewall'],['fingerprint-defense','Fingerprint normalization'],
+      ['cosmetic-filtering','Cosmetic ad filtering'],['https-first','HTTPS-first navigation'],['privacy-api-guard','High-entropy & ad API guard'],
+      ['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],
+      ['ua-product-leak','Browser product identifier'],['webrtc-behavior','WebRTC local-IP behavioral test']
+    ]) checks.push(makeCheck(id, label, 'not-tested', 'No active web tab.', 'runtime'));
+  }
+
+  checks.push(makeCheck('webrtc-startup-policy', 'WebRTC non-proxied UDP policy', 'pass',
+    'Chromium is launched with force-webrtc-ip-handling-policy=disable_non_proxied_udp.', 'startup-policy'));
+  checks.push(makeCheck('site-isolation', 'Site-per-process isolation', 'pass',
+    'Chromium is launched with site-per-process and every normal tab uses its own non-persistent session partition.', 'startup-policy'));
+  checks.push(makeCheck('third-party-cookies', 'Third-party cookie defense', settings.blockThirdPartyCookies ? 'pass' : 'fail',
+    settings.blockThirdPartyCookies ? 'Cross-site Cookie and Set-Cookie headers are stripped by the session network firewall.' : 'Third-party cookie blocking is disabled in Settings.', 'runtime-policy'));
+  checks.push(makeCheck('tracker-blocking', 'Tracker network filtering', settings.blockTrackers ? 'pass' : 'fail',
+    settings.blockTrackers ? 'Native main-process request blocking is enabled with ad, analytics, social, fingerprinting, telemetry and heuristic rules.' : 'Tracker blocking is disabled in Settings.', 'runtime-policy'));
+  checks.push(makeCheck('tracking-beacons', 'Tracking beacon guard', settings.blockTrackingBeacons !== false ? 'pass' : 'warning',
+    settings.blockTrackingBeacons !== false ? 'Known tracking destinations are suppressed for sendBeacon and anchor ping transports.' : 'Beacon/ping suppression is disabled.', 'runtime-policy'));
+  checks.push(makeCheck('tls-fingerprint', 'TLS fingerprint visibility', 'info',
+    'Sites can still observe Chromium TLS characteristics (for example JA3/JA4-style fingerprints). Aegis does not claim to rewrite the Chromium TLS stack.', 'known-limit'));
+
+  const isolation = await testSessionIsolation((suffix) => electronSession.fromPartition(`aegis-suite-${suffix}-${crypto.randomUUID()}`, { cache: false }));
+  checks.push(makeCheck('session-isolation', 'Ephemeral session isolation', isolation.status, isolation.evidence, 'behavioral-test'));
+
+  const ses = electronSession.fromPartition(`aegis-security-suite-${crypto.randomUUID()}`, { cache: false });
+  let route = null;
+  let connectivity = null;
+  let publicIp = { ok: false, status: 'not-tested', ip: '', provider: '', error: 'Not tested.' };
+  try {
+    route = await applyProxyCore(ses, settings.proxy || {}, {
+      failClosedFixedProxy: false,
+      freshSession: (settings.proxy?.mode || 'system') === 'system'
+    });
+    const routeStatus = routePrivacyStatus(settings.proxy?.mode || 'system', route);
+    checks.push(makeCheck('network-route', 'IP routing posture', routeStatus.status, routeStatus.evidence, 'runtime-policy'));
+
+    connectivity = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: settings.proxy?.mode || 'system' });
+    checks.push(makeCheck('dns-https', 'DNS + HTTPS reachability', connectivity.ok ? 'pass' : 'fail',
+      `Proxy ${connectivity.proxy || 'unknown'}; DNS ${connectivity.dns || 'unknown'}; HTTPS ${connectivity.https || 'unknown'}.`, 'behavioral-test'));
+
+    publicIp = await fetchPublicIp(ses);
+    checks.push(makeCheck('public-ip', 'Observed public IP', publicIp.status,
+      publicIp.ok ? `Destination sites can observe ${publicIp.ip} through the configured Chromium route (${publicIp.provider}). This is evidence of the route, not proof of anonymity.` : `Public IP lookup failed: ${publicIp.error}`, 'external-proof'));
+  } catch (err) {
+    checks.push(makeCheck('network-route', 'IP routing posture', 'fail', `Routing configuration failed: ${err.message}`, 'runtime-policy'));
+    checks.push(makeCheck('dns-https', 'DNS + HTTPS reachability', 'fail', `Routing/connectivity test failed: ${err.message}`, 'behavioral-test'));
+    checks.push(makeCheck('public-ip', 'Observed public IP', 'not-tested', 'Public IP could not be checked because the disposable routed session failed.', 'external-proof'));
+  } finally {
+    try { await ses.clearData(); } catch {}
+    try { await ses.clearCache(); } catch {}
+    try { await ses.closeAllConnections(); } catch {}
+  }
+
+  lastSecuritySuite = {
+    testedAt,
+    publicIp,
+    route: route ? { ok: route.ok, mode: route.mode, warnings: route.warnings || [], fallback: Boolean(route.fallback), inheritedSystemRoute: Boolean(route.inheritedSystemRoute) } : null,
+    connectivity,
+    checks,
+    summary: summarizeChecks(checks)
+  };
+  emitState();
+  return lastSecuritySuite;
+}
+
+function errorPageUrl(raw, code, description, offerHttp = false) {
+  const q = new URLSearchParams({ url: String(raw || ''), code: String(code || ''), description: String(description || 'Page could not be loaded'), offerHttp: offerHttp ? '1' : '0' });
+  return `aegis://app/error.html?${q.toString()}`;
+}
+
+async function showLoadError(tab, raw, code, description) {
+  if (!tab || !raw || String(raw).startsWith('aegis://')) return;
+  const errorKey = `${raw}|${code}`;
+  const now = Date.now();
+  if (tab._lastErrorKey === errorKey && now - (tab._lastErrorAt || 0) < 1200) return;
+  tab._lastErrorKey = errorKey; tab._lastErrorAt = now;
+  tab.loading = false;
+  tab.lastError = { url: raw, code: Number(code || 0), description: String(description || 'Page could not be loaded') };
+  tab.stats.loadFailures += 1;
+  emitState();
+  const offerHttp = settings.compatibilityAssistance && failedHttpsCanOfferHttp(raw, code);
+  try { await tab.view.webContents.loadURL(errorPageUrl(raw, code, description, offerHttp)); } catch {}
+}
+
+function assertUiSender(event) {
+  try { return event.senderFrame.url.startsWith('aegis://app/'); } catch { return false; }
+}
+
+function activeTab() { return tabs.get(activeId); }
+
+function serializeTab(tab) {
+  const nav = tab.view.webContents.navigationHistory;
+  return {
+    id: tab.id,
+    title: tab.title,
+    url: tab.url,
+    origin: safeOrigin(tab.url),
+    loading: tab.loading,
+    canGoBack: nav.canGoBack(),
+    canGoForward: nav.canGoForward(),
+    shieldsEnabled: tab.shieldsEnabled,
+    allowHttp: tab.allowHttp,
+    javascriptEnabled: tab.javascriptEnabled,
+    compatibilityMode: tab.compatibilityMode,
+    bookmarked: Boolean(bookmarkForUrl(tab.url)),
+    lastError: tab.lastError,
+    safety: tab.safety || { risk: 0, warnings: [] },
+    fingerprintReady: Boolean(tab.fingerprintReady),
+    networkRoute: tab.networkRoute || null,
+    sponsorSegments: tab.sponsorSegments || 0,
+    siteIntelligence: publicSiteIntelligence(tab),
+    stats: tab.stats
+  };
+}
+
+function statePayload() {
+  return {
+    activeId,
+    tabs: [...tabs.values()].map(serializeTab),
+    settings,
+    searchEngines: SEARCH_ENGINES,
+    bookmarks,
+    downloads: downloads.map(({ path: _path, ...item }) => item),
+    network: { lastTest: lastNetworkTest, proxyMode: settings.proxy?.mode || 'system' },
+    securitySuite: lastSecuritySuite,
+    engine: {
+      appVersion: app.getVersion(),
+      electron: process.versions.electron,
+      chromium: process.versions.chrome,
+      node: process.versions.node,
+      platform: process.platform,
+      arch: process.arch
+    },
+    privacySummary: {
+      ephemeralTabs: true,
+      fingerprinting: settings.privacyLevel,
+      webrtc: 'non-proxied UDP disabled',
+      tlsMinimum: 'TLS 1.2',
+      telemetry: 'off',
+      history: 'not stored'
+    }
+  };
+}
+
+function emitState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('state', statePayload());
+}
+
+function toast(message, tone = 'default') {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('toast', { message: String(message), tone });
+}
+function queuePermissionPrompt({ tabId, origin, keys, complete }) {
+  if (!origin || !keys?.length || !mainWindow || mainWindow.isDestroyed()) return complete(false);
+  const id = crypto.randomUUID();
+  const timer = setTimeout(() => {
+    const pending = pendingPermissions.get(id);
+    if (!pending) return;
+    pendingPermissions.delete(id);
+    try { pending.complete(false); } catch {}
+    try { mainWindow.webContents.send('permission:closed', { id }); } catch {}
+  }, 20000);
+  pendingPermissions.set(id, { tabId: Number(tabId) || 0, origin, keys, complete, timer });
+  mainWindow.webContents.send('permission:prompt', { id, origin, keys });
+}
+
+function resolvePermissionPrompt(id, action) {
+  const pending = pendingPermissions.get(String(id || ''));
+  if (!pending) return;
+  pendingPermissions.delete(String(id));
+  clearTimeout(pending.timer);
+  let allow = action === 'allow-once' || action === 'allow-10m' || action === 'allow-always';
+  if (action === 'allow-10m') {
+    for (const key of pending.keys) grantTemporaryPermission(pending.tabId, pending.origin, key);
+  } else if (action === 'allow-always') {
+    for (const key of pending.keys) { clearTemporaryPermissionsForOrigin(pending.origin); applySitePermission(pending.origin, key, 'allow'); }
+  } else if (action === 'block-always') {
+    for (const key of pending.keys) { clearTemporaryPermissionsForOrigin(pending.origin); applySitePermission(pending.origin, key, 'block'); }
+  }
+  try { pending.complete(allow); } catch {}
+  try { mainWindow.webContents.send('permission:closed', { id: String(id) }); } catch {}
+}
+
+function normalizeUiLayer(payload) {
+  const mode = ['none', 'hidden', 'reserve-right'].includes(payload?.mode) ? payload.mode : 'none';
+  const reserveRight = mode === 'reserve-right' ? Math.max(0, Math.min(1000, Math.round(Number(payload?.reserveRight) || 0))) : 0;
+  return { mode, reserveRight };
+}
+
+function applyUiLayer(payload) {
+  uiLayer = normalizeUiLayer(payload);
+  const active = activeTab();
+  for (const tab of tabs.values()) {
+    const shouldShow = Boolean(active && tab.id === active.id && uiLayer.mode !== 'hidden');
+    try { tab.view.setVisible(shouldShow); } catch {}
+  }
+  relayout();
+}
+
+function relayout() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const b = mainWindow.getContentBounds();
+  const tab = activeTab();
+  if (!tab) return;
+
+  if (uiLayer.mode === 'hidden') {
+    try { tab.view.setVisible(false); } catch {}
+    return;
+  }
+
+  const reserved = uiLayer.mode === 'reserve-right' ? Math.min(uiLayer.reserveRight, Math.max(0, b.width - 420)) : 0;
+  const availableW = Math.max(320, b.width - reserved);
+  const availableH = Math.max(240, b.height - TOOLBAR_H);
+  let w = availableW;
+  let h = availableH;
+  let x = 0;
+  let y = TOOLBAR_H;
+
+  if (settings.letterbox && settings.privacyLevel !== 'standard') {
+    w = Math.max(300, Math.floor(availableW / LETTERBOX_STEP) * LETTERBOX_STEP);
+    h = Math.max(200, Math.floor(availableH / LETTERBOX_STEP) * LETTERBOX_STEP);
+    x = Math.floor((availableW - w) / 2);
+    y = TOOLBAR_H + Math.floor((availableH - h) / 2);
+  }
+  tab.view.setBounds({ x, y, width: w, height: h });
+  try { tab.view.setVisible(true); } catch {}
+}
+
+function chromiumMajor() { return String(process.versions.chrome || '152').split('.')[0]; }
+
+async function installFingerprintDefenses(tab) {
+  const dbg = tab?.view?.webContents?.debugger;
+  if (!dbg) return false;
+  try {
+    if (!dbg.isAttached()) dbg.attach('1.3');
+    await withTimeout(dbg.sendCommand('Runtime.enable'), 1800, 'Privacy Intelligence Runtime.enable');
+    await withTimeout(dbg.sendCommand('Page.enable'), 1800, 'Fingerprint Page.enable');
+
+    if (settings.siteIntelligence !== false) {
+      const bindingName = `__aegisAudit_${tab.seed.slice(0, 12)}`;
+      tab.auditBinding = bindingName;
+      if (!tab.auditMessageHandler && typeof dbg.on === 'function') {
+        tab.auditMessageHandler = (_event, method, params) => {
+          if (settings.siteIntelligence === false || method !== 'Runtime.bindingCalled' || params?.name !== tab.auditBinding) return;
+          try {
+            const payload = JSON.parse(String(params.payload || '{}'));
+            if (recordSiteSignal(tab, payload)) emitState();
+          } catch {}
+        };
+        dbg.on('message', tab.auditMessageHandler);
+      }
+      await withTimeout(dbg.sendCommand('Runtime.addBinding', { name: bindingName }), 1400, 'Privacy Intelligence binding');
+    }
+    if (settings.privacyLevel !== 'standard') {
+      await withTimeout(dbg.sendCommand('Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense');
+      await withTimeout(dbg.sendCommand('Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense');
+    }
+    await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+      source: buildAntiFingerprintScript({ seed: `${identitySeed}:${tab.seed}`, chromiumMajor: chromiumMajor(), profile: settings.privacyLevel, disableServiceWorkers: settings.disableServiceWorkers, globalPrivacyControl: settings.globalPrivacyControl, doNotTrack: settings.doNotTrack })
+    }), 1800, 'Fingerprint preload');
+    await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+      source: buildPagePrivacyScript({
+        maximum: settings.privacyLevel === 'maximum',
+        privacyApiGuard: settings.privacyApiGuard !== false,
+        blockTrackingBeacons: settings.blockTrackingBeacons !== false,
+        globalPrivacyControl: settings.globalPrivacyControl !== false
+      })
+    }), 1800, 'Page privacy preload');
+    if (settings.siteIntelligence !== false && tab.auditBinding) {
+      await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName: tab.auditBinding }) }), 1800, 'Privacy Intelligence preload');
+    }
+    tab.fingerprintReady = true;
+    return true;
+  } catch (err) {
+    tab.fingerprintReady = false;
+    console.error('Fingerprint defense initialization failed (fail-soft):', err.message);
+    return false;
+  }
+}
+
+function applySessionDownloadPolicy(tab) {
+  tab.view.webContents.session.on('will-download', (event, item) => {
+    const filename = item.getFilename();
+    if (settings.blockRiskyDownloads && isRiskyDownload(filename)) {
+      event.preventDefault();
+      tab.stats.blockedDownloads += 1;
+      emitState();
+      toast(`Blocked high-risk download: ${filename}`, 'danger');
+      return;
+    }
+    const rec = addDownloadRecord(item, tab);
+    activeDownloadItems.set(rec.id, item);
+    const target = defaultDownloadPath(app, filename);
+    rec.path = target;
+    try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch {}
+    item.setSavePath(target);
+    item.on('updated', (_e, state) => updateDownloadRecord(rec, item, state));
+    item.once('done', (_e, state) => {
+      updateDownloadRecord(rec, item, state);
+      activeDownloadItems.delete(rec.id);
+      toast(state === 'completed' ? `Download saved: ${filename}` : `Download ${state}: ${filename}`, state === 'completed' ? 'success' : 'warning');
+    });
+  });
+}
+
+async function applyProxyToSession(ses, options = {}) {
+  const result = await applyProxyCore(ses, settings.proxy || {}, {
+    failClosedFixedProxy: Boolean(settings.proxy?.failClosedFixedProxy),
+    freshSession: Boolean(options.freshSession)
+  });
+  if (result.warnings?.length) console.warn('Aegis network routing warning:', result.warnings.join(' | '));
+  return result;
+}
+
+const REMOTE_RENDERER_POLICY = Object.freeze({
+  sandbox: true,
+  contextIsolation: true,
+  nodeIntegration: false,
+  nodeIntegrationInSubFrames: false,
+  webSecurity: true,
+  allowRunningInsecureContent: false,
+  webviewTag: false,
+  plugins: false,
+  spellcheck: false,
+  safeDialogs: true,
+  devTools: false,
+  autoplayPolicy: 'document-user-activation-required',
+  v8CacheOptions: 'none',
+  navigateOnDragDrop: false,
+  enableWebSQL: false,
+  transparent: false
+});
+
+function createTabView(tab) {
+  tab.rendererPolicy = { ...REMOTE_RENDERER_POLICY };
+  const view = new WebContentsView({
+    webPreferences: {
+      ...REMOTE_RENDERER_POLICY,
+      session: tab.privateSession,
+      javascript: Boolean(tab.javascriptEnabled)
+    }
+  });
+  if (typeof view.webContents.setZoomMode === 'function') view.webContents.setZoomMode('isolated');
+  return view;
+}
+
+function isFireproofOrigin(origin) {
+  if (!origin) return false;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return (settings.fireproofSites || []).some((entry) => {
+      try { const h = new URL(entry.includes('://') ? entry : `https://${entry}`).hostname.toLowerCase(); return host === h || host.endsWith(`.${h}`); } catch { return false; }
+    });
+  } catch { return false; }
+}
+
+function scheduleOriginCleanup(tab, oldOrigin, newOrigin) {
+  if (!settings.cookieAutoDelete || !oldOrigin || oldOrigin === newOrigin || isFireproofOrigin(oldOrigin)) return;
+  const oldHost = (() => { try { return registrableLike(new URL(oldOrigin).hostname); } catch { return ''; } })();
+  const newHost = (() => { try { return registrableLike(new URL(newOrigin).hostname); } catch { return ''; } })();
+  if (!oldHost || oldHost === newHost) return;
+  clearTimeout(tab.cookieCleanupTimer);
+  tab.cookieCleanupTimer = setTimeout(async () => {
+    try {
+      await tab.privateSession.clearData({ dataTypes: ['cookies','localStorage','indexedDB','serviceWorkers','cache'], origins: [oldOrigin], originMatchingMode: 'origin-in-all-contexts' });
+      tab.stats.siteDataCleanups = (tab.stats.siteDataCleanups || 0) + 1;
+      emitState();
+    } catch (err) { console.warn('Site data auto-clean failed:', err.message); }
+  }, Math.max(0, Number(settings.cookieAutoDeleteDelaySec || 0)) * 1000);
+}
+
+async function applyCosmeticFiltering(tab) {
+  if (!tab?.view?.webContents || tab.view.webContents.isDestroyed()) return false;
+  if (tab.cosmeticCssKey) {
+    try { await tab.view.webContents.removeInsertedCSS(tab.cosmeticCssKey); } catch {}
+    tab.cosmeticCssKey = '';
+  }
+  const enabled = settings.cosmeticFiltering !== false && tab.shieldsEnabled && !tab.compatibilityMode;
+  if (!enabled) { tab.cosmeticFilteringReady = false; return false; }
+  try {
+    tab.cosmeticCssKey = await tab.view.webContents.insertCSS(cosmeticCss(filterRules.cosmetic || []), { cssOrigin: 'user' });
+    tab.cosmeticFilteringReady = true;
+    return true;
+  } catch (err) {
+    tab.cosmeticFilteringReady = false;
+    console.warn('Cosmetic filtering could not be applied:', err.message);
+    return false;
+  }
+}
+
+async function applySponsorProtection(tab) {
+  if (!settings.sponsorBlock?.enabled || !tab?.url) return;
+  const videoId = youtubeVideoId(tab.url); if (!videoId) return;
+  try {
+    const segments = await fetchSponsorSegments(tab.privateSession, videoId, settings.sponsorBlock.categories);
+    if (!segments.length || tab.view.webContents.isDestroyed()) return;
+    await tab.view.webContents.executeJavaScript(sponsorSkipScript(segments), true);
+    tab.sponsorSegments = segments.length;
+    emitState();
+  } catch (err) { console.warn('Sponsor protection unavailable:', err.message); }
+}
+
+function wireTabView(tab, view) {
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    tab.stats.blockedPopups += 1;
+    emitState();
+    if (isAllowedNavigation(url)) createTab(url, true);
+    return { action: 'deny' };
+  });
+
+  view.webContents.on('context-menu', (_event, params) => showTabContextMenu(tab, params));
+
+  view.webContents.on('will-navigate', (event, legacyDetails) => {
+    const original = navigationUrl(event, legacyDetails);
+    const url = cleanNavigationUrl(original, { strip: settings.stripTrackingParams, unwrap: settings.unwrapTrackingLinks });
+    if (!url || !isAllowedNavigation(url) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) {
+      event.preventDefault(); toast(`Blocked unsafe navigation${url ? `: ${String(url).split(':')[0]}:` : '.'}`, 'danger'); return;
+    }
+    if (url !== original) {
+      event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState();
+      view.webContents.loadURL(url).catch((err) => showLoadError(tab, url, err?.errno, err?.message)); return;
+    }
+    tab.safety = settings.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+    if (tab.safety.risk >= 50) toast(`Caution: ${tab.safety.warnings[0]}`, 'warning');
+    if (shouldUpgradeHttp(url, tab.allowHttp)) {
+      event.preventDefault(); tab.stats.httpsUpgrades += 1; emitState();
+      view.webContents.loadURL(upgradeToHttps(url)).catch((err) => showLoadError(tab, upgradeToHttps(url), err?.errno, err?.message));
+    }
+  });
+
+  view.webContents.on('will-frame-navigate', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
+    const url = navigationUrl(event, legacyDetails);
+    const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
+    if (!url || !isAllowedNavigation(url) || (isMainFrame && !shouldAllowInternalNavigation(view.webContents.getURL(), url))) event.preventDefault();
+  });
+  view.webContents.on('will-redirect', (event, legacyDetails) => {
+    const original = navigationUrl(event, legacyDetails);
+    const url = cleanNavigationUrl(original, { strip: settings.stripTrackingParams, unwrap: settings.unwrapTrackingLinks });
+    if (!url || !isAllowedNavigation(url) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe redirect.', 'danger'); return; }
+    if (url !== original) { event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState(); view.webContents.loadURL(url).catch(() => {}); }
+  });
+  view.webContents.on('did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
+    const url = navigationUrl(event, legacyDetails);
+    const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
+    if (!isMainFrame || !url || String(url).startsWith('aegis://')) return;
+    const nextOrigin = safeOrigin(url);
+    if (tab.siteIntelligence?.url !== url) { resetSiteIntelligence(tab, url, nextOrigin); emitState(); }
+  });
+  view.webContents.on('did-start-loading', () => { tab.loading = true; emitState(); });
+  view.webContents.on('did-stop-loading', () => { tab.loading = false; emitState(); });
+  view.webContents.on('page-title-updated', (event, title) => {
+    event.preventDefault();
+    tab.title = String(title || 'Tab').replace(/\s+/g, ' ').slice(0, 90);
+    emitState();
+  });
+  view.webContents.on('did-navigate', (_event, url, httpResponseCode = -1, httpStatusText = '') => {
+    const oldOrigin = safeOrigin(tab.url); const newOrigin = safeOrigin(url);
+    tab.url = url; tab.topUrl = url; tab.safety = settings.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+    if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
+    tab.httpStatus = { code: httpResponseCode, text: httpStatusText }; scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
+  });
+  view.webContents.on('did-finish-load', () => { applyCosmeticFiltering(tab); applySponsorProtection(tab); });
+  view.webContents.on('did-navigate-in-page', (_event, url) => { tab.url = url; emitState(); });
+  view.webContents.on('did-fail-load', (_event, code, desc, url, isMainFrame) => {
+    if (isMainFrame && code !== -3 && !String(url || '').startsWith('aegis://')) {
+      console.error(`Page load failed ${url}: ${desc} (${code})`);
+      setTimeout(() => showLoadError(tab, url, code, desc), 0);
+    }
+  });
+  view.webContents.on('render-process-gone', (_e, details) => toast(`Tab renderer stopped: ${details.reason}`, 'danger'));
+  view.webContents.on('unresponsive', () => toast('This tab is not responding.', 'warning'));
+}
+
+async function replaceTabView(tab, javascriptEnabled) {
+  if (!tab || !tab.privateSession) return;
+
+  const previousView = tab.view;
+  const previousUrl = tab.url || previousView?.webContents?.getURL?.() || 'aegis://app/start.html';
+  const wasActive = activeId === tab.id;
+  const previousBounds = previousView?.getBounds?.();
+
+  tab.javascriptEnabled = Boolean(javascriptEnabled);
+  const nextView = createTabView(tab);
+  tab.view = nextView;
+  mainWindow.contentView.addChildView(nextView);
+  nextView.setVisible(false);
+  wireTabView(tab, nextView);
+  await installFingerprintDefenses(tab);
+
+  if (previousBounds) nextView.setBounds(previousBounds);
+  if (wasActive) nextView.setVisible(uiLayer.mode !== 'hidden');
+
+  try { mainWindow.contentView.removeChildView(previousView); } catch {}
+  try {
+    if (previousView && !previousView.webContents.isDestroyed()) previousView.webContents.close();
+  } catch {}
+
+  try { await nextView.webContents.loadURL(previousUrl); } catch {}
+  if (wasActive) {
+    relayout();
+    nextView.webContents.focus();
+  }
+  emitState();
+}
+
+async function createTab(raw = null, activate = true, waitForNavigation = false) {
+  const id = nextId++;
+  const partition = `aegis-tab-${crypto.randomUUID()}`; // no persist: prefix = memory-only session
+  const privateSession = electronSession.fromPartition(partition, { cache: false });
+  // Custom protocols are session-scoped in Electron. Every in-memory tab session
+  // must explicitly register Aegis's internal protocol before loading start/settings pages.
+  registerInternalProtocol(privateSession.protocol, `private tab ${id}`);
+
+  const tab = {
+    id,
+    view: null,
+    privateSession,
+    partition,
+    seed: freshSeed(),
+    title: 'New Private Tab',
+    url: '',
+    loading: false,
+    stats: makeTabStats(),
+    shieldsEnabled: settings.blockTrackers,
+    allowHttp: false,
+    javascriptEnabled: settings.javascriptDefault,
+    compatibilityMode: false,
+    lastError: null,
+    httpStatus: null,
+    topUrl: '',
+    safety: { risk: 0, warnings: [] },
+    fingerprintReady: false,
+    networkRoute: null,
+    sponsorSegments: 0,
+    siteIntelligence: makeSiteIntelligence(),
+    auditBinding: '',
+    auditMessageHandler: null,
+    cookieCleanupTimer: null,
+    cosmeticCssKey: '',
+    cosmeticFilteringReady: false
+  };
+
+  const view = createTabView(tab);
+  tab.view = view;
+  tabs.set(id, tab);
+  mainWindow.contentView.addChildView(view);
+  view.setVisible(false);
+
+  configurePrivacySession({
+    ses: privateSession,
+    tab,
+    getSettings: () => settings,
+    chromiumVersion: process.versions.chrome,
+    onStats: emitState,
+    onSensitiveAccess: (event) => { if (recordSiteSignal(tab, event)) emitState(); },
+    onNetworkAccess: (event) => { if (recordNetworkEvent(tab, event)) emitState(); },
+    onPermissionBlocked: ({ keys }) => {
+      const label = (keys && keys[0]) ? keys[0].replace(/([A-Z])/g, ' $1').toLowerCase() : 'permission';
+      toast(`Blocked ${label} access. Change it in Site controls if you trust this site.`, 'warning');
+    },
+    onPermissionPrompt: (payload) => queuePermissionPrompt({ ...payload, tabId: tab.id }),
+    trackerLearner,
+    getFilterRules: () => filterRules,
+    isTemporarilyAllowed: (origin, key) => isTemporarilyAllowed(tab.id, origin, key)
+  });
+  tab.permissionFirewallReady = true;
+  applySessionDownloadPolicy(tab);
+  wireTabView(tab, view);
+  if (activate) activateTab(id);
+
+  // Install new-document privacy defenses before the first remote navigation.
+  // The work remains bounded and fail-soft so browser chrome stays usable if CDP is unavailable.
+  tab.privacyReadyPromise = installFingerprintDefenses(tab).then((ready) => { emitState(); return ready; }).catch(() => false);
+
+  const target = raw || settings.homePage || 'https://duckduckgo.com/';
+  const routeMustSet = (settings.proxy?.mode || 'system') !== 'system';
+  const fixedProxy = !['system','direct'].includes(settings.proxy?.mode || 'system');
+  let routePromise = applyProxyToSession(privateSession, { freshSession: true }).then((r) => { tab.networkRoute = r; emitState(); return r; }).catch((err) => {
+    tab.networkRoute = { ok: false, warnings: [err.message] }; emitState();
+    if (fixedProxy && settings.proxy?.failClosedFixedProxy) throw err;
+    return tab.networkRoute;
+  });
+
+  const startNavigation = async () => {
+    try {
+      if (routeMustSet) await withTimeout(routePromise, 6000, 'Private network route');
+      try { await withTimeout(tab.privacyReadyPromise, 5000, 'Privacy preload'); } catch (err) { console.warn('Privacy preload did not complete before navigation (fail-soft):', err.message); }
+      tab.lastNavigationOk = await navigateTab(tab, target);
+    } catch (err) {
+      tab.lastNavigationOk = false; console.error('Initial tab navigation failed:', err);
+      await showLoadError(tab, target, 'AEGIS_NETWORK', err.message);
+      toast(`Could not open ${target}: ${err.message}`, 'danger');
+    }
+    return tab.lastNavigationOk;
+  };
+  tab.navigationPromise = startNavigation();
+  if (waitForNavigation) await tab.navigationPromise;
+  return tab;
+}
+
+async function navigateTab(tab, raw) {
+  if (!tab) return;
+  let url = normalizeInput(raw, searchTemplateFor(settings));
+  url = cleanNavigationUrl(url, { strip: settings.stripTrackingParams, unwrap: settings.unwrapTrackingLinks });
+  tab.safety = settings.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+  if (!isAllowedNavigation(url)) {
+    toast('That address uses a blocked protocol.', 'danger');
+    return false;
+  }
+  if (shouldUpgradeHttp(url, tab.allowHttp)) {
+    tab.stats.httpsUpgrades += 1;
+    url = upgradeToHttps(url);
+  }
+  try {
+    await tab.view.webContents.loadURL(url);
+    tab.lastNavigationOk = true;
+    return true;
+  } catch (err) {
+    if (err && err.code !== 'ERR_ABORTED' && err.errno !== -3) await showLoadError(tab, url, err.errno || err.code, err.message);
+    tab.lastNavigationOk = false;
+    return false;
+  }
+}
+
+function activateTab(id) {
+  const target = tabs.get(Number(id));
+  if (!target) return;
+  for (const tab of tabs.values()) tab.view.setVisible(tab.id === target.id && uiLayer.mode !== 'hidden');
+  activeId = target.id;
+  relayout();
+  emitState();
+  target.view.webContents.focus();
+}
+
+async function destroyTab(tab) {
+  if (!tab) return;
+  clearTimeout(tab.cookieCleanupTimer);
+  try {
+    await tab.view.webContents.session.clearData();
+    await tab.view.webContents.session.clearCache();
+    await tab.view.webContents.session.closeAllConnections();
+  } catch {}
+  try { mainWindow.contentView.removeChildView(tab.view); } catch {}
+  if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  tabs.delete(tab.id);
+}
+
+async function closeTab(id) {
+  const tab = tabs.get(Number(id));
+  if (!tab) return;
+  const ids = [...tabs.keys()];
+  const idx = ids.indexOf(tab.id);
+  await destroyTab(tab);
+  if (activeId === tab.id) {
+    const fallback = ids[idx + 1] ?? ids[idx - 1] ?? null;
+    activeId = null;
+    if (fallback && tabs.has(fallback)) activateTab(fallback);
+    else await createTab();
+  }
+  emitState();
+}
+
+async function newIdentity() {
+  const oldTabs = [...tabs.values()];
+  activeId = null;
+  for (const tab of oldTabs) await destroyTab(tab);
+  identitySeed = freshSeed();
+  trackerLearner.reset();
+  temporaryPermissions.clear();
+  nextId = 1;
+  if (settings.clearClipboardOnNewIdentity) {
+    try { clipboard.clear(); } catch {}
+  }
+  await createTab(settings.homePage || 'https://duckduckgo.com/');
+  toast('New identity created. All tab sessions, storage, cache, and connections were destroyed.', 'success');
+}
+
+async function clearTabData(tab, reload = true) {
+  if (!tab) return;
+  try {
+    await tab.view.webContents.session.clearData();
+    await tab.view.webContents.session.clearCache();
+    await tab.view.webContents.session.closeAllConnections();
+    clearTemporaryPermissionsForOrigin(safeOrigin(tab.url), tab.id);
+    tab.stats = makeTabStats();
+    if (reload && tab.url) tab.view.webContents.reload();
+    emitState();
+    toast('Current tab data cleared.', 'success');
+  } catch (err) {
+    toast(`Could not clear tab data: ${err.message}`, 'danger');
+  }
+}
+
+async function clearAllData() {
+  for (const tab of tabs.values()) await clearTabData(tab, false);
+  const tab = activeTab();
+  if (tab?.url) tab.view.webContents.reload();
+  toast('All active tab storage and caches cleared.', 'success');
+}
+
+function applySitePermission(origin, key, value) {
+  if (!origin || !['allow', 'block'].includes(value)) return false;
+  try {
+    const u = new URL(origin);
+    if (!['http:', 'https:'].includes(u.protocol) || u.origin !== origin) return false;
+  } catch { return false; }
+  const allowedKeys = Object.keys(settings.permissionDefaults);
+  if (!allowedKeys.includes(key)) return false;
+  settings.sitePermissions[origin] = { ...(settings.sitePermissions[origin] || {}), [key]: value };
+  saveSettings();
+  emitState();
+  return true;
+}
+
+function hardenTab(tab) {
+  if (!tab) return false;
+  tab.shieldsEnabled = true;
+  tab.compatibilityMode = false;
+  tab.allowHttp = false;
+  const origin = safeOrigin(tab.url);
+  if (origin) {
+    const hardened = { ...(settings.sitePermissions[origin] || {}) };
+    for (const key of ['camera','microphone','geolocation','notifications','clipboardRead','displayCapture','midi','usb','serial','hid']) {
+      clearTemporaryPermission(tab.id, origin, key);
+      hardened[key] = 'block';
+    }
+    settings.sitePermissions[origin] = hardened;
+    saveSettings();
+  }
+  applyCosmeticFiltering(tab).finally(emitState);
+  try { tab.view.webContents.reload(); } catch {}
+  toast(origin ? `Hardened ${new URL(origin).hostname}: full shields, HTTPS-first, compatibility off, sensitive permissions blocked.` : 'Current tab hardened.', 'success');
+  return true;
+}
+
+function openBrowserUi(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('ui:open', payload || {});
+}
+
+function normalizedContextLink(raw) {
+  const value = String(raw || '');
+  if (!/^https?:\/\//i.test(value)) return '';
+  const cleaned = cleanNavigationUrl(value, { strip: settings.stripTrackingParams, unwrap: settings.unwrapTrackingLinks });
+  return /^https?:\/\//i.test(cleaned || '') ? cleaned : '';
+}
+
+function showTabContextMenu(tab, params = {}) {
+  if (!tab || !mainWindow || mainWindow.isDestroyed()) return;
+  const link = normalizedContextLink(params.linkURL);
+  const selectedText = String(params.selectionText || '').trim().slice(0, 4000);
+  const template = [];
+  if (link) {
+    template.push(
+      { label: 'Open Link in New Isolated Tab', click: () => createTab(link, true) },
+      { label: 'Copy Clean Link', click: () => clipboard.writeText(link) }
+    );
+  } else if (selectedText) {
+    template.push({ label: 'Copy', role: 'copy' });
+  }
+  if (template.length) template.push({ type: 'separator' });
+  template.push(
+    { label: 'Site Privacy Inspector', click: () => openBrowserUi({ panel: 'privacyPanel' }) },
+    { label: 'Harden This Site', enabled: Boolean(safeOrigin(tab.url)), click: () => hardenTab(tab) },
+    { label: 'Clear This Tab Data', click: () => clearTabData(tab) },
+    { type: 'separator' },
+    { label: 'Security Suite & Verification', click: () => openBrowserUi({ settingsPage: 'diagnostics' }) }
+  );
+  Menu.buildFromTemplate(template).popup({ window: mainWindow });
+}
+
+async function awaitCosmeticRefresh() {
+  await Promise.allSettled([...tabs.values()].map((tab) => applyCosmeticFiltering(tab)));
+}
+
+function wireIpc() {
+  ipcMain.handle('state:get', (event) => assertUiSender(event) ? statePayload() : null);
+  ipcMain.handle('settings:get', (event) => assertUiSender(event) ? settings : null);
+  ipcMain.on('ui:layer', (event, payload) => { if (assertUiSender(event)) applyUiLayer(payload); });
+  ipcMain.handle('network:test', (event) => assertUiSender(event) ? runNetworkTest() : { ok: false, error: 'IPC sender denied' });
+  ipcMain.handle('security-suite:run', (event) => assertUiSender(event) ? runSecuritySuite() : { testedAt: new Date().toISOString(), checks: [], summary: { pass: 0, warning: 0, info: 0, fail: 0, 'not-tested': 0, total: 0 }, error: 'IPC sender denied' });
+
+  ipcMain.on('nav', (event, value) => { if (assertUiSender(event)) navigateTab(activeTab(), value); });
+  ipcMain.on('tab:new', (event, value) => { if (assertUiSender(event)) createTab(value || settings.homePage || 'https://duckduckgo.com/'); });
+  ipcMain.on('tab:close', (event, id) => { if (assertUiSender(event)) closeTab(id); });
+  ipcMain.on('tab:activate', (event, id) => { if (assertUiSender(event)) activateTab(id); });
+  ipcMain.on('tab:duplicate', (event) => {
+    if (!assertUiSender(event)) return;
+    const tab = activeTab();
+    createTab(tab?.url || 'aegis://app/start.html');
+  });
+  ipcMain.on('tab:command', (event, command) => {
+    if (!assertUiSender(event)) return;
+    const tab = activeTab();
+    if (!tab) return;
+    const nav = tab.view.webContents.navigationHistory;
+    if (command === 'back' && nav.canGoBack()) nav.goBack();
+    else if (command === 'forward' && nav.canGoForward()) nav.goForward();
+    else if (command === 'reload') tab.loading ? tab.view.webContents.stop() : tab.view.webContents.reload();
+    else if (command === 'home') navigateTab(tab, settings.homePage || 'https://duckduckgo.com/');
+  });
+
+  ipcMain.on('identity:new', (event) => { if (assertUiSender(event)) newIdentity(); });
+  ipcMain.on('data:clear-tab', (event) => { if (assertUiSender(event)) clearTabData(activeTab()); });
+  ipcMain.on('data:clear-all', (event) => { if (assertUiSender(event)) clearAllData(); });
+  ipcMain.on('bookmark:toggle', (event) => {
+    if (!assertUiSender(event)) return;
+    const added = toggleBookmark(activeTab());
+    toast(added ? 'Bookmark saved locally.' : 'Bookmark removed.', 'success');
+  });
+  ipcMain.on('bookmark:open', (event, url) => { if (assertUiSender(event) && /^https?:\/\//.test(String(url || ''))) createTab(url); });
+  ipcMain.on('bookmark:remove', (event, id) => {
+    if (!assertUiSender(event)) return;
+    bookmarks = bookmarks.filter((x) => x.id !== String(id || ''));
+    saveBookmarks(); emitState();
+  });
+  ipcMain.on('downloads:clear', (event) => {
+    if (!assertUiSender(event)) return;
+    downloads = downloads.filter((x) => activeDownloadItems.has(x.id));
+    emitState();
+  });
+  ipcMain.on('download:cancel', (event, id) => {
+    if (!assertUiSender(event)) return;
+    const item = activeDownloadItems.get(String(id || ''));
+    if (item) item.cancel();
+  });
+  ipcMain.on('download:reveal', (event, id) => {
+    if (!assertUiSender(event)) return;
+    const rec = downloads.find((x) => x.id === id);
+    if (rec?.path && fs.existsSync(rec.path)) shell.showItemInFolder(rec.path);
+  });
+
+
+  ipcMain.on('shields:set', (event, enabled) => {
+    if (!assertUiSender(event)) return;
+    const tab = activeTab();
+    if (!tab) return;
+    tab.shieldsEnabled = Boolean(enabled);
+    applyCosmeticFiltering(tab).finally(emitState);
+  });
+  ipcMain.on('javascript:set', (event, enabled) => {
+    if (!assertUiSender(event)) return;
+    const tab = activeTab();
+    if (!tab) return;
+    replaceTabView(tab, Boolean(enabled)).catch((err) => {
+      console.error('Could not change JavaScript policy:', err);
+      toast(`Could not change JavaScript policy: ${err.message}`, 'danger');
+    });
+  });
+  ipcMain.on('http:set', (event, enabled) => {
+    if (!assertUiSender(event)) return;
+    const tab = activeTab();
+    if (!tab) return;
+    tab.allowHttp = Boolean(enabled);
+    emitState();
+  });
+  ipcMain.on('compatibility:set', (event, enabled) => {
+    if (!assertUiSender(event)) return;
+    const tab = activeTab();
+    if (!tab) return;
+    tab.compatibilityMode = Boolean(enabled);
+    emitState();
+    tab.view.webContents.reload();
+    toast(tab.compatibilityMode ? 'Compatibility mode enabled for this tab. Core sandbox and permission protections remain active.' : 'Full privacy filtering restored for this tab.', 'success');
+  });
+
+  ipcMain.on('site:harden', (event) => {
+    if (!assertUiSender(event)) return;
+    hardenTab(activeTab());
+  });
+
+  ipcMain.on('permission:respond', (event, response) => {
+    if (!assertUiSender(event) || !response || typeof response !== 'object') return;
+    if (!['allow-once', 'allow-10m', 'allow-always', 'block-once', 'block-always'].includes(response.action)) return;
+    resolvePermissionPrompt(response.id, response.action);
+  });
+
+  ipcMain.on('site-permission:set', (event, patch) => {
+    if (!assertUiSender(event) || !patch || typeof patch !== 'object') return;
+    const tab = activeTab();
+    const origin = safeOrigin(tab?.url);
+    const key = String(patch.key || '');
+    if (!origin || !Object.keys(settings.permissionDefaults).includes(key)) return;
+    clearTemporaryPermissionsForOrigin(origin);
+    if (patch.value === 'default') {
+      if (settings.sitePermissions[origin]) {
+        delete settings.sitePermissions[origin][key];
+        if (!Object.keys(settings.sitePermissions[origin]).length) delete settings.sitePermissions[origin];
+      }
+      saveSettings(); emitState();
+      toast(`Site permission reset to the global default for ${new URL(origin).hostname}.`, 'success');
+      return;
+    }
+    if (applySitePermission(origin, key, patch.value)) {
+      toast(`Site permission updated for ${new URL(origin).hostname}.`, 'success');
+    }
+  });
+  ipcMain.on('site-permission:reset', (event) => {
+    if (!assertUiSender(event)) return;
+    const origin = safeOrigin(activeTab()?.url);
+    if (origin) clearTemporaryPermissionsForOrigin(origin);
+    if (origin && settings.sitePermissions[origin]) {
+      delete settings.sitePermissions[origin];
+      saveSettings();
+      emitState();
+      toast('Site permission exceptions reset.', 'success');
+    }
+  });
+
+  ipcMain.on('settings:profile', (event, level) => {
+    if (!assertUiSender(event) || !['standard', 'strict', 'maximum'].includes(level)) return;
+    settings = sanitizeSettings({ ...settings, ...profileDefaults(level) });
+    saveSettings();
+    relayout();
+    awaitCosmeticRefresh();
+    emitState();
+    toast(`${level[0].toUpperCase() + level.slice(1)} privacy profile applied. Live filtering updated; open a new tab for all fingerprint changes.`, 'success');
+  });
+
+  ipcMain.on('settings:reset', async (event) => {
+    if (!assertUiSender(event)) return;
+    settings = sanitizeSettings(cloneDefaults());
+    filterRules = parseFilterRules(settings.customFilterRules || '');
+    saveSettings();
+    relayout();
+    await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session)));
+    await awaitCosmeticRefresh();
+    emitState();
+    toast('Aegis settings restored to hardened defaults.', 'success');
+  });
+
+  ipcMain.on('settings:update', async (event, patch) => {
+    if (!assertUiSender(event) || !patch || typeof patch !== 'object') return;
+    const siteIntelligenceWasEnabled = settings.siteIntelligence !== false;
+    settings = sanitizeSettings({
+      ...settings,
+      ...patch,
+      proxy: { ...settings.proxy, ...(patch.proxy || {}) },
+      permissionDefaults: { ...settings.permissionDefaults, ...(patch.permissionDefaults || {}) },
+      appearance: { ...settings.appearance, ...(patch.appearance || {}) },
+      sitePermissions: settings.sitePermissions
+    });
+    filterRules = parseFilterRules(settings.customFilterRules || '');
+    saveSettings();
+    relayout();
+    const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session)));
+    const proxyFailures = proxyResults.filter((result) => result.status === 'rejected').length;
+    await awaitCosmeticRefresh();
+    if (!siteIntelligenceWasEnabled && settings.siteIntelligence !== false) {
+      await Promise.allSettled([...tabs.values()].map(async (tab) => {
+        await installFingerprintDefenses(tab);
+        if (tab.auditBinding && tab.url && !String(tab.url).startsWith('aegis://')) {
+          try { await tab.view.webContents.executeJavaScript(buildSiteAuditScript({ bindingName: tab.auditBinding }), false); } catch {}
+        }
+      }));
+    } else if (siteIntelligenceWasEnabled && settings.siteIntelligence === false) {
+      for (const tab of tabs.values()) resetSiteIntelligence(tab, tab.url, safeOrigin(tab.url));
+    }
+    emitState();
+    toast(proxyFailures
+      ? `Settings saved, but ${proxyFailures} tab network session${proxyFailures === 1 ? '' : 's'} could not apply the new routing. Run Diagnostics.`
+      : 'Settings saved. Network controls are live; fingerprint-profile changes fully apply to new tabs.', proxyFailures ? 'warning' : 'success');
+  });
+}
+
+async function createMainWindow() {
+  startupLog('Creating browser window.');
+  mainWindow = new BrowserWindow({
+    width: 1500,
+    height: 940,
+    minWidth: 1040,
+    minHeight: 700,
+    center: true,
+    title: 'Aegis Privacy Browser',
+    backgroundColor: '#0a0d14',
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      devTools: false
+    }
+  });
+
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.on('resize', relayout);
+  mainWindow.on('maximize', relayout);
+  mainWindow.on('unmaximize', relayout);
+  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('unresponsive', () => toast('Aegis UI is not responding.', 'warning'));
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Aegis browser chrome renderer stopped:', details);
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame && code !== -3) console.error(`Browser chrome failed to load ${url}: ${description} (${code})`);
+  });
+
+  await withTimeout(mainWindow.loadURL('aegis://app/index.html'), 10000, 'Browser chrome load');
+  startupLog('Browser chrome loaded.');
+  uiLayer = { mode: 'none', reserveRight: 0 };
+
+  // Make the shell visible before creating the first isolated tab. If a tab/session
+  // initialization ever fails, Aegis still opens and can display diagnostics.
+  mainWindow.show();
+  mainWindow.focus();
+  if (process.platform === 'darwin') {
+    app.show();
+    app.focus({ steal: true });
+  }
+  startupLog('Browser window opened successfully.');
+
+  try {
+    const smokeUrl = process.env.AEGIS_SMOKE_TEST_URL || settings.homePage || 'https://duckduckgo.com/';
+    const firstTab = await withTimeout(createTab(smokeUrl, true, Boolean(process.env.AEGIS_SMOKE_TEST_URL)), process.env.AEGIS_SMOKE_TEST_URL ? 25000 : 7000, 'First private tab initialization');
+    if (process.env.AEGIS_SMOKE_TEST_URL && firstTab.lastNavigationOk !== true) throw new Error(`External website smoke test failed: ${process.env.AEGIS_SMOKE_TEST_URL}`);
+    startupLog('First private tab initialized.');
+    if (process.env.AEGIS_SMOKE_TEST_URL) startupLog(`External website smoke test passed: ${process.env.AEGIS_SMOKE_TEST_URL}`);
+    if (process.env.AEGIS_SMOKE_TEST === '1') {
+      startupLog('Smoke test passed; exiting cleanly.');
+      setTimeout(() => app.quit(), 700);
+    }
+  } catch (err) {
+    console.error('First private tab initialization failed:', err);
+    toast(`Private tab startup failed: ${err.message}`, 'danger');
+    if (process.env.AEGIS_SMOKE_TEST === '1') setTimeout(() => app.exit(2), 300);
+  }
+}
+
+app.whenReady().then(async () => {
+  startupLog(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; ${process.platform}/${process.arch}.`);
+  loadSettings();
+  saveSettings(); // persist schema migrations and sanitized network defaults
+  loadBookmarks();
+
+  registerInternalProtocol(protocol, 'default UI session');
+
+  wireIpc();
+  await createMainWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createMainWindow().catch((err) => console.error('Aegis window creation failed:', err));
+    }
+  });
+}).catch((err) => {
+  console.error('Aegis fatal startup error:', err);
+  try {
+    dialog.showErrorBox(
+      'Aegis could not start',
+      `${err?.message || err}
+
+Run Diagnose-Aegis.command for local startup details.`
+    );
+  } catch {}
+  app.exit(1);
+});
+
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (process.platform === 'darwin') app.focus({ steal: true });
+});
+
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => {
+  for (const [id, pending] of pendingPermissions) {
+    clearTimeout(pending.timer);
+    try { pending.complete(false); } catch {}
+    pendingPermissions.delete(id);
+  }
+  for (const tab of tabs.values()) {
+    try {
+      tab.view.webContents.session.clearData();
+      tab.view.webContents.session.clearCache();
+      tab.view.webContents.session.closeAllConnections();
+    } catch {}
+  }
+});
+
+process.on('uncaughtException', (err) => console.error('Aegis error:', err));
+process.on('unhandledRejection', (err) => console.error('Aegis rejected promise:', err));
