@@ -102,6 +102,7 @@ function bool(value, fallback) { return typeof value === 'boolean' ? value : fal
 function choice(value, allowed, fallback) { return allowed.includes(value) ? value : fallback; }
 function clampText(value, max = 240) { return typeof value === 'string' ? value.trim().slice(0, max) : ''; }
 function clampNumber(value, min, max, fallback) { const n = Number(value); return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback; }
+function clampLines(value, maxItems = 200, maxLen = 220) { return listStrings(value, maxItems, maxLen); }
 function listStrings(value, maxItems = 200, maxLen = 220) { return Array.isArray(value) ? [...new Set(value.filter((v) => typeof v === 'string').map((v) => v.trim().slice(0, maxLen)).filter(Boolean))].slice(0, maxItems) : []; }
 
 function sanitizePermissionDefaults(raw) {
