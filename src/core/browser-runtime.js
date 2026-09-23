@@ -23,7 +23,7 @@ function createBrowserRuntime(engine){
   windows:(view,handler)=>engine.setWindowOpenPolicy(view,handler),
   certificates:(view,handler)=>engine.onCertificateError(view,handler),
   destroyed:(view)=>engine.isDestroyed(view), load:(view,url,options)=>engine.loadURL(view,url,options), url:(view)=>engine.getURL(view), on:(view,event,handler)=>engine.on(view,event,handler),
-  reload:(view)=>engine.reload(view), stop:(view)=>engine.stop(view), focus:(view)=>engine.focus(view), zoomMode:(view,mode)=>engine.setZoomMode(view,mode), history:(view)=>engine.navigationHistory(view), sessionOf:(view)=>engine.sessionOf(view),
+  reload:(view)=>engine.reload(view), stop:(view)=>engine.stop(view), focus:(view)=>engine.focus(view), zoomMode:(view,mode)=>engine.setZoomMode(view,mode), bounds:(view,bounds)=>engine.setBounds(view,bounds), getBounds:(view)=>engine.getBounds(view), visible:(view,value)=>engine.setVisible(view,value), history:(view)=>engine.navigationHistory(view), sessionOf:(view)=>engine.sessionOf(view),
   clearData:(ses,options)=>engine.clearSessionData(ses,options), clearCache:(ses)=>engine.clearSessionCache(ses), closeConnections:(ses)=>engine.closeSessionConnections(ses),
   removeCSS:(view,key)=>engine.removeInsertedCSS(view,key), close:(view)=>engine.closeView(view)
  });
