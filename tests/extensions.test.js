@@ -711,35 +711,41 @@ test('MV2 webRequestBlocking is bounded and compatibility-hosted', () => {
 });
 
 
-test('Privacy Badger shaped MV3 profile keeps DNR scripting and all-frames capabilities hosted', () => {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-pb-mv3-')),extRoot=path.join(root,'extensions','privacy-badger');
+test('Privacy Badger 2026.9.15 MV2 profile boots with its required Chrome APIs hosted', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-pb-mv2-')),extRoot=path.join(root,'extensions','privacy-badger');
   try{
     fs.mkdirSync(extRoot,{recursive:true});
     const manifest={
-      manifest_version:3,name:'Privacy Badger',version:'2026.9.15',
-      permissions:['alarms','declarativeNetRequest','privacy','scripting','storage','tabs','webNavigation','webRequest'],
-      host_permissions:['<all_urls>'],
-      background:{service_worker:'background.js'},
-      action:{default_popup:'popup.html'},
-      content_scripts:[{matches:['<all_urls>'],all_frames:true,run_at:'document_start',js:['content.js']}]
+      manifest_version:2,name:'Privacy Badger',version:'2026.9.15',
+      permissions:['<all_urls>','alarms','cookies','privacy','scripting','storage','tabs','webNavigation','webRequest','webRequestBlocking'],
+      background:{page:'background.html'},
+      browser_action:{default_popup:'skin/popup.html'},
+      content_scripts:[{matches:['<all_urls>'],all_frames:true,run_at:'document_start',js:['js/contentscripts/utils.js']}]
     };
     fs.writeFileSync(path.join(extRoot,'manifest.json'),JSON.stringify(manifest));
-    fs.writeFileSync(path.join(extRoot,'background.js'),'');
-    fs.writeFileSync(path.join(extRoot,'popup.html'),'<!doctype html>');
-    fs.writeFileSync(path.join(extRoot,'content.js'),'');
-    const report=compatibility(manifest,['runtime','storage','tabs','scripting','webNavigation','webRequest','declarativeNetRequest','privacy']);
-    for(const api of ['runtime','storage','tabs','scripting','webNavigation','webRequest','declarativeNetRequest','privacy']){
-      assert.equal(report.unsupported.some((x)=>x.api===api),false,api+' should remain hosted');
-    }
+    fs.writeFileSync(path.join(extRoot,'background.html'),'<!doctype html><script type="module" src="js/background.js"></script>');
+    fs.mkdirSync(path.join(extRoot,'js','contentscripts'),{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'js','background.js'),'');
+    fs.writeFileSync(path.join(extRoot,'js','contentscripts','utils.js'),'');
+    fs.mkdirSync(path.join(extRoot,'skin'),{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'skin','popup.html'),'<!doctype html>');
+    const roots=['runtime','storage','tabs','cookies','privacy','scripting','webNavigation','webRequest','webRequestBlocking','browserAction','alarms'];
+    const report=compatibility(manifest,roots);
+    for(const api of roots)assert.equal(report.unsupported.some((x)=>x.api===api),false,api+' should remain hosted');
+    assert.equal(report.background,'sandboxed-page');
     assert.ok(report.warnings.some((x)=>x.api==='content_scripts.all_frames'));
-    const tab={id:1,url:'https://site.example/',topUrl:'https://site.example/',securityDomain:'private',disableExtensions:false};
-    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[tab],getActiveId:()=>1,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{},getSettings:()=>({})});
-    const e={id:'privacy-badger',path:extRoot,enabled:true,manifest,detectedApis:[],compatibility:report};
+
+    const sender={};
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{},getSettings:()=>({})});
+    const e={id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp',path:extRoot,resourceToken:'pb-token',enabled:true,manifest,detectedApis:roots,compatibility:report};
     runtime.items.set(e.id,e);
-    runtime.updateDnrRules(e,'dynamic',{addRules:[{id:42,priority:1,action:{type:'block'},condition:{urlFilter:'||tracker.example^',resourceTypes:['script']}}]});
-    const decision=runtime.networkDecision(tab,{url:'https://tracker.example/pixel.js',resourceType:'script',method:'GET'});
-    assert.equal(decision?.action,'block');
-    assert.equal(decision?.ruleId,42);
+    runtime.backgroundHosts.set(e.id,{isDestroyed:()=>false,webContents:sender});
+    const bootstrapData=runtime.pageBootstrapData(sender,e.id,'background');
+    assert.equal(bootstrapData.manifest.background.page,'background.html');
+    assert.equal(bootstrapData.manifest.version,'2026.9.15');
+
+    const cookies=await runtime.call(sender,{extensionId:e.id,method:'cookies.getAll',args:[{firstPartyDomain:null}]});
+    assert.deepEqual(cookies,[]);
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
@@ -769,5 +775,21 @@ test('large extension manifests bootstrap over authenticated IPC instead of comm
     assert.equal(bootstrapData.manifest.background.service_worker,'background.js');
     assert.equal(bootstrapData.manifest.content_scripts[0].matches.length,3000);
     assert.equal(bootstrapData.resourceToken,'large-token');
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
+
+test('renderer error diagnostics retain stack context for authenticated extension pages', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-ext-errors-'));
+  try{
+    const sender={},runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const manifest={manifest_version:2,name:'Runtime Errors',version:'1',background:{page:'background.html'}};
+    const e={id:'runtime-errors',path:root,resourceToken:'token',enabled:true,manifest,detectedApis:[],compatibility:compatibility(manifest)};
+    runtime.items.set(e.id,e);
+    runtime.backgroundHosts.set(e.id,{isDestroyed:()=>false,webContents:sender});
+    assert.equal(runtime.recordRendererError(sender,{extensionId:e.id,context:'background',message:'boom',stack:'TypeError: boom\n at js/utils.js:26:10'}),true);
+    const health=runtime.healthFor(e.id);
+    assert.match(health.errors[0].message,/js\/utils\.js:26/);
+    assert.equal(health.errors[0].scope,'background-runtime');
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
