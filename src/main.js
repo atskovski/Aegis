@@ -348,7 +348,7 @@ async function runSecuritySuite() {
       rendererOk
         ? 'Active web renderer is sandboxed with context isolation, Node disabled, webSecurity enabled, and DevTools disabled.'
         : 'One or more required renderer-isolation controls are not active.', 'runtime-policy'));
-    const processIsolation = await testProcessIsolation((source)=>tab.view.webContents.executeJavaScript(source,true), policy);
+    const processIsolation = await testProcessIsolation((source)=>browserRuntime.evaluate(tab.view,source,true), policy);
     checks.push(makeCheck('process-isolation-behavior', 'Process / Node isolation behavior', processIsolation.status, processIsolation.evidence, 'behavioral-test'));
     checks.push(makeCheck('permission-firewall', 'Permission firewall', tab.permissionFirewallReady ? 'pass' : 'fail',
       tab.permissionFirewallReady ? 'Permission request and permission check handlers are installed for this private tab session.' : 'Permission handlers are not confirmed for the active tab.', 'runtime-policy'));
@@ -360,7 +360,7 @@ async function runSecuritySuite() {
     checks.push(makeCheck('https-first', 'HTTPS-first navigation', (!tab.allowHttp && !String(tab.url || '').startsWith('http://')) ? 'pass' : 'fail',
       (!tab.allowHttp && !String(tab.url || '').startsWith('http://')) ? 'HTTP downgrade is not enabled for this tab.' : 'This tab currently allows or is using insecure HTTP.', 'runtime'));
 
-    const surface = await inspectPrivacySurfaces((source) => tab.view.webContents.executeJavaScript(source, true));
+    const surface = await inspectPrivacySurfaces((source) => browserRuntime.evaluate(tab.view,source, true));
     if (surface.status === 'pass') {
       const v = surface.values || {};
       const guardedSurfacesHidden = !v.bluetooth && !v.usb && !v.serial && !v.hid && !v.localFonts && !v.joinAdInterestGroup && !v.runAdAuction && !v.privateToken;
@@ -386,8 +386,8 @@ async function runSecuritySuite() {
     }
 
     if (effective.privacyLevel !== 'standard' && tab.javascriptEnabled !== false) {
-      const fpOne = await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true));
-      const fpTwo = await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true));
+      const fpOne = await captureFingerprintSnapshot((source) => browserRuntime.evaluate(tab.view,source, true));
+      const fpTwo = await captureFingerprintSnapshot((source) => browserRuntime.evaluate(tab.view,source, true));
       if (fpOne.status === 'pass' && fpTwo.status === 'pass') {
         const stability = compareFingerprintSnapshots(fpOne, fpTwo);
         checks.push(makeCheck('fingerprint-stability', 'Fingerprint surface stability', stability.status, stability.evidence, 'behavioral-test'));
@@ -406,7 +406,7 @@ async function runSecuritySuite() {
       checks.push(makeCheck('fingerprint-coherence', 'Fingerprint cohort coherence', 'info', 'JavaScript is disabled; network-visible identity is evaluated separately from script-visible surfaces.', 'behavioral-test'));
     }
 
-    const webrtc = await testWebRtcLeakSurface((source) => tab.view.webContents.executeJavaScript(source, true));
+    const webrtc = await testWebRtcLeakSurface((source) => browserRuntime.evaluate(tab.view,source, true));
     const webrtcStatus = effective.disableWebRtc && webrtc.status === 'not-tested' ? 'pass' : webrtc.status;
     const webrtcEvidence = effective.disableWebRtc && webrtc.status === 'not-tested'
       ? 'WebRTC is removed from the anonymous compartment, so no peer-connection candidate surface is available.'
@@ -480,12 +480,12 @@ async function runSecuritySuite() {
       candidate?.javascriptEnabled !== false &&
       candidate?.fingerprintReady &&
       candidate?.view?.webContents &&
-      !candidate.view.webContents.isDestroyed()
+      !browserRuntime.destroyed(candidate.view)
     ).slice(0, 2);
     if (liveTabs.length) {
-      const samples = [await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true))];
+      const samples = [await captureFingerprintSnapshot((source) => browserRuntime.evaluate(tab.view,source, true))];
       for (const candidate of liveTabs) {
-        samples.push(await captureFingerprintSnapshot((source) => candidate.view.webContents.executeJavaScript(source, true)));
+        samples.push(await captureFingerprintSnapshot((source) => browserRuntime.evaluate(candidate.view,source, true)));
       }
       const cohort = compareFingerprintCohort(samples);
       checks.push(makeCheck('cross-tab-cohort', 'Cross-tab fingerprint cohort', cohort.status, cohort.evidence, 'behavioral-test'));
@@ -572,7 +572,7 @@ async function showLoadError(tab, raw, code, description) {
   emitState();
   const effective = tabSettings(tab);
   const offerHttp = effective.compatibilityAssistance && !effective.anonymousRouteRequired && tab.securityDomain !== 'hardened' && failedHttpsCanOfferHttp(raw, code);
-  try { await tab.view.webContents.loadURL(errorPageUrl(raw, code, description, offerHttp)); } catch {}
+  try { await browserRuntime.load(tab.view,errorPageUrl(raw, code, description, offerHttp)); } catch {}
 }
 
 function assertUiSender(event) {
@@ -582,7 +582,7 @@ function assertUiSender(event) {
 function activeTab() { return tabs.get(activeId); }
 
 function serializeTab(tab) {
-  const nav = tab.view.webContents.navigationHistory;
+  const nav = browserRuntime.history(tab.view);
   return {
     id: tab.id,
     title: tab.title,
@@ -795,7 +795,7 @@ async function installFingerprintDefenses(tab) {
 
 
 function applySessionDownloadPolicy(tab) {
-  browserRuntime.downloads(tab.view.webContents.session, (event, item) => {
+  browserRuntime.downloads(browserRuntime.sessionOf(tab.view), (event, item) => {
     const effective = tabSettings(tab);
     const filename = item.getFilename();
     if (effective.blockAllDownloads) {
@@ -914,9 +914,9 @@ function scheduleOriginCleanup(tab, oldOrigin, newOrigin) {
 }
 
 async function applyCosmeticFiltering(tab) {
-  if (!tab?.view?.webContents || tab.view.webContents.isDestroyed()) return false;
+  if (!tab?.view?.webContents || browserRuntime.destroyed(tab.view)) return false;
   if (tab.cosmeticCssKey) {
-    try { await tab.view.webContents.removeInsertedCSS(tab.cosmeticCssKey); } catch {}
+    try { await browserRuntime.removeCSS(tab.view,tab.cosmeticCssKey); } catch {}
     tab.cosmeticCssKey = '';
   }
   const effective = tabSettings(tab);
@@ -925,7 +925,7 @@ async function applyCosmeticFiltering(tab) {
   try {
     let cosmeticHost='';try{cosmeticHost=new URL(tab.url||'').hostname;}catch{}
     const customSelectors=cosmeticSelectorsForHost(cosmeticHost,filterRules);
-    tab.cosmeticCssKey = await tab.view.webContents.insertCSS(cosmeticCss(customSelectors), { cssOrigin: 'user' });
+    tab.cosmeticCssKey = await browserRuntime.css(tab.view,cosmeticCss(customSelectors), { cssOrigin: 'user' });
     tab.cosmeticFilteringReady = true;
     return true;
   } catch (err) {
@@ -941,8 +941,8 @@ async function applySponsorProtection(tab) {
   const videoId = youtubeVideoId(tab.url); if (!videoId) return;
   try {
     const segments = await fetchSponsorSegments(tab.privateSession, videoId, effective.sponsorBlock.categories);
-    if (!segments.length || tab.view.webContents.isDestroyed()) return;
-    await tab.view.webContents.executeJavaScript(sponsorSkipScript(segments), true);
+    if (!segments.length || browserRuntime.destroyed(tab.view)) return;
+    await browserRuntime.evaluate(tab.view,sponsorSkipScript(segments), true);
     tab.sponsorSegments = segments.length;
     emitState();
   } catch (err) { console.warn('Sponsor protection unavailable:', err.message); }
@@ -967,13 +967,13 @@ function wireTabView(tab, view) {
     }
     if (url !== original) {
       event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState();
-      view.webContents.loadURL(url).catch((err) => showLoadError(tab, url, err?.errno, err?.message)); return;
+      browserRuntime.load(view,url).catch((err) => showLoadError(tab, url, err?.errno, err?.message)); return;
     }
     tab.safety = effective.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
     if (tab.safety.risk >= 50) toast(`Caution: ${tab.safety.warnings[0]}`, 'warning');
     if (shouldUpgradeHttp(url, tab.allowHttp)) {
       event.preventDefault(); tab.stats.httpsUpgrades += 1; emitState();
-      view.webContents.loadURL(upgradeToHttps(url)).catch((err) => showLoadError(tab, upgradeToHttps(url), err?.errno, err?.message));
+      browserRuntime.load(view,upgradeToHttps(url)).catch((err) => showLoadError(tab, upgradeToHttps(url), err?.errno, err?.message));
     }
   });
 
@@ -988,7 +988,7 @@ function wireTabView(tab, view) {
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
     const managed=evaluateUrl(url, settings);
     if (!url || !isAllowedNavigation(url) || !managed.allowed || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe or enterprise-restricted redirect.', 'danger'); return; }
-    if (url !== original) { event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState(); view.webContents.loadURL(url).catch(() => {}); }
+    if (url !== original) { event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState(); browserRuntime.load(view,url).catch(() => {}); }
   });
   view.webContents.on('did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
     const url = navigationUrl(event, legacyDetails);
@@ -1090,13 +1090,13 @@ async function replaceTabView(tab, javascriptEnabled) {
 
   browserRuntime.unmount(mainWindow,previousView);
   try {
-    if (previousView && !previousView.webContents.isDestroyed()) previousView.webContents.close();
+    if (previousView && !browserRuntime.destroyed(previousView)) browserRuntime.close(previousView);
   } catch {}
 
-  try { await nextView.webContents.loadURL(previousUrl); } catch {}
+  try { await browserRuntime.load(nextView,previousUrl); } catch {}
   if (wasActive) {
     relayout();
-    nextView.webContents.focus();
+    browserRuntime.focus(nextView);
   }
   emitState();
 }
@@ -1236,7 +1236,7 @@ async function navigateTab(tab, raw) {
     url = upgradeToHttps(url);
   }
   try {
-    await tab.view.webContents.loadURL(url);
+    await browserRuntime.load(tab.view,url);
     tab.lastNavigationOk = true;
     return true;
   } catch (err) {
@@ -1253,19 +1253,19 @@ function activateTab(id) {
   activeId = target.id;
   relayout();
   emitState();
-  target.view.webContents.focus();
+  browserRuntime.focus(target.view);
 }
 
 async function destroyTab(tab) {
   if (!tab) return;
   clearTimeout(tab.cookieCleanupTimer);
   try {
-    await tab.view.webContents.session.clearData();
-    await tab.view.webContents.session.clearCache();
-    await tab.view.webContents.session.closeAllConnections();
+    await browserRuntime.sessionOf(tab.view).clearData();
+    await browserRuntime.sessionOf(tab.view).clearCache();
+    await browserRuntime.sessionOf(tab.view).closeAllConnections();
   } catch {}
   browserRuntime.unmount(mainWindow,tab.view);
-  if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  if (!browserRuntime.destroyed(tab.view)) browserRuntime.close(tab.view);
   tabs.delete(tab.id);
   if (tab.securityDomain === 'anonymous' && ![...tabs.values()].some((t) => t.securityDomain === 'anonymous')) {
     try { await extensionRuntime?.resumeAll('anonymous-tabs'); } catch (err) { console.warn('Could not resume extension backgrounds:', err.message); }
@@ -1305,12 +1305,12 @@ async function newIdentity() {
 async function clearTabData(tab, reload = true) {
   if (!tab) return;
   try {
-    await tab.view.webContents.session.clearData();
-    await tab.view.webContents.session.clearCache();
-    await tab.view.webContents.session.closeAllConnections();
+    await browserRuntime.sessionOf(tab.view).clearData();
+    await browserRuntime.sessionOf(tab.view).clearCache();
+    await browserRuntime.sessionOf(tab.view).closeAllConnections();
     clearTemporaryPermissionsForOrigin(safeOrigin(tab.url), tab.id);
     tab.stats = makeTabStats();
-    if (reload && tab.url) tab.view.webContents.reload();
+    if (reload && tab.url) browserRuntime.reload(tab.view);
     emitState();
     toast('Current tab data cleared.', 'success');
   } catch (err) {
@@ -1321,7 +1321,7 @@ async function clearTabData(tab, reload = true) {
 async function clearAllData() {
   for (const tab of tabs.values()) await clearTabData(tab, false);
   const tab = activeTab();
-  if (tab?.url) tab.view.webContents.reload();
+  if (tab?.url) browserRuntime.reload(tab.view);
   toast('All active tab storage and caches cleared.', 'success');
 }
 
@@ -1488,10 +1488,10 @@ function wireIpc() {
   ipcMain.handle('adblock:refresh-lists', async (event)=>{if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};const results=await updateFilterLists();return {ok:results.every(x=>x.ok),results};});
   ipcMain.handle('adblock:pick-element', async (event) => {
     if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};
-    const tab=activeTab();if(!tab?.view?.webContents||tab.view.webContents.isDestroyed())return {ok:false,error:'No active web page.'};
+    const tab=activeTab();if(!tab?.view?.webContents||browserRuntime.destroyed(tab.view))return {ok:false,error:'No active web page.'};
     let host='';try{host=new URL(tab.url).hostname;}catch{return {ok:false,error:'Element picker requires an HTTP(S) page.'};}
     try{
-      const selector=await tab.view.webContents.executeJavaScript(`new Promise((resolve)=>{
+      const selector=await browserRuntime.evaluate(tab.view,`new Promise((resolve)=>{
         const old=document.getElementById('__aegis_picker_style');if(old)old.remove();
         const st=document.createElement('style');st.id='__aegis_picker_style';st.textContent='.__aegis_pick{outline:3px solid #58c7ff!important;outline-offset:2px!important;cursor:crosshair!important}';document.documentElement.appendChild(st);
         let last=null,done=false;
@@ -1574,10 +1574,10 @@ function wireIpc() {
     if (!assertUiSender(event)) return;
     const tab = activeTab();
     if (!tab) return;
-    const nav = tab.view.webContents.navigationHistory;
+    const nav = browserRuntime.history(tab.view);
     if (command === 'back' && nav.canGoBack()) nav.goBack();
     else if (command === 'forward' && nav.canGoForward()) nav.goForward();
-    else if (command === 'reload') tab.loading ? tab.view.webContents.stop() : tab.view.webContents.reload();
+    else if (command === 'reload') tab.loading ? tab.view.webContents.stop() : browserRuntime.reload(tab.view);
     else if (command === 'home') navigateTab(tab, settings.homePage || 'https://duckduckgo.com/');
   });
 
@@ -1665,7 +1665,7 @@ function wireIpc() {
     }
     tab.compatibilityMode = Boolean(enabled);
     emitState();
-    tab.view.webContents.reload();
+    browserRuntime.reload(tab.view);
     toast(tab.compatibilityMode ? 'Compatibility mode enabled for this tab. Core sandbox and permission protections remain active.' : 'Full privacy filtering restored for this tab.', 'success');
   });
 
@@ -1738,7 +1738,7 @@ function wireIpc() {
     rebuildFilterRules();
     saveSettings();
     relayout();
-    await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session, {}, tab)));
+    await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(browserRuntime.sessionOf(tab.view), {}, tab)));
     await awaitCosmeticRefresh();
     emitState();
     toast('Aegis settings restored to hardened defaults.', 'success');
@@ -1761,7 +1761,7 @@ function wireIpc() {
     filterRules = parseFilterRules(settings.customFilterRules || '');
     saveSettings();
     relayout();
-    const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session, {}, tab)));
+    const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(browserRuntime.sessionOf(tab.view), {}, tab)));
     const proxyFailures = proxyResults.filter((result) => result.status === 'rejected').length;
     await awaitCosmeticRefresh();
     const preloadKeys = ['privacyLevel','privacyApiGuard','blockTrackingBeacons','globalPrivacyControl','doNotTrack','disableServiceWorkers','siteIntelligence'];
@@ -1774,7 +1774,7 @@ function wireIpc() {
       await Promise.allSettled([...tabs.values()].map(async (tab) => {
         await installFingerprintDefenses(tab);
         if (tab.auditBinding && tab.url && !String(tab.url).startsWith('aegis://')) {
-          try { await tab.view.webContents.executeJavaScript(buildSiteAuditScript({ bindingName: tab.auditBinding }), false); } catch {}
+          try { await browserRuntime.evaluate(tab.view,buildSiteAuditScript({ bindingName: tab.auditBinding }), false); } catch {}
         }
       }));
     } else if (!preloadChanged && siteIntelligenceWasEnabled && settings.siteIntelligence === false) {
@@ -1911,9 +1911,9 @@ app.on('before-quit', () => {
   }
   for (const tab of tabs.values()) {
     try {
-      tab.view.webContents.session.clearData();
-      tab.view.webContents.session.clearCache();
-      tab.view.webContents.session.closeAllConnections();
+      browserRuntime.sessionOf(tab.view).clearData();
+      browserRuntime.sessionOf(tab.view).clearCache();
+      browserRuntime.sessionOf(tab.view).closeAllConnections();
     } catch {}
   }
 });
