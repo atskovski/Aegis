@@ -1,4 +1,9 @@
-'use strict';const test=require('node:test');const assert=require('node:assert/strict');const {decision}=require('../src/core/security-kernel');
+'use strict';const test=require('node:test');const assert=require('node:assert/strict');const {decision,createSecurityKernel}=require('../src/core/security-kernel');
 test('enterprise blocklist wins over allowlist',()=>{const s={enterpriseMode:true,enterprise:{urlAllowlist:['example.com'],urlBlocklist:['example.com']}};assert.equal(decision('navigate',{settings:s,url:'https://example.com'}).allow,false)});
-test('anonymous compartment denies downloads',()=>{assert.equal(decision('download',{settings:{},tab:{securityDomain:'anonymous'}}).allow,false)});
-test('expired managed policy fails closed',()=>{const s={managedPolicy:{id:'x',expiresAt:'2000-01-01T00:00:00Z'}};assert.equal(decision('navigate',{settings:s,url:'https://example.com'}).allow,false)});
+test('anonymous compartment denies downloads',()=>assert.equal(decision('download',{settings:{},tab:{securityDomain:'anonymous'}}).allow,false));
+test('expired managed policy fails closed',()=>assert.equal(decision('navigate',{settings:{managedPolicy:{id:'x',expiresAt:'2000-01-01T00:00:00Z'}},url:'https://example.com'}).allow,false));
+test('unknown actions fail closed',()=>assert.equal(decision('invented',{settings:{}}).allow,false));
+test('dangerous schemes are denied before navigation',()=>assert.equal(decision('navigate',{settings:{},url:'javascript:alert(1)'}).reason,'dangerous-scheme'));
+test('private network policy covers requests as well as top navigation',()=>assert.equal(decision('request',{settings:{blockPrivateNetwork:true},url:'http://127.0.0.1/x'}).allow,false));
+test('permission ask requires a user gesture and explicit confirmation',()=>{const s={permissionDefaults:{camera:'ask'}};assert.equal(decision('permission',{settings:s,permission:'camera',origin:'https://a.test'}).reason,'permission-no-user-gesture');assert.equal(decision('permission',{settings:s,permission:'camera',origin:'https://a.test',userGesture:true}).prompt,true)});
+test('stateful broker emits ordered evidence',()=>{const rows=[],k=createSecurityKernel({emit:e=>rows.push(e)});k.navigate({url:'https://example.com'});k.download({});assert.equal(rows[0].sequence,1);assert.equal(rows[1].sequence,2);assert.equal(k.evidence().failClosed,true)});
