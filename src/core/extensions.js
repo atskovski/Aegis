@@ -471,7 +471,10 @@ class AegisExtensionRuntime{
   saveRegisteredScripts(e){writeStore(this.registeredScriptFile(e),[...this.registeredScriptsFor(e).values()].filter((x)=>x.persistAcrossSessions).map(publicRegisteredScript))}
   registerContentScripts(e,rows=[]){
     const map=this.registeredScriptsFor(e),incoming=(Array.isArray(rows)?rows:[]).map(normalizeRegisteredScript);
-    for(const row of incoming)if(map.has(row.id))throw new Error('Content script id already registered: '+row.id);
+    for(const row of incoming){
+      const existing=map.get(row.id);
+      if(existing&&JSON.stringify(publicRegisteredScript(existing))!==JSON.stringify(publicRegisteredScript(row)))throw new Error('Content script id already registered: '+row.id);
+    }
     for(const row of incoming){for(const rel of [...row.js,...row.css])this.extensionFile(e,rel);map.set(row.id,row)}
     this.saveRegisteredScripts(e);return undefined;
   }
