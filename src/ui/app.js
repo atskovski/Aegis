@@ -818,6 +818,14 @@ function renderSettingsDraft() {
   $('#anonymousDisableDownloads').checked = s.anonymity?.disableDownloads !== false;
   $('#anonymousDisableExtensions').checked = s.anonymity?.disableExtensions !== false;
   $('#anonymousDisableJavaScript').checked = s.anonymity?.disableJavaScript !== false;
+  $('#enterpriseMode').checked = Boolean(s.enterpriseMode);
+  $('#enterpriseBlockExtensions').checked = Boolean(s.enterprise?.blockUnlistedExtensions);
+  $('#enterpriseDisablePrinting').checked = Boolean(s.enterprise?.disablePrinting);
+  $('#enterpriseDisableClipboard').checked = s.enterprise?.disableClipboardRead !== false;
+  $('#enterpriseDisableCapture').checked = s.enterprise?.disableScreenCapture !== false;
+  $('#enterpriseUrlAllowlist').value = (s.enterprise?.urlAllowlist || []).join('\n');
+  $('#enterpriseUrlBlocklist').value = (s.enterprise?.urlBlocklist || []).join('\n');
+  $('#enterpriseExtensionAllowlist').value = (s.enterprise?.extensionAllowlist || []).join('\n');
   $('#homePage').value = s.homePage || 'https://duckduckgo.com/';
   $('#searchEngine').value = s.searchEngine || 'duckduckgo';
   $('#customSearchTemplate').value = s.customSearchTemplate || '';
@@ -859,6 +867,17 @@ function collectDraftFromControls() {
   draftSettings.blockRiskyDownloads = $('#downloadToggle').checked;
   draftSettings.javascriptDefault = $('#javascriptDefault').checked;
   draftSettings.clearClipboardOnNewIdentity = $('#clearClipboardIdentity').checked;
+  draftSettings.enterpriseMode = $('#enterpriseMode').checked;
+  draftSettings.enterprise = {
+    ...(draftSettings.enterprise || {}),
+    blockUnlistedExtensions: $('#enterpriseBlockExtensions').checked,
+    disablePrinting: $('#enterpriseDisablePrinting').checked,
+    disableClipboardRead: $('#enterpriseDisableClipboard').checked,
+    disableScreenCapture: $('#enterpriseDisableCapture').checked,
+    urlAllowlist: $('#enterpriseUrlAllowlist').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),
+    urlBlocklist: $('#enterpriseUrlBlocklist').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),
+    extensionAllowlist: $('#enterpriseExtensionAllowlist').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)
+  };
   draftSettings.compatibilityAssistance = $('#compatibilityAssistance').checked;
   draftSettings.threatProtection = $('#threatProtection').checked;
   draftSettings.cookieAutoDelete = $('#cookieAutoDelete').checked;
@@ -1107,7 +1126,7 @@ $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
 const draftControlIds = [
   'blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','heuristicTrackingProtection','siteIntelligence','bounceTrackingProtection','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
   'disableServiceWorkers','gpcToggle','dntToggle','downloadToggle','javascriptDefault','clearClipboardIdentity','compatibilityAssistance','threatProtection','cookieAutoDelete','cookieAutoDeleteDelay','sponsorBlockEnabled','fireproofSites',
-  'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
+  'enterpriseMode','enterpriseBlockExtensions','enterpriseDisablePrinting','enterpriseDisableClipboard','enterpriseDisableCapture','enterpriseUrlAllowlist','enterpriseUrlBlocklist','enterpriseExtensionAllowlist','proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
 ];
 draftControlIds.forEach((id) => $('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
