@@ -897,8 +897,8 @@ test('Privacy Badger browserAction badge state is isolated per tab', async () =>
   try{
     let active=1;
     const sender={},tabs=[
-      {id:1,url:'https://one.example/',title:'One',loading:false,securityDomain:'private',disableExtensions:false,view:{webContents:{}}},
-      {id:2,url:'https://two.example/',title:'Two',loading:false,securityDomain:'private',disableExtensions:false,view:{webContents:{}}}
+      {id:1,url:'https://one.example/',title:'One',loading:false,securityDomain:'private',disableExtensions:false,view:{webContents:{isDestroyed:()=>false,send:()=>{}}}},
+      {id:2,url:'https://two.example/',title:'Two',loading:false,securityDomain:'private',disableExtensions:false,view:{webContents:{isDestroyed:()=>false,send:()=>{}}}}
     ];
     const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>tabs,getActiveId:()=>active,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
     const manifest={manifest_version:2,name:'Privacy Badger',version:'2026.9.15',permissions:['tabs','<all_urls>'],browser_action:{default_title:'Privacy Badger'}};
