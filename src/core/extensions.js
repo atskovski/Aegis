@@ -165,7 +165,7 @@ function matchingContentScripts(m,url,phase=null){
 }
 function extensionResourceUrl(ext, rel){
   const safe=safeRel(rel); if(!safe)return '';
-  return 'aegis-extension://ext/'+ext.resourceToken+'/'+safe.split('/').map(encodeURIComponent).join('/');
+  return 'aegis-extension://'+ext.resourceToken+'/'+safe.split('/').map(encodeURIComponent).join('/');
 }
 function rewriteCssUrls(css, ext, cssRel=''){
   const base=path.posix.dirname(String(cssRel||'').replace(/\\/g,'/'));
