@@ -21,6 +21,7 @@ const { AegisExtensionRuntime } = require('./core/extensions');
 const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
 const { makeBounceTracker, noteNavigation, detectBounce } = require('./core/bounce-tracking');
+const { createSecurityEventLedger } = require('./core/security-events');
 
 app.setName('Aegis Privacy Browser');
 
@@ -84,6 +85,7 @@ let uiLayer = { mode: 'none', reserveRight: 0 };
 let trackerLearner = new TrackerLearner();
 let filterRules = parseFilterRules('');
 let extensionRuntime = null;
+const securityEvents = createSecurityEventLedger(750);
 const SECURITY_TEST_TARGETS = Object.freeze({
   eff: 'https://coveryourtracks.eff.org/',
   ip: 'https://browserleaks.com/ip',
@@ -601,6 +603,7 @@ function statePayload() {
     downloads: downloads.map(({ path: _path, ...item }) => item),
     network: { lastTest: lastNetworkTest, proxyMode: currentSettings.proxy?.mode || 'system', securityDomain: currentTab?.securityDomain || 'private', torVerified: Boolean(currentTab?.torVerified) },
     securitySuite: lastSecuritySuite,
+    securityEvents: securityEvents.list(activeId).slice(0,100),
     extensions: extensionRuntime ? extensionRuntime.list() : [],
     privacyControls: controlAssurance(currentSettings, currentTab),
     engine: {
@@ -993,6 +996,7 @@ function wireTabView(tab, view) {
       noteNavigation(tab.bounceTracker, tab.url || oldOrigin, url);
       const bounce = detectBounce(tab.bounceTracker, effective.bounceTrackingWindowSec);
       if (bounce?.intermediaryOrigin && bounce.intermediaryOrigin !== newOrigin) {
+        securityEvents.add('bounce-tracker-purge','warning',{intermediary:bounce.intermediaryHost,destination:bounce.destinationHost,elapsedMs:bounce.elapsedMs},tab.id);
         tab.privateSession.clearData({
           dataTypes:['cookies','localStorage','indexedDB','serviceWorkers','cacheStorage'],
           origins:[bounce.intermediaryOrigin], originMatchingMode:'origin-in-all-contexts'
@@ -1018,6 +1022,18 @@ function wireTabView(tab, view) {
       setTimeout(() => showLoadError(tab, url, code, desc), 0);
     }
   });
+  view.webContents.on('certificate-error', (_event, url, error, certificate) => {
+    tab.tls={valid:false,error:String(error||'certificate-error'),host:(()=>{try{return new URL(url).hostname}catch{return''}})(),issuer:certificate?.issuerName||'',subject:certificate?.subjectName||'',validStart:certificate?.validStart||0,validExpiry:certificate?.validExpiry||0,serialNumber:certificate?.serialNumber||'',fingerprint:certificate?.fingerprint||'',at:new Date().toISOString()};
+    securityEvents.add('tls-certificate-error','danger',tab.tls,tab.id); emitState();
+  });
+  view.webContents.on('did-finish-load', async () => {
+    if (!/^https:/i.test(tab.url||'')) return;
+    try {
+      const cert=await view.webContents.executeJavaScript(`({protocol:location.protocol,secure:location.protocol==='https:'})`,true);
+      tab.tls={...(tab.tls||{}),valid:true,protocol:cert?.protocol||'https:',observedAt:new Date().toISOString()};
+    } catch {}
+  });
+
   view.webContents.on('render-process-gone', (_e, details) => {
     tab.rendererCrashes=(tab.rendererCrashes||0)+1;
     tab.lastRendererExit={ reason:String(details?.reason||'unknown'), exitCode:Number(details?.exitCode||0), at:new Date().toISOString() };
