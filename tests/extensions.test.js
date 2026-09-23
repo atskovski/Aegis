@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { safeRel, normalizeManifest, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime } = require('../src/core/extensions');
+const { safeRel, normalizeManifest, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest } = require('../src/core/extensions');
 
 test('XPI runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
@@ -100,4 +100,23 @@ test('extension CSS relative assets are rewritten to private extension-resource 
   const css=rewriteCssUrls('.x{background:url("../img/icon.png")} .y{mask:url(data:image/png;base64,abc)}',ext,'styles/main.css');
   assert.match(css,/aegis-extension:\/\/ext\/abc123\/img\/icon\.png/);
   assert.match(css,/data:image\/png;base64,abc/);
+});
+
+
+test('extension background networking is limited to declared host permissions', () => {
+  const m={manifest_version:2,name:'T',version:'1',permissions:['storage','https://api.example.com/*']};
+  assert.deepEqual(hostPermissions(m),['https://api.example.com/*']);
+  assert.equal(networkAllowedByManifest(m,'https://api.example.com/v1'),true);
+  assert.equal(networkAllowedByManifest(m,'https://other.example.com/v1'),false);
+});
+
+test('anonymous and hardened tabs do not receive extension content scripts', async () => {
+  const root=require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(),'aegis-ext-isolation-'));
+  try {
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    assert.deepEqual(await runtime.inject({securityDomain:'anonymous',disableExtensions:true}),[]);
+    assert.deepEqual(await runtime.inject({securityDomain:'hardened',disableExtensions:true}),[]);
+  } finally {
+    require('node:fs').rmSync(root,{recursive:true,force:true});
+  }
 });
