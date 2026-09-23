@@ -310,6 +310,8 @@ function renderSentinelSummary(tab) {
   $('#sentinelTrackers').textContent = stats.blockedTrackers || 0;
   $('#sentinelThirdParty').textContent = tab.siteIntelligence?.network?.uniqueThirdParties || stats.thirdPartyRequests || 0;
   $('#sentinelFingerprint').textContent = tab.siteIntelligence?.totals?.fingerprintCategories || 0;
+  if ($('#sentinelBouncePurges')) $('#sentinelBouncePurges').textContent = tab.bouncePurges || 0;
+  if ($('#sentinelRendererCrashes')) $('#sentinelRendererCrashes').textContent = tab.rendererCrashes || 0;
   $('#sentinelPermissions').textContent = stats.blockedPermissions || 0;
 
   const degraded = (state.privacyControls || []).filter((x) => x.enabled && x.status === 'degraded').length;
@@ -825,6 +827,7 @@ function collectDraftFromControls() {
   draftSettings.blockCryptominers = $('#blockCryptominers').checked;
   draftSettings.heuristicTrackingProtection = $('#heuristicTrackingProtection').checked;
   draftSettings.siteIntelligence = $('#siteIntelligence').checked;
+  draftSettings.bounceTrackingProtection = $('#bounceTrackingProtection').checked;
   draftSettings.blockFingerprintingScripts = $('#blockFingerprintingScripts').checked;
   draftSettings.cosmeticFiltering = $('#cosmeticFiltering').checked;
   draftSettings.privacyApiGuard = $('#privacyApiGuard').checked;
@@ -1088,7 +1091,7 @@ $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
 }));
 
 const draftControlIds = [
-  'blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','heuristicTrackingProtection','siteIntelligence','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
+  'blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','heuristicTrackingProtection','siteIntelligence','bounceTrackingProtection','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
   'disableServiceWorkers','gpcToggle','dntToggle','downloadToggle','javascriptDefault','clearClipboardIdentity','compatibilityAssistance','threatProtection','cookieAutoDelete','cookieAutoDeleteDelay','sponsorBlockEnabled','fireproofSites',
   'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
