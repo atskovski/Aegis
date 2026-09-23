@@ -8,12 +8,95 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "verify": "node --test && node --check src/main.js && node --check src/preload.js && node --check src/ui/app.js && node --check src/ui/start.js && node --check src/ui/error.js && node --check src/extension-bridge-preload.js && node --check src/extension-host-preload.js && node --check src/extension-page-preload.js && node --check src/core/extension-shim.js && node --check src/core/extensions.js && node --check src/core/engine-contract.js && node --check src/core/browser-runtime.js && node --check src/core/tab-model.js && node --check src/core/navigation-controller.js && node --check src/engine/electron-adapter.js && node --check src/core/enterprise-policy.js && node --check src/core/managed-policy.js && node --check src/core/control-registry.js && node --check src/core/compartment.js && node --check src/core/blocklist.js && node --check src/core/bounce-tracking.js && node --check src/core/content-filter.js && node --check src/core/filter-rules.js && node --check src/core/filter-lists.js && node --check src/core/fingerprint.js && node --check src/core/fingerprint-policy.js && node --check src/core/navigation.js && node --check src/core/network.js && node --check src/core/privacy.js && node --check src/core/safety.js && node --check src/core/security-events.js && node --check src/core/secret-redaction.js && node --check src/core/settings.js && node --check src/core/site-intelligence.js && node --check src/core/security-suite.js && node --check src/core/security-kernel.js && node --check src/core/risk-engine.js && node --check src/core/kernel-audit.js && node --check src/core/fingerprint-telemetry.js && node --check src/core/identity-coherence.js && node --check src/core/sponsor.js && node --check src/core/tracker-learning.js && node --check src/core/url.js && node scripts/self-check.js"
+    "verify": "node --test && node --check src/main.js && node --check src/preload.js && node --check src/ui/app.js && node --check src/ui/start.js && node --check src/ui/error.js && node --check src/extension-bridge-preload.js && node --check src/extension-host-preload.js && node --check src/extension-page-preload.js && node --check src/core/extension-shim.js && node --check src/core/extensions.js && node --check src/core/engine-contract.js && node --check src/core/browser-runtime.js && node --check src/core/tab-model.js && node --check src/core/navigation-controller.js && node --check src/engine/electron-adapter.js && node --check src/core/enterprise-policy.js && node --check src/core/managed-policy.js && node --check src/core/control-registry.js && node --check src/core/compartment.js && node --check src/core/blocklist.js && node --check src/core/bounce-tracking.js && node --check src/core/content-filter.js && node --check src/core/filter-rules.js && node --check src/core/filter-lists.js && node --check src/core/fingerprint.js && node --check src/core/fingerprint-policy.js && node --check src/core/navigation.js && node --check src/core/network.js && node --check src/core/privacy.js && node --check src/core/safety.js && node --check src/core/security-events.js && node --check src/core/secret-redaction.js && node --check src/core/settings.js && node --check src/core/site-intelligence.js && node --check src/core/security-suite.js && node --check src/core/security-kernel.js && node --check src/core/risk-engine.js && node --check src/core/kernel-audit.js && node --check src/core/fingerprint-telemetry.js && node --check src/core/identity-coherence.js && node --check src/core/sponsor.js && node --check src/core/tracker-learning.js && node --check src/core/url.js && node scripts/self-check.js",
+    "prepare:mac-icon": "zsh scripts/prepare-macos-icon.sh",
+    "package:mac:local": "zsh scripts/package-macos-local.sh",
+    "install:mac:local": "zsh scripts/install-macos-local.sh",
+    "dist:mac": "npm run prepare:mac-icon && electron-builder --mac"
   },
   "devDependencies": {
-    "electron": "44.4.3"
+    "electron": "44.4.3",
+    "electron-builder": "26.16.1"
   },
   "engines": {
     "node": ">=20"
+  },
+  "productName": "Aegis Privacy Browser",
+  "author": "Aegis",
+  "build": {
+    "appId": "com.atanasovski.aegis",
+    "productName": "Aegis Privacy Browser",
+    "artifactName": "Aegis-Privacy-Browser-${version}-${arch}.${ext}",
+    "asar": true,
+    "compression": "maximum",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "!**/*.command",
+      "!**/.DS_Store",
+      "!**/*.log",
+      "!tests/**/*",
+      "!docs/**/*",
+      "!scripts/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "minimumSystemVersion": "13.0",
+      "extendInfo": {
+        "CFBundleDisplayName": "Aegis Privacy Browser",
+        "CFBundleName": "Aegis",
+        "NSHighResolutionCapable": true,
+        "NSCameraUsageDescription": "Aegis allows camera access only when you approve it for a website.",
+        "NSMicrophoneUsageDescription": "Aegis allows microphone access only when you approve it for a website."
+      }
+    },
+    "dmg": {
+      "title": "Aegis Privacy Browser ${version}",
+      "backgroundColor": "#070A12",
+      "iconSize": 112,
+      "window": {
+        "width": 620,
+        "height": 420
+      },
+      "contents": [
+        {
+          "x": 170,
+          "y": 205,
+          "type": "file"
+        },
+        {
+          "x": 450,
+          "y": 205,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
   }
 }
