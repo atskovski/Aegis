@@ -305,7 +305,8 @@ function renderSentinelSummary(tab) {
   const route = suite.route?.mode || tab.networkRoute?.mode || state.settings.proxy?.mode || 'system';
   const provider = suite.publicIp?.provider ? ' · ' + suite.publicIp.provider : '';
   const routeWarnings = suite.route?.warnings?.length ? ' · warning: ' + suite.route.warnings[0] : '';
-  $('#sentinelRoute').textContent = titleCase(route) + ' route' + provider + routeWarnings;
+  const domain = tab.securityDomainLabel || titleCase(tab.securityDomain || 'private') + ' compartment';
+  $('#sentinelRoute').textContent = domain + ' · ' + titleCase(route) + ' route' + provider + routeWarnings;
   $('#sentinelTrackers').textContent = stats.blockedTrackers || 0;
   $('#sentinelThirdParty').textContent = tab.siteIntelligence?.network?.uniqueThirdParties || stats.thirdPartyRequests || 0;
   $('#sentinelFingerprint').textContent = tab.siteIntelligence?.totals?.fingerprintCategories || 0;
@@ -447,10 +448,15 @@ function renderPrivacyPanel(tab) {
   renderSentinelSummary(tab);
   renderRuntimeEvidence(tab);
   applySentinelMode(sentinelMode);
+  const protectedCompartment = tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous';
   $('#shieldToggle').checked = Boolean(tab.shieldsEnabled);
+  $('#shieldToggle').disabled = protectedCompartment;
   $('#jsToggle').checked = Boolean(tab.javascriptEnabled);
+  $('#jsToggle').disabled = tab.securityDomain === 'anonymous' && state.settings.anonymity?.disableJavaScript !== false;
   $('#httpToggle').checked = Boolean(tab.allowHttp);
+  $('#httpToggle').disabled = protectedCompartment;
   $('#compatibilityToggle').checked = Boolean(tab.compatibilityMode);
+  $('#compatibilityToggle').disabled = protectedCompartment;
   $('#fpMode').textContent = titleCase(state.settings.privacyLevel || 'strict');
   $('#safetyMode').textContent = tab.safety?.warnings?.length ? `${tab.safety.warnings.length} warning${tab.safety.warnings.length === 1 ? '' : 's'}` : 'No warnings';
   $('#connectionState').textContent = tab.url?.startsWith('https://') ? 'HTTPS encrypted' : (isInternal(tab.url) ? 'Aegis internal' : (tab.url?.startsWith('http://') ? 'HTTP insecure' : 'Not established'));
@@ -458,11 +464,12 @@ function renderPrivacyPanel(tab) {
   $('#siteLabel').textContent = tab.origin ? new URL(tab.origin).hostname : 'Internal Aegis page';
 
   const internal = !tab.origin;
-  $$('#sitePermissionGrid select').forEach((select) => {
-    select.disabled = internal;
+  const compartmentLocked = tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous';
+  $('#sitePermissionGrid select').forEach((select) => {
+    select.disabled = internal || compartmentLocked;
     select.value = currentSitePermission(select.dataset.sitePermission);
   });
-  $('#resetSitePermissions').disabled = internal;
+  $('#resetSitePermissions').disabled = internal || compartmentLocked;
   const hardenButton = $('#hardenSite');
   hardenButton.textContent = tab.securityDomain === 'hardened' ? 'Site hardened' : (tab.securityDomain === 'anonymous' ? 'Anonymous compartment' : 'Harden this site');
   hardenButton.disabled = tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous' || internal;
@@ -470,7 +477,9 @@ function renderPrivacyPanel(tab) {
 
   $('#sitePermissionHint').textContent = internal
     ? 'Site permissions apply to HTTP and HTTPS origins, not internal Aegis pages.'
-    : `Exceptions here apply only to ${new URL(tab.origin).hostname}.`;
+    : (compartmentLocked
+      ? 'Sensitive permissions are locked to Block by this security compartment.'
+      : `Exceptions here apply only to ${new URL(tab.origin).hostname}.`);
 
   const recent = stats.recentBlocked || [];
   const box = $('#recentBlocked');
