@@ -749,7 +749,22 @@ class AegisExtensionRuntime{
     const requestId=String(payload.requestId||''),pending=this.pendingBlockingRequests.get(requestId);if(!pending||pending.host!==sender||pending.extensionId!==String(payload.extensionId||''))return false;this.pendingBlockingRequests.delete(requestId);const raw=payload.response&&typeof payload.response==='object'?payload.response:null;if(!raw){pending.resolve(null);return true}const safe={cancel:raw.cancel===true};const redirect=String(raw.redirectUrl||raw.redirectURL||'');if(/^https?:\/\//i.test(redirect))safe.redirectURL=redirect;if(Array.isArray(raw.requestHeaders))safe.requestHeaders=raw.requestHeaders.slice(0,256);if(Array.isArray(raw.responseHeaders))safe.responseHeaders=raw.responseHeaders.slice(0,256);pending.resolve(safe);return true;
   }
   privacyValue(key){
-    const s=this.getSettings()||{};switch(String(key||'')){case 'network.webRTCIPHandlingPolicy':return 'disable_non_proxied_udp';case 'network.networkPredictionEnabled':return false;case 'services.passwordSavingEnabled':case 'services.autofillAddressEnabled':case 'services.autofillCreditCardEnabled':return false;case 'websites.thirdPartyCookiesAllowed':return s.blockThirdPartyCookies===false;case 'websites.hyperlinkAuditingEnabled':return s.blockTrackingBeacons===false;case 'websites.referrersEnabled':return s.stripCrossSiteReferrers===false;case 'websites.protectedContentEnabled':return false;default:return undefined}}
+    const s=this.getSettings()||{};switch(String(key||'')){
+      case 'network.webRTCIPHandlingPolicy':return 'disable_non_proxied_udp';
+      case 'network.networkPredictionEnabled':return false;
+      case 'services.passwordSavingEnabled':
+      case 'services.autofillAddressEnabled':
+      case 'services.autofillCreditCardEnabled':
+      case 'services.alternateErrorPagesEnabled':return false;
+      case 'websites.thirdPartyCookiesAllowed':return s.blockThirdPartyCookies===false;
+      case 'websites.hyperlinkAuditingEnabled':return s.blockTrackingBeacons===false;
+      case 'websites.referrersEnabled':return s.stripCrossSiteReferrers===false;
+      case 'websites.protectedContentEnabled':
+      case 'websites.topicsEnabled':
+      case 'websites.adMeasurementEnabled':
+      case 'websites.fledgeEnabled':return false;
+      default:return undefined;
+    }}
   privacySetting(key){const value=this.privacyValue(key);return {value,levelOfControl:'not_controllable'}}
   bridgeArguments(){return this.enabled().map((e)=>'--aegis-extension-world='+encodeURIComponent(e.id)+':'+String(e.worldId||extensionWorldId(e.id)))}
   inspectionSummary(x,digest){
