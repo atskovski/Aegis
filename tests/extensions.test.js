@@ -709,3 +709,36 @@ test('MV2 webRequestBlocking is bounded and compatibility-hosted', () => {
   assert.ok(report.supported.includes('webRequestBlocking'));
   assert.ok(report.warnings.some((x)=>x.api==='webRequestBlocking'));
 });
+
+
+test('Privacy Badger shaped MV3 profile keeps DNR scripting and all-frames capabilities hosted', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-pb-mv3-')),extRoot=path.join(root,'extensions','privacy-badger');
+  try{
+    fs.mkdirSync(extRoot,{recursive:true});
+    const manifest={
+      manifest_version:3,name:'Privacy Badger',version:'2026.9.15',
+      permissions:['alarms','declarativeNetRequest','privacy','scripting','storage','tabs','webNavigation','webRequest'],
+      host_permissions:['<all_urls>'],
+      background:{service_worker:'background.js'},
+      action:{default_popup:'popup.html'},
+      content_scripts:[{matches:['<all_urls>'],all_frames:true,run_at:'document_start',js:['content.js']}]
+    };
+    fs.writeFileSync(path.join(extRoot,'manifest.json'),JSON.stringify(manifest));
+    fs.writeFileSync(path.join(extRoot,'background.js'),'');
+    fs.writeFileSync(path.join(extRoot,'popup.html'),'<!doctype html>');
+    fs.writeFileSync(path.join(extRoot,'content.js'),'');
+    const report=compatibility(manifest,['runtime','storage','tabs','scripting','webNavigation','webRequest','declarativeNetRequest','privacy']);
+    for(const api of ['runtime','storage','tabs','scripting','webNavigation','webRequest','declarativeNetRequest','privacy']){
+      assert.equal(report.unsupported.some((x)=>x.api===api),false,api+' should remain hosted');
+    }
+    assert.ok(report.warnings.some((x)=>x.api==='content_scripts.all_frames'));
+    const tab={id:1,url:'https://site.example/',topUrl:'https://site.example/',securityDomain:'private',disableExtensions:false};
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[tab],getActiveId:()=>1,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{},getSettings:()=>({})});
+    const e={id:'privacy-badger',path:extRoot,enabled:true,manifest,detectedApis:[],compatibility:report};
+    runtime.items.set(e.id,e);
+    runtime.updateDnrRules(e,'dynamic',{addRules:[{id:42,priority:1,action:{type:'block'},condition:{urlFilter:'||tracker.example^',resourceTypes:['script']}}]});
+    const decision=runtime.networkDecision(tab,{url:'https://tracker.example/pixel.js',resourceType:'script',method:'GET'});
+    assert.equal(decision?.action,'block');
+    assert.equal(decision?.ruleId,42);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
