@@ -3,7 +3,7 @@ set -euo pipefail
 
 SOURCE_DIR="${0:A:h}"
 APP_NAME="Aegis Privacy Browser"
-VERSION="1.1.0"
+VERSION="1.1.1"
 ELECTRON_VERSION="44.4.3"
 RUNTIME_ROOT="$HOME/Library/Application Support/$APP_NAME"
 RUNTIME_DIR="$RUNTIME_ROOT/runtime-v$VERSION"
