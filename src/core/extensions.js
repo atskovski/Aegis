@@ -293,7 +293,8 @@ async function inspectPackage(file,tmpRoot){
 function inspectUnpackedDirectory(dir){
   const root=path.resolve(String(dir||''));const stat=fs.statSync(root);if(!stat.isDirectory())throw new Error('Unpacked extension path is not a directory.');
   validateExtractedTree(root);const manifest=normalizeManifest(readJson(path.join(root,'manifest.json'))),detectedApis=scanUsedApiRoots(root);
-  return {root,manifest,detectedApis,packageInfo:{format:'unpacked',id:chromeIdFromManifestKey(manifest),signatureMetadata:false,verified:false},compatibility:compatibility(manifest,detectedApis),risk:installRisk(manifest),signature:{metadataPresent:false,verified:false,format:'unpacked'}};
+  const stableId=chromeIdFromManifestKey(manifest)||chromeIdFromBytes(crypto.createHash('sha256').update(fs.realpathSync(root)).digest().subarray(0,16));
+  return {root,manifest,detectedApis,packageInfo:{format:'unpacked',id:stableId,signatureMetadata:false,verified:false},compatibility:compatibility(manifest,detectedApis),risk:installRisk(manifest),signature:{metadataPresent:false,verified:false,format:'unpacked'}};
 }
 function bootstrap(ext){ return webExtensionBootstrap(ext,'__aegisExtensionBridge'); }
 function readStore(file){try{return readJson(file)}catch{return {}}}
@@ -332,7 +333,7 @@ class AegisExtensionRuntime{
       id:e.id,name:e.manifest.name,version:e.manifest.version,description:String(e.manifest.description||''),
       manifestVersion:Number(e.manifest.manifest_version||0),enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),
       compatibility:e.compatibility,risk:installRisk(e.manifest),installedAt:e.installedAt||'',updatedAt:e.updatedAt||'',
-      source:e.source||'xpi',digest:e.digest||'',permissions:permissions(e.manifest),hostPermissions:hostPermissions(e.manifest),
+      source:e.source||'webextension',sourceUrl:e.sourceUrl||'',digest:e.digest||'',permissions:permissions(e.manifest),hostPermissions:hostPermissions(e.manifest),
       optionalPermissions:[...(Array.isArray(e.manifest.optional_permissions)?e.manifest.optional_permissions:[]),...(Array.isArray(e.manifest.optional_host_permissions)?e.manifest.optional_host_permissions:[])],
       detectedApis:Array.isArray(e.detectedApis)?e.detectedApis:[],
       runtime:{backgroundExpected,backgroundRunning:backgroundExpected?Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed()):false,status:e.enabled===false?'disabled':(health.errors.length?'degraded':(backgroundExpected?(this.backgroundHosts.has(e.id)?'running':'stopped'):'ready')),errors:[...health.errors],lastStartedAt:health.lastStartedAt,lastInjectionAt:health.lastInjectionAt,lastDiagnostic:health.lastDiagnostic},
@@ -343,44 +344,58 @@ class AegisExtensionRuntime{
   }
   list(){return [...this.items.values()].map((e)=>this.publicRecord(e))}
   bridgeArguments(){return this.enabled().map((e)=>'--aegis-extension-world='+encodeURIComponent(e.id)+':'+String(e.worldId||extensionWorldId(e.id)))}
-  async inspect(file){
-    const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-    const x=await inspectXpi(file,path.join(this.rootDir,'extension-staging'));
-    try{
-      const id=extensionId(x.manifest,digest);
-      return {
-        id,name:x.manifest.name,version:x.manifest.version,description:String(x.manifest.description||''),
-        manifestVersion:Number(x.manifest.manifest_version||0),compatibility:x.compatibility,risk:x.risk,signature:x.signature,
-        digest,permissions:permissions(x.manifest),hostPermissions:hostPermissions(x.manifest),detectedApis:x.detectedApis||[],
-        optionalPermissions:[...(Array.isArray(x.manifest.optional_permissions)?x.manifest.optional_permissions:[]),...(Array.isArray(x.manifest.optional_host_permissions)?x.manifest.optional_host_permissions:[])],
-        action:extensionAction(x.manifest),optionsPage:optionsPage(x.manifest),features:manifestFeatures(x.manifest)
-      };
-    }finally{try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}}
+  inspectionSummary(x,digest){
+    const id=extensionId(x.manifest,digest,x.packageInfo||{});
+    return {
+      id,name:x.manifest.name,version:x.manifest.version,description:String(x.manifest.description||''),
+      manifestVersion:Number(x.manifest.manifest_version||0),compatibility:x.compatibility,risk:x.risk,signature:x.signature,
+      packageFormat:x.packageInfo?.format||'zip',digest,permissions:permissions(x.manifest),hostPermissions:hostPermissions(x.manifest),detectedApis:x.detectedApis||[],
+      optionalPermissions:[...(Array.isArray(x.manifest.optional_permissions)?x.manifest.optional_permissions:[]),...(Array.isArray(x.manifest.optional_host_permissions)?x.manifest.optional_host_permissions:[])],
+      action:extensionAction(x.manifest),optionsPage:optionsPage(x.manifest),features:manifestFeatures(x.manifest)
+    };
   }
-  async stage(file,{owned=false}={}){
-    const summary=await this.inspect(file);
-    const token=crypto.randomUUID();
-    const expiresAt=Date.now()+5*60*1000;
-    this.pendingInstalls.set(token,{file:String(file),summary,expiresAt,owned:Boolean(owned)});
-    for(const [key,value] of this.pendingInstalls) if(value.expiresAt<Date.now()){this.pendingInstalls.delete(key);if(value.owned)try{fs.rmSync(value.file,{force:true})}catch{}}
+  async inspect(file){
+    const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),x=await inspectPackage(file,path.join(this.rootDir,'extension-staging'));
+    try{return this.inspectionSummary(x,digest)}
+    finally{try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}}
+  }
+  inspectDirectory(dir){
+    const x=inspectUnpackedDirectory(dir),manifestBytes=fs.readFileSync(path.join(x.root,'manifest.json'));
+    const digest=crypto.createHash('sha256').update(fs.realpathSync(x.root)).update(manifestBytes).digest('hex');
+    return this.inspectionSummary(x,digest);
+  }
+  async stage(file,{owned=false,sourceUrl=''}={}){
+    const summary=await this.inspect(file),token=crypto.randomUUID(),expiresAt=Date.now()+5*60*1000;
+    this.pendingInstalls.set(token,{file:String(file),summary,expiresAt,owned:Boolean(owned),sourceUrl:String(sourceUrl||'')});
+    for(const [key,value] of this.pendingInstalls)if(value.expiresAt<Date.now()){this.pendingInstalls.delete(key);if(value.owned&&value.file)try{fs.rmSync(value.file,{force:true})}catch{}}
     return {token,summary,expiresAt:new Date(expiresAt).toISOString()};
   }
-  cancelStage(token){const key=String(token||''),staged=this.pendingInstalls.get(key);if(!staged)return false;this.pendingInstalls.delete(key);if(staged.owned)try{fs.rmSync(staged.file,{force:true})}catch{}return true}
+  stageDirectory(dir){
+    const summary=this.inspectDirectory(dir),token=crypto.randomUUID(),expiresAt=Date.now()+5*60*1000;
+    this.pendingInstalls.set(token,{directory:path.resolve(String(dir)),summary,expiresAt,owned:false});
+    return {token,summary,expiresAt:new Date(expiresAt).toISOString()};
+  }
+  cancelStage(token){const key=String(token||''),staged=this.pendingInstalls.get(key);if(!staged)return false;this.pendingInstalls.delete(key);if(staged.owned&&staged.file)try{fs.rmSync(staged.file,{force:true})}catch{}return true}
   reviewStage(token){const staged=this.pendingInstalls.get(String(token||''));return staged&&staged.expiresAt>=Date.now()?staged.summary:null}
   async installStaged(token){
     const key=String(token||''),staged=this.pendingInstalls.get(key);
-    if(!staged||staged.expiresAt<Date.now()){this.pendingInstalls.delete(key);if(staged?.owned)try{fs.rmSync(staged.file,{force:true})}catch{}throw new Error('Extension review expired. Select the package again.');}
+    if(!staged||staged.expiresAt<Date.now()){this.pendingInstalls.delete(key);if(staged?.owned&&staged.file)try{fs.rmSync(staged.file,{force:true})}catch{}throw new Error('Extension review expired. Select the package again.');}
     this.pendingInstalls.delete(key);
-    try{return await this.install(staged.file)}
-    finally{if(staged.owned)try{fs.rmSync(staged.file,{force:true})}catch{}}
+    try{return staged.directory?await this.installDirectory(staged.directory):await this.install(staged.file,{sourceUrl:staged.sourceUrl})}
+    finally{if(staged.owned&&staged.file)try{fs.rmSync(staged.file,{force:true})}catch{}}
   }
-  async install(file){
-    const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'), x=await inspectXpi(file,path.join(this.rootDir,'extension-staging')), id=extensionId(x.manifest,digest), dest=path.join(this.installDir,id);
-    const previous=this.items.get(id);
-    this.stopBackground(id);
-    fs.rmSync(dest,{recursive:true,force:true}); fs.renameSync(x.root,dest); if(x.tmp!==x.root)try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}
-    const now=new Date().toISOString();
-    const e={id,path:dest,worldId:extensionWorldId(id),resourceToken:previous?.resourceToken||crypto.randomBytes(18).toString('hex'),enabled:previous?.enabled!==false,source:'xpi',digest,installedAt:previous?.installedAt||now,updatedAt:now,manifest:x.manifest,detectedApis:x.detectedApis||[],compatibility:x.compatibility};
+  async install(file,{sourceUrl=''}={}){
+    const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),x=await inspectPackage(file,path.join(this.rootDir,'extension-staging')),id=extensionId(x.manifest,digest,x.packageInfo||{}),dest=path.join(this.installDir,id);
+    const previous=this.items.get(id);this.stopBackground(id);
+    fs.rmSync(dest,{recursive:true,force:true});fs.renameSync(x.root,dest);if(x.tmp!==x.root)try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}
+    const now=new Date().toISOString(),source=x.packageInfo?.format||path.extname(file).slice(1)||'zip';
+    const e={id,path:dest,worldId:extensionWorldId(id),resourceToken:previous?.resourceToken||crypto.randomBytes(18).toString('hex'),enabled:previous?.enabled!==false,source,sourceUrl:String(sourceUrl||previous?.sourceUrl||''),digest,installedAt:previous?.installedAt||now,updatedAt:now,manifest:x.manifest,detectedApis:x.detectedApis||[],compatibility:x.compatibility};
+    this.items.set(id,e);this.save();if(e.enabled)await this.startBackground(e);this.emitEvent(e,'runtime.onInstalled',[{reason:previous?'update':'install',previousVersion:previous?.manifest?.version||undefined}]);await this.diagnose(id,{repair:false});return this.publicRecord(e);
+  }
+  async installDirectory(dir){
+    const x=inspectUnpackedDirectory(dir),manifestBytes=fs.readFileSync(path.join(x.root,'manifest.json')),digest=crypto.createHash('sha256').update(fs.realpathSync(x.root)).update(manifestBytes).digest('hex'),id=extensionId(x.manifest,digest,x.packageInfo||{}),dest=path.join(this.installDir,id);
+    const previous=this.items.get(id);this.stopBackground(id);fs.rmSync(dest,{recursive:true,force:true});fs.cpSync(x.root,dest,{recursive:true,errorOnExist:false,force:true});
+    const now=new Date().toISOString(),e={id,path:dest,worldId:extensionWorldId(id),resourceToken:previous?.resourceToken||crypto.randomBytes(18).toString('hex'),enabled:previous?.enabled!==false,source:'unpacked',sourceUrl:fs.realpathSync(x.root),digest,installedAt:previous?.installedAt||now,updatedAt:now,manifest:x.manifest,detectedApis:x.detectedApis||[],compatibility:x.compatibility};
     this.items.set(id,e);this.save();if(e.enabled)await this.startBackground(e);this.emitEvent(e,'runtime.onInstalled',[{reason:previous?'update':'install',previousVersion:previous?.manifest?.version||undefined}]);await this.diagnose(id,{repair:false});return this.publicRecord(e);
   }
   async diagnose(id,{repair=false}={}){
