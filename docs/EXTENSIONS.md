@@ -1,74 +1,98 @@
 # Aegis Extension Runtime 5
 
-Aegis supports installing Firefox-style WebExtension packages (.xpi) through an Aegis-owned compatibility runtime.
+Aegis Runtime 5 installs complete Chrome and Firefox WebExtension packages while keeping execution inside an Aegis-owned compatibility runtime. Package installation and browser-API compatibility are deliberately reported as two separate facts.
+
+## Supported installation sources
+
+- Chrome Web Store listing URLs and 32-character Chrome extension IDs.
+- Local Chrome CRX2 and CRX3 packages.
+- Firefox Add-ons listing URLs.
+- Local Firefox XPI packages.
+- Direct HTTPS CRX, XPI and ZIP package URLs.
+- Unpacked WebExtension folders for development and testing.
+
+Chrome Web Store installs are resolved through Chromium's update service. Aegis parses CRX2/CRX3 headers, derives the signed Chrome extension ID from package cryptographic material, verifies the developer signature, and fails closed if the downloaded package identity does not match the requested store ID.
+
+Firefox Add-ons installs resolve the current package through Mozilla's Add-ons API and verify that the package's Gecko identity matches the add-on GUID returned by Mozilla. Runtime 5 detects Mozilla signature metadata inside XPI files but does not claim independent cryptographic verification of arbitrary XPI signatures.
 
 ## Why Aegis does not use Electron's built-in extension loader
 
-Aegis normal tabs intentionally use non-persistent Chromium sessions. Electron's built-in Chrome-extension support is limited to unpacked extensions on persistent sessions and implements only a subset of extension APIs. Using it as if it were Firefox XPI support would either weaken Aegis's tab-isolation model or create misleading compatibility claims.
+Aegis normal browsing tabs intentionally use non-persistent, per-tab Chromium sessions. Electron's native extension loader only loads unpacked extensions into persistent sessions and explicitly supports only a subset of Chrome extension APIs. Switching normal Aegis tabs to persistent shared sessions just to use that loader would weaken the current tab-compartment model.
 
-The Aegis Extension Runtime therefore treats an XPI as an untrusted WebExtension package, validates it, extracts it into owner-only local storage, analyzes its manifest and permissions, and runs supported content scripts inside a dedicated per-extension isolated JavaScript world. Add-on code receives no Node.js access.
+Runtime 5 therefore extracts and validates the package itself, stores it in owner-only local storage, hosts extension background/popup/options contexts in sandboxed extension windows, and injects supported content scripts into dedicated per-extension isolated worlds. Extension code receives no Node.js access.
 
-## Installation flow
+## Installation and update flow
 
-1. The user chooses Settings → Add-ons → Install .xpi.
-2. Aegis limits archive size and file count and rejects zip-slip/absolute paths.
-3. manifest.json must be WebExtensions manifest v2 or v3.
-4. Aegis computes a SHA-256 digest and derives an extension ID when a Gecko ID is absent.
-5. A permission review shows high-risk host/API permissions.
-6. A compatibility report identifies unsupported APIs before installation.
-7. Only after explicit approval is the extension copied into Aegis's local extension directory.
-8. Matching content scripts are injected into a dedicated per-extension isolated world after a remote document loads.
-9. The extension may use the supported Aegis browser API bridge.
-10. Disabling/removing an extension reloads active tabs so old content scripts do not continue running.
+1. The user selects a local package, unpacked folder, Chrome Web Store page, Firefox Add-ons page, Chrome extension ID or direct HTTPS package URL.
+2. Aegis enforces compressed-package, expanded-size, file-count and path-safety limits.
+3. CRX headers and package identity are parsed before installation; Chrome Web Store CRX signatures must verify.
+4. manifest.json must be WebExtensions manifest v2 or v3.
+5. Localized manifest labels are resolved and static source inspection detects requested browser/chrome API namespaces.
+6. Aegis computes a SHA-256 package digest and builds a permission, host-access, signature and compatibility review.
+7. The review explicitly shows **100% package installable** separately from the API/runtime compatibility percentage.
+8. Installation only proceeds after explicit user approval and enterprise extension policy checks.
+9. Installed background contexts, content scripts, toolbar actions, options pages and supported APIs become active.
+10. Store-installed extensions keep their original source. **Check update** downloads the current package from that same source, re-runs identity/signature/permission/compatibility review, and requires approval before replacement.
+11. Updates preserve the installed extension identity, resource token, install timestamp and enabled/disabled state.
 
-## Currently implemented APIs
+## Implemented WebExtension surfaces
 
-- browser.runtime: manifest metadata/URL helpers, platform info, messaging surface
-- browser.storage.local
-- browser.storage.session
-- browser.tabs: query/create/update/remove/sendMessage
-- browser.permissions.contains
-- basic browser.i18n locale information
-- WebExtension match/exclude-match handling for HTTP/HTTPS content scripts
-- extension-provided CSS content injection
+Runtime 5 currently implements or emulates the following major surfaces:
 
-## Explicit limitations
+- runtime: manifest/URL/platform/browser metadata, messaging, long-lived Ports, reload, contexts and options opening.
+- storage: local, session, local compatibility sync and read-only managed.
+- tabs: query/get/create/update/reload/remove/sendMessage, executeScript, CSS insertion/removal, zoom and visible-tab capture.
+- windows: basic current-window and window metadata operations used by extension UIs.
+- cookies: host-scoped access tied to extension host permissions and visible private tabs.
+- permissions: declared-permission inspection.
+- i18n: manifest/default-locale message lookup.
+- alarms and commands.
+- scripting: file/code execution and CSS insertion/removal for the top-level frame.
+- webNavigation observation.
+- webRequest observation.
+- declarativeNetRequest static/dynamic/session rules for block, allow, redirect and upgradeScheme decisions.
+- privacy read/query compatibility surfaces controlled by Aegis policy.
+- notifications rendered through Aegis browser chrome.
+- menus/contextMenus integrated into Aegis context menus.
+- action, browserAction and pageAction popup/click/badge/title/icon state.
+- MV2 background scripts, MV3 service-worker code through a sandboxed persistent background-host emulation, and custom background pages.
+- packaged extension resources through the private aegis-extension:// resource origin.
 
-The current Electron-based Aegis engine does not claim universal Firefox add-on compatibility.
+## Known compatibility boundaries
 
-Firefox `background.scripts` and MV3 `service_worker` entries are supported through a sandboxed, non-persistent Aegis background host. MV3 service workers are emulated as a persistent hidden host, so Firefox/Chromium service-worker lifecycle semantics are not identical. Custom `background.page` HTML remains unsupported and is reported explicitly. Aegis also withholds or does not yet implement powerful APIs including blocking webRequest, declarativeNetRequest, extension-owned proxy replacement, native messaging, history access, extension management, and broad cookie-store access.
+Runtime 5 does not claim universal Chrome or Firefox API parity.
 
-These are security boundaries, not hidden failures. The Add-ons page exposes the compatibility score and unsupported API list for each package.
+- Aegis owns synchronous network blocking. Blocking webRequest listener return values are not exposed; extensions should use supported declarativeNetRequest behavior where possible.
+- declarativeNetRequest modifyHeaders is intentionally not allowed to weaken Aegis security headers, and matched-rule telemetry is reduced.
+- proxy replacement, native messaging, browsing-history database access, extension management, debugger APIs and DevTools extension pages are withheld.
+- optional_permissions and optional_host_permissions are detected and reviewed, but runtime permission-request/removal prompts are not yet implemented.
+- content_scripts.all_frames and scripting allFrames are not yet implemented; supported script injection targets the top-level frame.
+- document_start uses Aegis early-navigation isolated-world injection, but exact Firefox/Chromium pre-page-script ordering is not guaranteed on every navigation.
+- MV3 service workers run in a persistent sandboxed host rather than Chromium's suspend/resume lifecycle.
+- function-object scripting injection is not transferred across Aegis IPC; packaged files or code strings are supported.
+- notifications, context menus and some browser chrome integrations are intentionally reduced compared with upstream browser UI.
 
-## Path to full Firefox XPI compatibility
+These boundaries remain visible in the compatibility review and health diagnostics instead of being silently reported as working.
 
-If runs-arbitrary-Firefox-XPIs-exactly-as-Firefox-does becomes a hard product requirement, Aegis must move from an Electron/Chromium shell to a Gecko/Firefox-derived engine or maintain a substantially larger compatibility implementation. That would be an engine migration, not a small extension-loader feature.
+## Runtime health and repair
 
-Aegis should not describe the Electron compatibility runtime as full Firefox compatibility until that migration occurs.
+Each extension has runtime health evidence for manifest parsing, compatibility bootstrap compilation, referenced package resources, API compatibility, background-host state and recorded runtime errors. The Add-ons manager exposes Health check, Repair runtime, Reload, Enable/Disable, Check update and Remove controls.
+
+Repair can restart an expected background context when it has stopped. It does not pretend an unsupported API is fixed.
 
 ## Security boundaries
 
-- no Node.js in extension content scripts;
-- isolated extension world separate from the page's main JavaScript world;
-- main-process IPC validates extension ID and method names;
-- privileged unsupported APIs fail rather than being emulated unsafely;
-- extensions cannot disable Aegis's renderer sandbox, private-session model, permission firewall, HTTPS-first policy, or routing configuration;
-- XPI source is local-only and is not uploaded by Aegis.
+- no Node.js in extension content scripts, background hosts, popups or options pages;
+- isolated per-extension execution worlds;
+- extension IPC validates extension identity and the sending renderer;
+- private aegis-extension:// resource tokens prevent exposing local filesystem paths;
+- host permissions gate extension network and tab access;
+- extensions are excluded from hardened and anonymous compartments;
+- extensions cannot disable the renderer sandbox, privacy firewall, HTTPS-first policy, routing configuration or Security Kernel;
+- package extraction rejects traversal paths and symlinks and enforces file/size limits;
+- Chrome Web Store identity/signature mismatches fail closed;
+- enterprise allowlist/block-unlisted policy is enforced before installation.
 
-Each installed extension is assigned its own isolated-world ID. The renderer preload binds the IPC bridge to that extension identity, so one content-script world cannot request storage or APIs as another extension merely by changing an ID argument. Installing, enabling, disabling, or removing an extension rebuilds active tab renderers so the new privilege map is applied before extension scripts execute.
+## Engine direction
 
-
-## Content-script timing
-
-Aegis honors `document_end` at Electron's DOM-ready phase and `document_idle` after the document finishes loading. Electron does not provide this compatibility runtime with Firefox-equivalent pre-page-script `document_start` injection into the same isolated world, so `document_start` currently falls back to DOM-ready and generates a compatibility warning. Aegis does not count that package as fully compatible.
-
-Relative `url(...)` references in extension CSS are rewritten to the private `aegis-extension://` resource origin so packaged images/fonts continue to resolve without exposing local filesystem paths.
-
-
-## Package installation vs runtime compatibility
-
-Runtime 5 treats installation and execution compatibility as separate facts. A valid CRX, XPI, ZIP, or unpacked WebExtension is installed as a complete package after review. The compatibility percentage reports Aegis API/runtime coverage; it is not an installation-progress percentage.
-
-Chrome CRX identity is taken from the verified CRX signature before any Gecko identity embedded in a cross-browser manifest. Firefox/XPI packages continue to use their Gecko identity. Localized manifest placeholders such as `__MSG_name__` and `__MSG_description__` are resolved from package locale files for review and display.
-
-Aegis does not claim unsupported APIs work. Current engine limitations remain visible in the review so users can distinguish “installed successfully” from “every requested browser API behaves exactly like upstream Chrome or Firefox.”
+Aegis can keep expanding Runtime 5 compatibility, but exact arbitrary-Chrome-extension or arbitrary-Firefox-XPI behavior eventually requires a browser engine with upstream extension semantics rather than an Electron compatibility layer. Runtime 5's goal is to install packages completely, execute a broad safe subset faithfully, and make every remaining incompatibility explicit.
