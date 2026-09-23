@@ -22,6 +22,7 @@ const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
 const { makeBounceTracker, noteNavigation, detectBounce } = require('./core/bounce-tracking');
 const { createSecurityEventLedger } = require('./core/security-events');
+const { evaluateUrl, extensionAllowed } = require('./core/enterprise-policy');
 
 app.setName('Aegis Privacy Browser');
 
@@ -942,14 +943,17 @@ function wireTabView(tab, view) {
     const original = navigationUrl(event, legacyDetails);
     const effective = tabSettings(tab);
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
-    if (!url || !isAllowedNavigation(url) || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) {
+    const managed=evaluateUrl(url, settings);
+    if (!url || !isAllowedNavigation(url) || !managed.allowed || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) {
       event.preventDefault(); toast(`Blocked unsafe navigation${url ? `: ${String(url).split(':')[0]}:` : '.'}`, 'danger'); return;
     }
     if (url !== original) {
       event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState();
       view.webContents.loadURL(url).catch((err) => showLoadError(tab, url, err?.errno, err?.message)); return;
     }
-    tab.safety = effective.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+    const managed=evaluateUrl(url, settings);
+  if(!managed.allowed){ securityEvents.add('enterprise-navigation-block','warning',{url:safeOrigin(url),reason:managed.reason},tab.id); toast('Blocked by enterprise browser policy.', 'danger'); return false; }
+  tab.safety = effective.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
     if (tab.safety.risk >= 50) toast(`Caution: ${tab.safety.warnings[0]}`, 'warning');
     if (shouldUpgradeHttp(url, tab.allowHttp)) {
       event.preventDefault(); tab.stats.httpsUpgrades += 1; emitState();
@@ -966,7 +970,8 @@ function wireTabView(tab, view) {
     const original = navigationUrl(event, legacyDetails);
     const effective = tabSettings(tab);
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
-    if (!url || !isAllowedNavigation(url) || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe redirect.', 'danger'); return; }
+    const managed=evaluateUrl(url, settings);
+    if (!url || !isAllowedNavigation(url) || !managed.allowed || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe or enterprise-restricted redirect.', 'danger'); return; }
     if (url !== original) { event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState(); view.webContents.loadURL(url).catch(() => {}); }
   });
   view.webContents.on('did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
@@ -1475,6 +1480,7 @@ function wireIpc() {
       const signatureNote = summary.signature?.metadataPresent ? 'Mozilla signature metadata: present (not cryptographically verified by this beta).' : 'Mozilla signature metadata: not detected.';
       const answer = await dialog.showMessageBox(mainWindow, { type:'warning', buttons:['Cancel','Install'], defaultId:0, cancelId:0, title:'Review extension permissions', message:summary.name + ' ' + summary.version, detail:'Aegis compatibility: ' + summary.compatibility.score + '%\nHigh-risk permissions: ' + risky + '\nUnsupported APIs: ' + unsupported + '\n' + signatureNote + '\n\nAegis runs content scripts in an extension-specific isolated world and does not grant Node.js access.' });
       if (answer.response !== 1) return { ok:false, canceled:true, summary };
+      if(!extensionAllowed(summary.id, settings)) return {ok:false,error:'Extension blocked by enterprise allowlist policy.',summary};
       const installed = await extensionRuntime.install(pick.filePaths[0]);
       await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
       emitState(); return { ok:true, extension:installed };
