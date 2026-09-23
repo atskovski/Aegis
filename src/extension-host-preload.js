@@ -6,6 +6,7 @@ let extensionId = '';
 try { extensionId = decodeURIComponent(String(arg || '').slice('--aegis-extension-id='.length)); } catch {}
 
 const listeners = new Set();
+const eventListeners = new Set();
 const validMethod = (name) => Boolean(name && name.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(name));
 const bridge = {
   call(method, args) {
@@ -15,6 +16,9 @@ const bridge = {
   },
   onMessage(callback) {
     if (typeof callback === 'function') listeners.add(callback);
+  },
+  onEvent(callback) {
+    if (typeof callback === 'function') eventListeners.add(callback);
   },
   respond(messageId, response) {
     ipcRenderer.send('extension:message-response', { extensionId, messageId: String(messageId || ''), response });
@@ -28,3 +32,9 @@ ipcRenderer.on('extension:runtime-message', (_event, payload) => {
 });
 
 contextBridge.exposeInMainWorld('__aegisBackgroundBridge', bridge);
+
+ipcRenderer.on('extension:event', (_event, payload) => {
+  if (String(payload?.extensionId || '') !== extensionId) return;
+  const safe = { type:String(payload?.type || ''), args:Array.isArray(payload?.args) ? payload.args : [] };
+  for (const callback of [...eventListeners]) { try { callback(safe); } catch {} }
+});
