@@ -849,7 +849,7 @@ const REMOTE_RENDERER_POLICY = Object.freeze({
   spellcheck: false,
   safeDialogs: true,
   devTools: false,
-  autoplayPolicy: 'document-user-activation-required',
+  autoplayPolicy: (tabSettings(tab).mediaClickToPlay || settings.blockAutoplay) ? 'document-user-activation-required' : 'no-user-gesture-required',
   v8CacheOptions: 'none',
   navigateOnDragDrop: false,
   enableWebSQL: false,
