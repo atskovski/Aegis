@@ -1487,8 +1487,8 @@ $('#resetSitePermissions').addEventListener('click', () => window.aegis.send('si
 $('#clearDownloads').addEventListener('click', () => window.aegis.send('downloads:clear'));
 $('#runNetworkTest').addEventListener('click', runNetworkTest);
 $('#runSecuritySuite').addEventListener('click', runSecuritySuite);
-$('#installXpi').addEventListener('click', async () => {
-  const button = $('#installXpi'); button.disabled = true; button.textContent = 'Inspecting…';
+$('#installExtensionPackage').addEventListener('click', async () => {
+  const button = $('#installExtensionPackage'); button.disabled = true; button.textContent = 'Inspecting…';
   try {
     const result = await window.aegis.invoke('extensions:pick-package');
     if (result?.ok) {
