@@ -39,6 +39,9 @@ function webExtensionBootstrap(ext, bridgeGlobal = '__aegisExtensionBridge') {
   const manifest = JSON.stringify(ext.manifest);
   const messages = JSON.stringify(localeMessages(ext));
   const bridge = JSON.stringify(bridgeGlobal);
+  const messageHook = bridgeGlobal === '__aegisBackgroundBridge'
+    ? "B.onMessage?.(async(p)=>{const response=await globalThis.__aegisReceiveMessage(p.message,p.sender||{});B.respond?.(p.messageId,response)});"
+    : "B.onMessage?.((p)=>globalThis.__aegisReceiveMessage(p.message,p.sender||{}));";
 
   return `(()=>{'use strict';
 const ID=${id},TOKEN=${token},M=Object.freeze(${manifest}),MSG=Object.freeze(${messages}),B=globalThis[${bridge}];if(!B)return;
@@ -47,7 +50,7 @@ const listeners=(name)=>{if(!events.has(name))events.set(name,[]);return events.
 const event=(name)=>({addListener:(f)=>{if(typeof f==='function'&&!listeners(name).includes(f))listeners(name).push(f)},removeListener:(f)=>{const a=listeners(name),i=a.indexOf(f);if(i>=0)a.splice(i,1)},hasListener:(f)=>listeners(name).includes(f),hasListeners:()=>listeners(name).length>0});
 const call=(m,...a)=>B.call(m,a);
 const area=(n)=>({get:(k)=>call('storage.'+n+'.get',k),set:(v)=>call('storage.'+n+'.set',v),remove:(k)=>call('storage.'+n+'.remove',k),clear:()=>call('storage.'+n+'.clear')});
-const runtime={id:ID,getManifest:()=>M,getURL:(p='')=>'aegis-extension://ext/'+TOKEN+'/'+String(p).replace(/^\\/+/,''),getPlatformInfo:()=>call('runtime.getPlatformInfo'),getBrowserInfo:()=>call('runtime.getBrowserInfo'),openOptionsPage:()=>call('runtime.openOptionsPage'),reload:()=>call('runtime.reload'),sendMessage:(...a)=>call('runtime.sendMessage',...a),onMessage:event('runtime.onMessage'),onInstalled:event('runtime.onInstalled'),onStartup:event('runtime.onStartup')};
+const runtime={id:ID,getManifest:()=>M,getURL:(p='')=>'aegis-extension://'+TOKEN+'/'+String(p).replace(/^\\/+/,''),getPlatformInfo:()=>call('runtime.getPlatformInfo'),getBrowserInfo:()=>call('runtime.getBrowserInfo'),openOptionsPage:()=>call('runtime.openOptionsPage'),reload:()=>call('runtime.reload'),sendMessage:(...a)=>call('runtime.sendMessage',...a),onMessage:event('runtime.onMessage'),onInstalled:event('runtime.onInstalled'),onStartup:event('runtime.onStartup')};
 globalThis.__aegisReceiveMessage=async(msg,sender={})=>{for(const fn of [...listeners('runtime.onMessage')]){try{const r=await fn(msg,sender,()=>{});if(r!==undefined)return r}catch{}}};
 const tabs={query:(q)=>call('tabs.query',q||{}),get:(id)=>call('tabs.get',id),getCurrent:()=>call('tabs.getCurrent'),create:(p)=>call('tabs.create',p||{}),update:(...a)=>call('tabs.update',...a),remove:(ids)=>call('tabs.remove',ids),reload:(...a)=>call('tabs.reload',...a),sendMessage:(id,msg)=>call('tabs.sendMessage',id,msg),executeScript:(...a)=>call('tabs.executeScript',...a),insertCSS:(...a)=>call('tabs.insertCSS',...a),removeCSS:(...a)=>call('tabs.removeCSS',...a),onCreated:event('tabs.onCreated'),onUpdated:event('tabs.onUpdated'),onRemoved:event('tabs.onRemoved'),onActivated:event('tabs.onActivated')};
 const actionApi=(root)=>({setTitle:(d)=>call(root+'.setTitle',d||{}),getTitle:(d)=>call(root+'.getTitle',d||{}),setBadgeText:(d)=>call(root+'.setBadgeText',d||{}),getBadgeText:(d)=>call(root+'.getBadgeText',d||{}),setBadgeBackgroundColor:(d)=>call(root+'.setBadgeBackgroundColor',d||{}),setPopup:(d)=>call(root+'.setPopup',d||{}),getPopup:(d)=>call(root+'.getPopup',d||{}),openPopup:()=>call(root+'.openPopup'),onClicked:event(root+'.onClicked')});
@@ -60,7 +63,7 @@ scripting:{executeScript:(d)=>call('scripting.executeScript',d||{}),insertCSS:(d
 webNavigation:{onBeforeNavigate:event('webNavigation.onBeforeNavigate'),onCommitted:event('webNavigation.onCommitted'),onCompleted:event('webNavigation.onCompleted'),onErrorOccurred:event('webNavigation.onErrorOccurred')},
 action:actionApi('action'),browserAction:actionApi('browserAction'),pageAction:actionApi('pageAction')};
 Object.defineProperty(globalThis,'browser',{value:api,configurable:false});if(!globalThis.chrome)Object.defineProperty(globalThis,'chrome',{value:api,configurable:false});
-B.onMessage?.((p)=>globalThis.__aegisReceiveMessage(p.message,p.sender||{}));
+${messageHook}
 B.onEvent?.((p)=>{const a=listeners(String(p?.type||''));for(const fn of [...a]){try{fn(...(Array.isArray(p?.args)?p.args:[]))}catch{}}});
 })();`;
 }
