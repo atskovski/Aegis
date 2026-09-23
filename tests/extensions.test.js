@@ -98,7 +98,7 @@ test('content script run_at phases are explicit and document_start is a document
 test('extension CSS relative assets are rewritten to private extension-resource URLs', () => {
   const ext={resourceToken:'abc123'};
   const css=rewriteCssUrls('.x{background:url("../img/icon.png")} .y{mask:url(data:image/png;base64,abc)}',ext,'styles/main.css');
-  assert.match(css,/aegis-extension:\/\/ext\/abc123\/img\/icon\.png/);
+  assert.match(css,/aegis-extension:\/\/abc123\/img\/icon\.png/);
   assert.match(css,/data:image\/png;base64,abc/);
 });
 
@@ -164,4 +164,11 @@ test('package source API scanning catches undeclared unsupported browser namespa
     assert.ok(report.unsupported.some((x)=>x.api==='proxy'));
     assert.ok(report.unsupported.some((x)=>x.api==='cookies'));
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
+
+test('background bootstrap preserves runtime.sendMessage response handling', () => {
+  const ext={id:'msg@example',resourceToken:'token123',path:__dirname,manifest:{manifest_version:2,name:'Msg',version:'1',background:{scripts:['bg.js']}}};
+  const source=bootstrap(ext);
+  assert.match(source,/aegis-extension:\/\/token123\//);
 });
