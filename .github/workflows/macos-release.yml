@@ -31,13 +31,13 @@ jobs:
       - name: Require Apple release credentials
         shell: zsh {0}
         run: |
+          set -euo pipefail
           missing=0
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [[ -z "${(P)name:-}" ]]; then
-              echo "::error::Missing GitHub secret: $name"
-              missing=1
-            fi
-          done
+          [[ -n "$CSC_LINK" ]] || { echo "::error::Missing GitHub secret: MAC_CSC_LINK"; missing=1; }
+          [[ -n "$CSC_KEY_PASSWORD" ]] || { echo "::error::Missing GitHub secret: MAC_CSC_KEY_PASSWORD"; missing=1; }
+          [[ -n "$APPLE_ID" ]] || { echo "::error::Missing GitHub secret: APPLE_ID"; missing=1; }
+          [[ -n "$APPLE_APP_SPECIFIC_PASSWORD" ]] || { echo "::error::Missing GitHub secret: APPLE_APP_SPECIFIC_PASSWORD"; missing=1; }
+          [[ -n "$APPLE_TEAM_ID" ]] || { echo "::error::Missing GitHub secret: APPLE_TEAM_ID"; missing=1; }
           (( missing == 0 ))
 
       - name: Install dependencies
