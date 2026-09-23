@@ -43,6 +43,21 @@ test('Settings dynamic controls all exist in the settings document', () => {
   assert.deepEqual(missing, []);
 });
 
+test('Settings render and collect paths cover every dynamic control', () => {
+  const block = ui.match(/const draftControlIds = \[([\s\S]*?)\];/);
+  assert.ok(block, 'draftControlIds declaration missing');
+  const ids = [...block[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const renderStart = ui.indexOf('function renderSettingsDraft()');
+  const renderEnd = ui.indexOf('function collectDraftFromControls()', renderStart);
+  const collectEnd = ui.indexOf('function switchSettingsPage(', renderEnd);
+  const renderSource = ui.slice(renderStart, renderEnd);
+  const collectSource = ui.slice(renderEnd, collectEnd);
+  const rendered = new Set([...renderSource.matchAll(/\$\('#([^']+)'\)/g)].map((m) => m[1]));
+  const collected = new Set([...collectSource.matchAll(/\$\('#([^']+)'\)/g)].map((m) => m[1]));
+  assert.deepEqual(ids.filter((id) => !rendered.has(id)), [], 'dynamic setting missing from render path');
+  assert.deepEqual(ids.filter((id) => !collected.has(id)), [], 'dynamic setting missing from collect path');
+});
+
 test('Map-backed runtime collections are not used with Array-only methods', () => {
   const mapNames = [...main.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new Map\s*\(/g)].map((m) => m[1]);
   const arrayOnly = ['filter','map','some','find','slice','reduce','includes','at','flatMap','sort'];
