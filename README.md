@@ -1,10 +1,25 @@
 <p align="center"><img src="assets/brand/aegis-lockup.svg" alt="Aegis Privacy Browser" width="430"></p>
 
-# Aegis Privacy Browser 1.1 — Security Kernel
+# Aegis Privacy Browser 1.1.2 — Stable Security Kernel
 
 Aegis 1.1 is a local-first macOS privacy, security and managed-browser platform built on Electron/Chromium. Its design rule is simple: a security setting is not treated as protection merely because a toggle is enabled. Aegis couples policy, browser-process enforcement, behavioral runtime checks and user-visible evidence.
 
 Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or Tor Browser equivalence. It reduces attack surface and linkability, isolates high-risk activity, can fail closed for selected routes, and reports important residual exposure instead of converting limitations into green badges.
+
+## 1.1.2 stability release
+
+This release is a stabilization pass over the 1.1 Security Kernel and BrowserRuntime migration.
+
+- Fixed the Security Suite cross-tab cohort crash caused by treating the tab `Map` as an Array.
+- Removed a second latent Security Suite failure from the stale `createStats()` factory and routed probes through `makeTabStats()`.
+- Security Suite IPC now returns structured failure evidence instead of surfacing an unhandled remote-method exception.
+- Restored preload authorization for **Harden This Site** and **New Anonymous Tab** so those browser actions execute from the UI.
+- Fixed Settings render/save symmetry for Bounce Tracking Protection.
+- Profile and Reset Settings actions now preserve signed managed-policy locks, and Reset rebuilds active tab renderers so preload-based protections actually change at runtime.
+- Consolidated request-header privacy enforcement into one deterministic `onBeforeSendHeaders` pipeline so User-Agent normalization, GPC/DNT, Client Hint reduction, referrer stripping and cookie isolation cannot silently replace one another.
+- Security Suite network-identity verification now observes post-policy headers without replacing the privacy handler it is trying to test.
+- Added stable-release health gates for UI/preload/main IPC parity, Settings control symmetry, Map/Array misuse, BrowserRuntime contract coverage, Security Suite runtime invariants and package/launcher version synchronization.
+- Expanded the macOS launcher preflight to syntax-check BrowserRuntime, engine adapter, Security Suite, Security Kernel, compartment, extension and site-intelligence modules before starting the browser.
 
 ## What's new in 1.1
 

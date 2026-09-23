@@ -1,6 +1,6 @@
 {
   "name": "aegis-privacy-browser",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Aegis 1.1 Security Kernel: evidence-driven hardened Chromium browser with portable policy enforcement, advanced fingerprint resistance, isolated compartments and runtime verification.",
   "main": "src/main.js",
