@@ -829,3 +829,27 @@ test('Privacy Badger 2026.9.15 MV3 profile preserves complete startup manifest',
     assert.doesNotThrow(()=>Object.prototype.hasOwnProperty.call(data.manifest.background,'persistent'));
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+
+
+test('Privacy Badger dynamic DNT script preserves matchOriginAsFallback and MAIN world', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-pb-dynamic-script-')),extRoot=path.join(root,'extensions','privacy-badger');
+  try{
+    fs.mkdirSync(path.join(extRoot,'js','contentscripts'),{recursive:true});
+    const manifest={manifest_version:2,name:'Privacy Badger',version:'2026.9.15',permissions:['scripting'],background:{page:'background.html'}};
+    fs.writeFileSync(path.join(extRoot,'manifest.json'),JSON.stringify(manifest));
+    fs.writeFileSync(path.join(extRoot,'background.html'),'<!doctype html>');
+    fs.writeFileSync(path.join(extRoot,'js','contentscripts','dnt.js'),'globalThis.__pbDnt=true;');
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp',path:extRoot,resourceToken:'pb-dynamic',enabled:true,manifest,detectedApis:['scripting'],compatibility:compatibility(manifest,['scripting'])};
+    runtime.items.set(e.id,e);
+    runtime.registerContentScripts(e,[{
+      id:'dnt_signal',js:['js/contentscripts/dnt.js'],matches:['<all_urls>'],allFrames:true,
+      matchOriginAsFallback:true,runAt:'document_start',world:'MAIN',persistAcrossSessions:false
+    }]);
+    const scripts=runtime.getRegisteredContentScripts(e,{ids:['dnt_signal']});
+    assert.equal(scripts.length,1);
+    assert.equal(scripts[0].allFrames,true);
+    assert.equal(scripts[0].matchOriginAsFallback,true);
+    assert.equal(scripts[0].world,'MAIN');
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
