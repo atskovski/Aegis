@@ -2,7 +2,7 @@
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
-let state = { activeId: null, tabs: [], settings: {}, engine: {}, searchEngines: {}, bookmarks: [], downloads: [], network: {}, securitySuite: null, extensions: [], privacyControls: [] };
+let state = { activeId: null, tabs: [], settings: {}, engine: {}, searchEngines: {}, bookmarks: [], downloads: [], network: {}, securitySuite: null, securityEvents: [], extensions: [], privacyControls: [] };
 let draftSettings = null;
 let toastTimer;
 let commandIndex = 0;
@@ -312,6 +312,7 @@ function renderSentinelSummary(tab) {
   $('#sentinelFingerprint').textContent = tab.siteIntelligence?.totals?.fingerprintCategories || 0;
   if ($('#sentinelBouncePurges')) $('#sentinelBouncePurges').textContent = tab.bouncePurges || 0;
   if ($('#sentinelRendererCrashes')) $('#sentinelRendererCrashes').textContent = tab.rendererCrashes || 0;
+  if ($('#sentinelTls')) $('#sentinelTls').textContent = tab.tls ? (tab.tls.valid === false ? 'BLOCKED INVALID' : 'HTTPS OBSERVED') : '—';
   $('#sentinelPermissions').textContent = stats.blockedPermissions || 0;
 
   const degraded = (state.privacyControls || []).filter((x) => x.enabled && x.status === 'degraded').length;
@@ -584,6 +585,18 @@ function renderNetworkDiagnostics() {
   $('#networkOrb').dataset.ok = r ? String(Boolean(r.ok)) : 'unknown';
 }
 
+function renderSecurityEvents() {
+  const box=$('#securityEventLedger'); if(!box)return; box.replaceChildren();
+  const events=state.securityEvents||[];
+  if(!events.length){const e=document.createElement('div');e.className='suite-empty';e.innerHTML='<b>No security events yet</b><span>Events appear here as protections are exercised.</span>';box.append(e);return;}
+  for(const ev of events.slice(0,50)){
+    const row=document.createElement('div');row.className='suite-result';
+    const title=document.createElement('b');title.textContent=String(ev.type||'security event').replace(/-/g,' ');
+    const detail=document.createElement('span');detail.textContent=(ev.at?new Date(ev.at).toLocaleTimeString()+' · ':'')+Object.entries(ev.detail||{}).slice(0,5).map(([k,v])=>k+'='+String(v)).join(' · ');
+    row.append(title,detail);box.append(row);
+  }
+}
+
 function renderSecuritySuite() {
   const suite = state.securitySuite;
   const ip = $('#publicIpValue');
@@ -628,6 +641,7 @@ async function runSecuritySuite() {
     const result = await window.aegis.invoke('security-suite:run');
     state.securitySuite = result;
     renderSecuritySuite();
+  renderSecurityEvents();
     const failed = Number(result?.summary?.fail || 0);
     const warnings = Number(result?.summary?.warning || 0);
     showToast({
