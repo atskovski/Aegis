@@ -30,7 +30,7 @@ function privateIpv6(ip) {
   const value = String(ip || '').toLowerCase();
   if (!value.includes(':')) return false;
   if (value === '::' || value === '::1') return true;
-  if (/^f[cd][0-9a-f]:/.test(value)) return true; // fc00::/7
+  if (/^f[cd][0-9a-f]{2}:/.test(value)) return true; // fc00::/7
   if (/^fe[89ab][0-9a-f]:/.test(value)) return true; // fe80::/10
   if (/^::ffff:/.test(value)) {
     const v4 = value.slice('::ffff:'.length);
