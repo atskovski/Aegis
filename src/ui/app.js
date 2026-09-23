@@ -401,7 +401,7 @@ function renderAddonInstallReview() {
   const permissionBox = $('#addonReviewPermissions'); permissionBox.replaceChildren();
   const risks = summary.risk || [];
   if (!risks.length) permissionBox.append(makeAddonChip('No declared API permissions', 'quiet'));
-  risks.forEach((item) => permissionBox.append(makeAddonChip(item.permission + ' · ' + item.level, item.level === 'high' ? 'high' : (item.level === 'medium' ? 'medium' : 'quiet')));
+  risks.forEach((item) => permissionBox.append(makeAddonChip(item.permission + ' · ' + item.level, item.level === 'high' ? 'high' : (item.level === 'medium' ? 'medium' : 'quiet'))));
 
   const hostBox = $('#addonReviewHosts'); hostBox.replaceChildren();
   const hosts = summary.hostPermissions || [];
