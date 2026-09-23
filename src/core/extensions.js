@@ -305,7 +305,7 @@ function normalizeRegisteredScript(value){
     id,matches,exclude_matches:exclude,js,css,
     run_at:String(input.runAt||input.run_at||'document_idle'),
     all_frames:Boolean(input.allFrames??input.all_frames),
-    match_about_blank:Boolean(input.matchAboutBlank??input.match_about_blank),
+    match_about_blank:Boolean(input.matchOriginAsFallback??input.matchAboutBlank??input.match_about_blank),
     world:String(input.world||'ISOLATED').toUpperCase()==='MAIN'?'MAIN':'ISOLATED',
     persistAcrossSessions:input.persistAcrossSessions!==false,
     __registered:true
