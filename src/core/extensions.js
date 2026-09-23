@@ -635,11 +635,26 @@ class AegisExtensionRuntime{
     const unsupported=e.compatibility?.unsupported||[];
     add('compatibility','API compatibility',unsupported.length?(e.compatibility?.score>=70?'warning':'fail'):'pass',unsupported.length?unsupported.map((x)=>x.api).join(', ')+' unsupported or restricted.':'No unsupported API namespaces detected by static inspection.');
     const expected=Boolean(bg.page||bg.service_worker||(Array.isArray(bg.scripts)&&bg.scripts.length));
-    let running=Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed());
-    if(repair&&e.enabled!==false&&expected&&!running){await this.startBackground(e);running=Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed())}
+    let running=Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed()),reloadedTabs=0;
+    if(repair&&e.enabled!==false){
+      this.clearRuntimeErrors(e.id);
+      if(expected){
+        this.stopBackground(e.id);
+        await this.startBackground(e);
+        running=Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed());
+      }
+      for(const tab of this.getTabs()){
+        if(!extensionVisibleTab(tab)||!tab?.view?.webContents||tab.view.webContents.isDestroyed())continue;
+        if(tab.extensionInjectionKeys instanceof Set){
+          for(const key of [...tab.extensionInjectionKeys])if(String(key).startsWith(e.id+':'))tab.extensionInjectionKeys.delete(key);
+        }
+        try{tab.view.webContents.reload();reloadedTabs+=1}catch(err){this.noteRuntimeError(e.id,'repair-reload',err)}
+      }
+    }
     add('background','Background runtime',!expected?'pass':(running?'pass':'fail'),!expected?'No background runtime required.':(running?'Background runtime is running.':'Background runtime is expected but is not running.'));
+    if(repair)add('repair','Runtime repair',reloadedTabs||!this.getTabs().some(extensionVisibleTab)?'pass':'warning',reloadedTabs?(reloadedTabs+' private tab'+(reloadedTabs===1?'':'s')+' reloaded so content scripts can start from a clean extension world.'):'No eligible private tabs were reloaded.');
     const health=this.healthFor(e.id);
-    add('runtime-errors','Runtime errors',health.errors.length?'warning':'pass',health.errors.length?(health.errors[0].scope+': '+health.errors[0].message):'No recorded extension runtime errors.');
+    add('runtime-errors','Runtime errors',health.errors.length?'warning':'pass',health.errors.length?(health.errors[0].scope+': '+health.errors[0].message):'No recorded extension runtime errors after this check.');
     const counts=checks.reduce((acc,x)=>{acc[x.status]=(acc[x.status]||0)+1;return acc},{pass:0,warning:0,fail:0});
     const status=counts.fail?'fail':(counts.warning?'warning':'pass');
     const diagnostic={testedAt:new Date().toISOString(),status,counts,checks};
