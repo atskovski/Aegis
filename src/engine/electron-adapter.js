@@ -25,7 +25,17 @@ function createElectronChromiumAdapter(){
   executeIsolatedWorld:(view,worldId,scripts,userGesture=false)=>wc(view).executeJavaScriptInIsolatedWorld(worldId,scripts,userGesture),
   insertCSS:(view,css,options={})=>wc(view).insertCSS(css,options),
   setWindowOpenPolicy:(view,handler)=>wc(view).setWindowOpenHandler(handler),
-  onCertificateError:(view,handler)=>{const x=wc(view);x.on('certificate-error',handler);return ()=>x.removeListener('certificate-error',handler);}
+  onCertificateError:(view,handler)=>{const x=wc(view);x.on('certificate-error',handler);return ()=>x.removeListener('certificate-error',handler);},
+  isDestroyed:(view)=>Boolean(wc(view)?.isDestroyed()),
+  loadURL:(view,url,options)=>wc(view).loadURL(url,options),
+  getURL:(view)=>wc(view).getURL(),
+  on:(view,event,handler)=>{const x=wc(view);x.on(event,handler);return ()=>x.removeListener(event,handler);},
+  reload:(view)=>wc(view).reload(), stop:(view)=>wc(view).stop(), focus:(view)=>wc(view).focus(),
+  navigationHistory:(view)=>wc(view).navigationHistory,
+  sessionOf:(view)=>wc(view).session,
+  clearSessionData:(ses,options)=>ses.clearData(options), clearSessionCache:(ses)=>ses.clearCache(), closeSessionConnections:(ses)=>ses.closeAllConnections(),
+  removeInsertedCSS:(view,key)=>wc(view).removeInsertedCSS(key),
+  closeView:(view)=>{const x=wc(view);if(x&&!x.isDestroyed())x.close();}
  });
 }
 module.exports={createElectronChromiumAdapter};
