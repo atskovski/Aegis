@@ -60,7 +60,7 @@ function extensionId(m,digest){
 }
 function apiRoots(m){
   const roots=new Set();
-  for(const p of permissions(m)) if(!/^(?:\*|https?|file):\/\//.test(p)) roots.add(p);
+  for(const p of permissions(m)) if(p!=='<all_urls>'&&!/^(?:\*|https?|file):\/\//.test(p)) roots.add(p);
   if(m.background||m.content_scripts) roots.add('runtime');
   if(m.action) roots.add('action');
   if(m.browser_action) roots.add('browserAction');
@@ -516,7 +516,13 @@ class AegisExtensionRuntime{
     if(m==='runtime.getBrowserInfo')return {name:'Aegis Privacy Browser',vendor:'Aegis',version:this.browserVersion,buildID:''};
     if(m==='runtime.openOptionsPage')return this.openOptions(e.id);
     if(m==='runtime.reload'){this.stopBackground(e.id);await this.startBackground(e);return true}
-    if(m==='runtime.sendMessage')return this.sendRuntimeMessage(e,source,a.length>1?a[1]:a[0]);
+    if(m==='runtime.sendMessage'){
+      if(typeof a[0]==='string'&&a.length>1){
+        if(a[0]!==e.id)throw new Error('Cross-extension messaging is not supported.');
+        return this.sendRuntimeMessage(e,source,a[1]);
+      }
+      return this.sendRuntimeMessage(e,source,a[0]);
+    }
 
     if(m==='permissions.contains'){const set=new Set(permissions(e.manifest));return [...(a[0]?.permissions||[]),...(a[0]?.origins||[])].every((x)=>set.has(x))}
     if(m==='permissions.getAll')return {permissions:permissions(e.manifest).filter((x)=>!/:\/\//.test(x)&&x!=='<all_urls>'),origins:hostPermissions(e.manifest)};
@@ -542,9 +548,10 @@ class AegisExtensionRuntime{
     if(m==='tabs.create'){requireTabs();return this.publicTab(e,await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false))}
     if(m==='tabs.update'){
       requireTabs();const id=typeof a[0]==='number'?a[0]:source?.id,target=this.tabById(id);if(!extensionVisibleTab(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');
-      return this.updateTab(id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
+      await this.updateTab(id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
+      return this.publicTab(e,this.tabById(id));
     }
-    if(m==='tabs.reload'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined);if(!extensionVisibleTab(target))throw new Error('Tab unavailable to extensions');target.view.webContents.reload();return undefined}
+    if(m==='tabs.reload'){requireTabs();const target=tabArg(typeof a[0]==='number'?a[0]:undefined);if(!extensionVisibleTab(target))throw new Error('Tab unavailable to extensions');target.view.webContents.reload();return undefined}
     if(m==='tabs.remove'){requireTabs();for(const id of (Array.isArray(a[0])?a[0]:[a[0]])){const target=this.tabById(id);if(!extensionVisibleTab(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');this.removeTab(Number(id))}return undefined}
     if(m==='tabs.sendMessage'){const t=this.tabById(a[0]);if(!t||!extensionVisibleTab(t)||!this.canAccessTab(e,t,{inject:true}))throw new Error('Tab unavailable to this extension');return t.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+','+JSON.stringify({id:e.id})+'):undefined'}],false)}
     if(m==='tabs.executeScript'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.executeExtensionScript(e,target,details)}
