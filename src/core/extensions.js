@@ -1067,7 +1067,7 @@ class AegisExtensionRuntime{
     const target=details.target||{},frameIds=Array.isArray(target.frameIds)?target.frameIds.map(Number):(Number.isFinite(Number(details.frameId))?[Number(details.frameId)]:[]);
     const allFrames=Boolean(target.allFrames??details.allFrames),files=[...(Array.isArray(details.files)?details.files:[]),...(details.file?[details.file]:[])],world=String(details.world||'ISOLATED').toUpperCase(),contents=tab.view.webContents;
     if(!files.length&&!details.code)throw new Error('Function-object injection is not transferable through Aegis IPC; use files or code.');
-    const main=contents.mainFrame,frames=Array.isArray(main?.framesInSubtree)?main.framesInSubtree:[];
+    const main=contents.mainFrame||{__aegisTopFrame:true},frames=Array.isArray(main?.framesInSubtree)?main.framesInSubtree:[main];
     let selected=[];
     if(allFrames)selected=frames.length?frames:[main];
     else if(frameIds.length){
