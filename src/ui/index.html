@@ -41,6 +41,22 @@
       <button class="icon-btn close" data-close="privacyPanel">×</button>
     </div>
 
+    <div class="sentinel-view-switch" role="group" aria-label="Sentinel detail level">
+      <button id="sentinelSimpleBtn" class="active" type="button">Simple</button>
+      <button id="sentinelAdvancedBtn" type="button">Advanced</button>
+    </div>
+    <div class="sentinel-simple-card">
+      <div class="eyebrow">WHAT MATTERS NOW</div>
+      <h3 id="sentinelHeadline">Aegis is evaluating this tab.</h3>
+      <div class="sentinel-simple-grid">
+        <div><span>Protection</span><b id="sentinelProtection">Checking…</b></div>
+        <div><span>Blocked</span><b id="sentinelBlocked">0</b></div>
+        <div><span>Third parties</span><b id="sentinelThirdParties">0</b></div>
+        <div><span>Route</span><b id="sentinelRoute">System</b></div>
+        <div class="wide"><span>Observed public IP</span><b id="sentinelIp">Not tested</b><small id="sentinelIpMeaning">Aegis will not contact an external IP service until you run verification.</small></div>
+      </div>
+    </div>
+
     <div class="score-card">
       <div class="score-ring"><strong id="scoreValue">100</strong><span>/100</span></div>
       <div><b id="scoreLabel">Hardened</b><small>Current tab protection posture</small></div>
@@ -61,6 +77,7 @@
       <div><span class="posture-dot activity"></span><span>Protections</span><b id="protectionCount">0</b></div>
     </div>
 
+    <div id="sentinelAdvanced" class="sentinel-advanced hidden">
     <div class="panel-section intelligence-section">
       <div class="section-title-row"><div><div class="eyebrow">LIVE PAGE INTELLIGENCE</div><h3>What this page is seeking</h3></div><span id="signalCount" class="count-badge">0</span></div>
       <p class="intelligence-help">Observed locally inside this tab. Nothing in this activity ledger is uploaded by Aegis.</p>
@@ -88,6 +105,12 @@
     <div class="panel-section">
       <div class="eyebrow">ACTIVE PROTECTION LAYERS</div>
       <div id="protectionLayers" class="protection-layers"></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title-row"><div><div class="eyebrow">RUNTIME EVIDENCE</div><h3>Protection enforcement</h3></div><span id="sentinelEnforcedCount" class="count-badge">0</span></div>
+      <p class="intelligence-help">Configured is not the same as enforced. These rows come from the backend protection registry for the active tab.</p>
+      <div id="sentinelProtectionEvidence" class="protection-evidence-list"><div class="signal-empty"><b>Collecting runtime evidence</b><span>Sentinel is checking the active enforcement paths.</span></div></div>
     </div>
 
     <div class="panel-section compact">
@@ -118,6 +141,7 @@
     </div>
 
     <div class="blocked-list"><div class="eyebrow">RECENTLY BLOCKED</div><div id="recentBlocked" class="chips"><span class="muted">Nothing blocked yet</span></div></div>
+    </div>
     <div class="privacy-actions"><button id="hardenSite" class="primary compact-btn">Harden this site</button><button id="clearTabData" class="secondary">Clear tab data</button><button id="openFullSettings" class="secondary">Full settings</button></div>
     <div class="panel-note">Aegis reduces linkability and tracking surface. No browser can guarantee anonymity or a zero fingerprint.</div>
   </aside>
@@ -146,6 +170,7 @@
         <button class="settings-nav-item" data-settings-target="network"><span>⇄</span>Network</button>
         <button class="settings-nav-item" data-settings-target="search"><span>⌕</span>Search</button>
         <button class="settings-nav-item" data-settings-target="appearance"><span>✦</span>Appearance</button>
+        <button class="settings-nav-item" data-settings-target="extensions"><span>⊞</span>Extensions</button>
         <button class="settings-nav-item" data-settings-target="diagnostics"><span>⌁</span>Diagnostics</button>
         <button class="settings-nav-item" data-settings-target="about"><span>i</span>About</button>
       </nav>
@@ -271,6 +296,23 @@
             <label class="check-row"><input id="showScoreToggle" type="checkbox"><span><b>Show privacy score</b><small>Displays the local posture score in the site privacy panel.</small></span></label>
             <label class="check-row"><input id="reduceMotionToggle" type="checkbox"><span><b>Reduce UI motion</b><small>Minimizes nonessential browser-shell transitions.</small></span></label>
           </div>
+        </section>
+
+        <section class="settings-page" data-settings-page="extensions">
+          <div class="page-title"><h3>Extensions</h3><p>Install compatible WebExtensions or inspect Firefox XPI packages. Aegis refuses packages whose requested APIs cannot be enforced by the active engine.</p></div>
+          <div class="settings-card grouped-card">
+            <div class="settings-group-head"><span class="settings-group-icon">⊞</span><div><b>Aegis Extension Runtime</b><small>Static compatible content-script extensions run in isolated worlds inside ephemeral tabs. Firefox-only APIs require the Gecko edition.</small></div></div>
+            <div class="extension-install-row">
+              <div><b>Install XPI / WebExtension</b><small>Aegis validates paths, archive limits, manifest capabilities, requested permissions, SHA-256, and content-script API usage before installation.</small></div>
+              <button id="installXpi" class="primary" type="button">Choose XPI…</button>
+            </div>
+            <div id="extensionInstallResult" class="extension-result hidden"></div>
+          </div>
+          <div class="settings-card grouped-card">
+            <div class="settings-group-head"><span class="settings-group-icon">◇</span><div><b>Installed extensions</b><small>Only packages that the current compatibility runtime can execute are shown as installed.</small></div></div>
+            <div id="extensionsList" class="extensions-list"><div class="signal-empty"><b>No extensions installed</b><span>Choose an XPI package to validate and install.</span></div></div>
+          </div>
+          <div class="info-callout"><b>Why some Firefox add-ons are rejected</b><span>Electron does not implement Firefox's full WebExtensions API. Add-ons using background execution, proxy, contextual identities, native messaging, or other Gecko services are marked <strong>Requires Gecko</strong> instead of being installed in a broken state.</span></div>
         </section>
 
         <section class="settings-page" data-settings-page="diagnostics">

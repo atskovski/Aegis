@@ -7,7 +7,7 @@ const allowedSend = new Set([
   'site-permission:set','site-permission:reset','data:clear-tab','data:clear-all','permission:respond',
   'compatibility:set','ui:layer','bookmark:toggle','bookmark:open','bookmark:remove','downloads:clear','download:cancel','download:reveal'
 ]);
-const allowedInvoke = new Set(['state:get','settings:get','network:test','security-suite:run']);
+const allowedInvoke = new Set(['state:get','settings:get','network:test','security-suite:run','protections:status','sentinel:report','extension:analyze-manifest','extensions:list','extension:install-xpi']);
 const allowedReceive = new Set(['state','toast','permission:prompt','permission:closed','ui:open']);
 
 contextBridge.exposeInMainWorld('aegis', {

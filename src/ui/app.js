@@ -11,6 +11,7 @@ let permissionQueue = [];
 let activePermissionPrompt = null;
 let lastUiLayerKey = '';
 let currentSettingsPage = 'privacy';
+let sentinelMode = 'simple';
 
 const PROFILE_VALUES = {
   standard: { privacyLevel: 'standard', letterbox: false, blockTrackers: true, blockAds: true, blockSocialTrackers: true, heuristicTrackingProtection: false, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: false, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: false },
@@ -40,6 +41,50 @@ function activeTab() { return state.tabs.find((t) => t.id === state.activeId); }
 function isInternal(url) { return String(url || '').startsWith('aegis://'); }
 function displayUrl(url) { return isInternal(url) ? '' : String(url || ''); }
 function titleCase(value) { return String(value || '').replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
+
+function setSentinelMode(mode) {
+  sentinelMode = mode === 'advanced' ? 'advanced' : 'simple';
+  const advanced = $('#sentinelAdvanced');
+  if (advanced) advanced.classList.toggle('hidden', sentinelMode !== 'advanced');
+  if ($('#sentinelSimpleBtn')) $('#sentinelSimpleBtn').classList.toggle('active', sentinelMode === 'simple');
+  if ($('#sentinelAdvancedBtn')) $('#sentinelAdvancedBtn').classList.toggle('active', sentinelMode === 'advanced');
+}
+
+function renderSentinelReport(report) {
+  if (!report?.simple) return;
+  const simple = report.simple;
+  $('#sentinelHeadline').textContent = simple.headline || 'Aegis is evaluating this tab.';
+  $('#sentinelProtection').textContent = simple.protection || 'Unknown';
+  $('#sentinelBlocked').textContent = String(simple.blocked ?? 0);
+  $('#sentinelThirdParties').textContent = String(simple.thirdParties ?? 0);
+  $('#sentinelRoute').textContent = String(simple.route || 'system').toUpperCase();
+  $('#sentinelIp').textContent = simple.publicIp || 'Not tested';
+  $('#sentinelIpMeaning').textContent = simple.ipMeaning || 'External IP has not been tested.';
+  const evidence = $('#sentinelProtectionEvidence');
+  if (evidence) {
+    const protections = report.advanced?.protectionStatus?.protections || [];
+    const enforced = protections.filter((x) => x.status === 'enforced').length;
+    $('#sentinelEnforcedCount').textContent = String(enforced);
+    evidence.replaceChildren();
+    if (!protections.length) {
+      const empty=document.createElement('div'); empty.className='signal-empty'; empty.textContent='No protection evidence is available for this tab.'; evidence.append(empty);
+    } else for (const item of protections) {
+      const row=document.createElement('div'); row.className='protection-evidence-row';
+      const copy=document.createElement('div'); const b=document.createElement('b'); b.textContent=item.label; const small=document.createElement('small'); small.textContent=(item.layer||'runtime')+' · '+(item.reason||'No evidence detail'); copy.append(b,small);
+      const badge=document.createElement('span'); badge.className='protection-evidence-state '+item.status; badge.textContent=item.status;
+      row.append(copy,badge); evidence.append(row);
+    }
+  }
+}
+
+async function refreshSentinelReport() {
+  try {
+    const report = await window.aegis.invoke('sentinel:report');
+    renderSentinelReport(report);
+  } catch {
+    renderSentinelReport({ simple:{ headline:'Sentinel report is unavailable for this tab.', protection:'Unknown', blocked:0, thirdParties:0, route:state.network?.proxyMode || 'system', publicIp:'', ipMeaning:'Run Security Suite to collect external routing evidence.' } });
+  }
+}
 
 function currentSitePermission(key) {
   const tab = activeTab();
@@ -415,6 +460,53 @@ function renderLibrary() {
   });
 }
 
+function renderExtensions() {
+  const list = $('#extensionsList');
+  if (!list) return;
+  const items = state.extensions || [];
+  list.replaceChildren();
+  if (!items.length) {
+    const empty=document.createElement('div'); empty.className='signal-empty';
+    const b=document.createElement('b'); b.textContent='No extensions installed';
+    const span=document.createElement('span'); span.textContent='Choose an XPI package to validate and install.';
+    empty.append(b,span); list.append(empty); return;
+  }
+  for (const item of items) {
+    const row=document.createElement('div'); row.className='extension-row';
+    const copy=document.createElement('div');
+    const b=document.createElement('b'); b.textContent=item.metadata?.name || item.report?.name || 'Extension';
+    const small=document.createElement('small'); small.textContent=(item.metadata?.version ? 'v'+item.metadata.version+' · ' : '') + 'SHA-256 '+String(item.metadata?.hash||'').slice(0,16)+'…';
+    copy.append(b,small);
+    const badge=document.createElement('span'); badge.className='extension-capability'; badge.textContent='Compatible';
+    row.append(copy,badge); list.append(row);
+  }
+}
+
+async function installXpi() {
+  const button=$('#installXpi'), result=$('#extensionInstallResult');
+  button.disabled=true; button.textContent='Validating…';
+  try {
+    const out=await window.aegis.invoke('extension:install-xpi');
+    if (!out || out.mode==='cancelled') return;
+    result.classList.remove('hidden','warning','danger');
+    if (out.installed) {
+      result.textContent='Installed '+(out.metadata?.name||out.report?.name||'extension')+'. Its compatible content scripts will run in an isolated world on matching pages.';
+      const latest=await window.aegis.invoke('extensions:list'); state.extensions=latest||[]; renderExtensions();
+    } else if (out.mode==='requires-gecko') {
+      result.classList.add('warning');
+      const missing=(out.report?.unsupported||[]).join(', ');
+      result.textContent='Requires Gecko. This XPI is valid, but the Chromium edition cannot fulfill: '+(missing||'one or more Firefox extension capabilities')+'. Aegis did not install it in a broken state.';
+    } else {
+      result.classList.add('danger');
+      result.textContent='Extension rejected: '+(out.error || (out.report?.errors||[]).join('; ') || 'package validation failed');
+    }
+  } catch (err) {
+    result.classList.remove('hidden','warning'); result.classList.add('danger'); result.textContent='Extension install failed: '+err.message;
+  } finally {
+    button.disabled=false; button.textContent='Choose XPI…';
+  }
+}
+
 function renderNetworkDiagnostics() {
   const r = state.network?.lastTest;
   $('#diagProxy').textContent = r?.proxy || titleCase(state.network?.proxyMode || state.settings?.proxy?.mode || 'system');
@@ -504,6 +596,7 @@ function render() {
   renderPrivacyPanel(tab);
   renderEngineInfo();
   renderLibrary();
+  renderExtensions();
   renderNetworkDiagnostics();
   renderSecuritySuite();
   if (!$('#settingsPanel').classList.contains('hidden') && !draftSettings) draftSettings = deepClone(state.settings);
@@ -716,6 +809,7 @@ function syncUiLayer() {
 function showPanel(id) {
   ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $('#' + x).classList.toggle('hidden', x !== id));
   if (id !== 'settingsPanel') draftSettings = null;
+  if (id === 'privacyPanel') refreshSentinelReport();
   requestAnimationFrame(syncUiLayer);
 }
 
@@ -848,6 +942,8 @@ $('#libraryBtn').addEventListener('click', () => showPanel('libraryPanel'));
 $('#settingsBtn').addEventListener('click', () => openSettings());
 $('#commandBtn').addEventListener('click', openCommandPalette);
 $('#privacyBeacon').addEventListener('click', () => showPanel('privacyPanel'));
+$('#sentinelSimpleBtn').addEventListener('click', () => setSentinelMode('simple'));
+$('#sentinelAdvancedBtn').addEventListener('click', () => { setSentinelMode('advanced'); refreshSentinelReport(); });
 $('#openFullSettings').addEventListener('click', () => openSettings('privacy'));
 $$('[data-close]').forEach((b) => b.addEventListener('click', hidePanels));
 
@@ -861,6 +957,7 @@ $('#resetSitePermissions').addEventListener('click', () => window.aegis.send('si
 $('#clearDownloads').addEventListener('click', () => window.aegis.send('downloads:clear'));
 $('#runNetworkTest').addEventListener('click', runNetworkTest);
 $('#runSecuritySuite').addEventListener('click', runSecuritySuite);
+$('#installXpi').addEventListener('click', installXpi);
 $('#networkTestFromNetwork').addEventListener('click', () => { openSettings('diagnostics'); runNetworkTest(); });
 $$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
 
@@ -945,4 +1042,5 @@ window.aegis.on('ui:open', (payload = {}) => {
   if (payload.panel === 'privacyPanel') showPanel('privacyPanel');
   else if (payload.settingsPage) openSettings(payload.settingsPage);
 });
+setSentinelMode('simple');
 window.aegis.invoke('state:get').then((s) => { if (s) { state = s; render(); } requestAnimationFrame(syncUiLayer); });
