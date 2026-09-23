@@ -495,6 +495,8 @@ function serializeTab(tab) {
 }
 
 function statePayload() {
+  const currentTab = activeTab();
+  const currentSettings = tabSettings(currentTab);
   return {
     activeId,
     tabs: [...tabs.values()].map(serializeTab),
@@ -502,10 +504,10 @@ function statePayload() {
     searchEngines: SEARCH_ENGINES,
     bookmarks,
     downloads: downloads.map(({ path: _path, ...item }) => item),
-    network: { lastTest: lastNetworkTest, proxyMode: effective.proxy?.mode || 'system' },
+    network: { lastTest: lastNetworkTest, proxyMode: currentSettings.proxy?.mode || 'system', securityDomain: currentTab?.securityDomain || 'private', torVerified: Boolean(currentTab?.torVerified) },
     securitySuite: lastSecuritySuite,
     extensions: extensionRuntime ? extensionRuntime.list() : [],
-    privacyControls: controlAssurance(tabSettings(activeTab()), activeTab()),
+    privacyControls: controlAssurance(currentSettings, currentTab),
     engine: {
       appVersion: app.getVersion(),
       electron: process.versions.electron,
