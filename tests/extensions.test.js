@@ -653,6 +653,38 @@ test('DNR privacy and webRequest roots are compatibility-hosted instead of rejec
   assert.ok(report.warnings.some((x)=>x.api==='declarativeNetRequest'));
 });
 
+test('DNR modifyHeaders only permits privacy-strengthening removals', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-dnr-headers-')),extRoot=path.join(root,'extensions','dnr-headers');
+  try{
+    fs.mkdirSync(extRoot,{recursive:true});
+    const manifest={manifest_version:3,name:'DNR Headers',version:'1',permissions:['declarativeNetRequest'],host_permissions:['<all_urls>'],declarative_net_request:{rule_resources:[{id:'base',enabled:true,path:'rules.json'}]}};
+    fs.writeFileSync(path.join(extRoot,'manifest.json'),JSON.stringify(manifest));
+    fs.writeFileSync(path.join(extRoot,'rules.json'),JSON.stringify([{
+      id:7,priority:2,
+      action:{
+        type:'modifyHeaders',
+        requestHeaders:[
+          {header:'Cookie',operation:'remove'},
+          {header:'User-Agent',operation:'remove'},
+          {header:'Referer',operation:'set',value:'https://bad.example/'}
+        ],
+        responseHeaders:[
+          {header:'Set-Cookie',operation:'remove'},
+          {header:'Content-Security-Policy',operation:'remove'}
+        ]
+      },
+      condition:{urlFilter:'||tracker.example^',resourceTypes:['script']}
+    }]));
+    const tab={id:1,url:'https://site.example/',topUrl:'https://site.example/',securityDomain:'private',disableExtensions:false};
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[tab],getActiveId:()=>1,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{},getSettings:()=>({})});
+    runtime.items.set('dnr-headers',{id:'dnr-headers',path:extRoot,enabled:true,manifest,detectedApis:[],compatibility:compatibility(manifest)});
+    const details={url:'https://tracker.example/ad.js',resourceType:'script',method:'GET'};
+    assert.equal(runtime.networkDecision(tab,details),null);
+    assert.deepEqual(runtime.headerModifications(tab,details,'request').map((x)=>x.header),['cookie']);
+    assert.deepEqual(runtime.headerModifications(tab,details,'response').map((x)=>x.header),['set-cookie']);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
 test('DNR block rules are enforced through the Aegis network decision bridge', () => {
   const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-dnr-')),extRoot=path.join(root,'extensions','dnr-test');
