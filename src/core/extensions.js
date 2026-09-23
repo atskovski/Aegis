@@ -436,8 +436,19 @@ class AegisExtensionRuntime{
     return this.runtimeHealth.get(id);
   }
   noteRuntimeError(id,scope,error){
-    const health=this.healthFor(id),message=String(error?.message||error||'Unknown extension runtime error').slice(0,500);
-    health.errors.unshift({scope:String(scope||'runtime'),message,at:new Date().toISOString()});health.errors=health.errors.slice(0,8);
+    const health=this.healthFor(id),raw=String(error?.stack||error?.message||error||'Unknown extension runtime error'),message=raw.slice(0,1800);
+    const key=String(scope||'runtime')+'|'+message;
+    if(health.errors[0]?.key===key)return;
+    health.errors.unshift({scope:String(scope||'runtime'),message,key,at:new Date().toISOString()});health.errors=health.errors.slice(0,12);
+  }
+  recordRendererError(sender,payload={}){
+    const id=String(payload.extensionId||''),e=this.items.get(id);if(!e)return false;
+    const background=this.backgroundHosts.get(id),pageAuthorized=[...this.pageWindows].some((win)=>win.__aegisExtensionId===id&&!win.isDestroyed()&&win.webContents===sender);
+    const tabAuthorized=this.getTabs().some((tab)=>tab?.extensionPageExtensionId===id&&tab?.view?.webContents===sender);
+    if(!(background&&!background.isDestroyed()&&background.webContents===sender)&&!pageAuthorized&&!tabAuthorized)return false;
+    const context=String(payload.context||'extension').slice(0,40),scope=context==='background'?'background-runtime':'extension-page-runtime';
+    const message=String(payload.stack||payload.message||'Extension renderer error');
+    this.noteRuntimeError(id,scope,message);return true;
   }
   clearRuntimeErrors(id,scope=''){
     const health=this.healthFor(id);health.errors=scope?health.errors.filter((x)=>x.scope!==scope&&!x.scope.startsWith(scope+':')):[];
@@ -1325,20 +1336,30 @@ class AegisExtensionRuntime{
       if(!declared.has('cookies'))throw new Error('Extension lacks cookies permission.');
       const details=a[0]||{},requested=String(details.url||'');
       const candidates=tabs.filter(extensionVisibleTab).filter((t)=>this.canAccessTab(e,t));
-      let target=requested?candidates.find((t)=>{try{return new URL(t.url||'').origin===new URL(requested).origin}catch{return false}}):this.tabById(this.getActiveId());
-      if(!target||!extensionVisibleTab(target)||!this.canAccessTab(e,target))throw new Error('Cookie access requires a declared host permission for an open private tab.');
-      const ses=target.privateSession||target.view?.webContents?.session;if(!ses?.cookies)throw new Error('Cookie store unavailable.');
-      if(m==='cookies.get'){const rows=await ses.cookies.get({url:requested||target.url,name:String(details.name||'')});return rows[0]||null}
+      const storeFor=(t)=>t&&(t.privateSession||t.view?.webContents?.session);
+      const targetForUrl=()=>requested?candidates.find((t)=>{try{return new URL(t.url||'').origin===new URL(requested).origin}catch{return false}}):(this.tabById(this.getActiveId())||candidates[0]);
+      if(m==='cookies.getAllCookieStores')return candidates.map((t)=>({id:'aegis-private-'+t.id,tabIds:[t.id],incognito:true}));
       if(m==='cookies.getAll'){
         const query={};if(requested)query.url=requested;if(details.name)query.name=String(details.name);if(details.domain)query.domain=String(details.domain);if(details.path)query.path=String(details.path);
-        return ses.cookies.get(query);
+        const stores=requested?[targetForUrl()].filter(Boolean):candidates;
+        if(!stores.length)return [];
+        const rows=[];
+        for(const t of stores){const ses=storeFor(t);if(!ses?.cookies)continue;for(const cookie of await ses.cookies.get(query))rows.push({...cookie,storeId:'aegis-private-'+t.id})}
+        return rows;
       }
+      const target=targetForUrl();
+      if(!target||!extensionVisibleTab(target)||!this.canAccessTab(e,target)){
+        if(m==='cookies.get')return null;
+        if(m==='cookies.remove')return null;
+        throw new Error('Cookie write requires a declared host permission for an open private tab.');
+      }
+      const ses=storeFor(target);if(!ses?.cookies)throw new Error('Cookie store unavailable.');
+      if(m==='cookies.get'){const rows=await ses.cookies.get({url:requested||target.url,name:String(details.name||'')});return rows[0]?{...rows[0],storeId:'aegis-private-'+target.id}:null}
       if(m==='cookies.set'){
         const url=requested||target.url;if(!networkAllowedByManifest(e.manifest,url)&&!this.activeGrants.get(e.id)?.has(target.id))throw new Error('Cookie write is outside declared host access.');
-        const payload={...details,url};delete payload.storeId;await ses.cookies.set(payload);const rows=await ses.cookies.get({url,name:String(payload.name||'')});return rows[0]||null;
+        const payload={...details,url};delete payload.storeId;delete payload.firstPartyDomain;await ses.cookies.set(payload);const rows=await ses.cookies.get({url,name:String(payload.name||'')});return rows[0]?{...rows[0],storeId:'aegis-private-'+target.id}:null;
       }
       if(m==='cookies.remove'){const url=requested||target.url;const rows=await ses.cookies.get({url,name:String(details.name||'')});await ses.cookies.remove(url,String(details.name||''));return rows[0]?{url,name:String(details.name||''),storeId:'aegis-private-'+target.id}:null}
-      if(m==='cookies.getAllCookieStores')return [{id:'aegis-private-'+target.id,tabIds:[target.id],incognito:true}];
     }
 
     if(m==='scripting.executeScript'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.executeExtensionScript(e,target,a[0]||{})}
@@ -1438,7 +1459,12 @@ class AegisExtensionRuntime{
       if(!target.startsWith(root)||!fs.existsSync(target)||!fs.statSync(target).isFile())return false;
       const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-page-preload.js'),additionalArguments:this.pageArguments(ext,'background')}});
       host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);this.attachBackgroundDiagnostics(ext,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
-      try{await host.loadURL(extensionResourceUrl(ext,page));const health=this.healthFor(ext.id);health.lastStartedAt=new Date().toISOString();this.clearRuntimeErrors(ext.id,'background');return true}catch(err){this.noteRuntimeError(ext.id,'background',err);try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
+      try{
+        await host.loadURL(extensionResourceUrl(ext,page));
+        const bootOk=await host.webContents.executeJavaScript("(()=>{try{const m=globalThis.chrome?.runtime?.getManifest?.();return Boolean(m&&m.manifest_version&&m.name&&m.version&&m.background)}catch{return false}})()",true);
+        if(!bootOk)throw new Error('Chrome extension bootstrap did not expose a complete manifest to the background page.');
+        const health=this.healthFor(ext.id);health.lastStartedAt=new Date().toISOString();this.clearRuntimeErrors(ext.id,'background');return true;
+      }catch(err){this.noteRuntimeError(ext.id,'background',err);try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
     }
 
     if(!scripts.length)return false;
