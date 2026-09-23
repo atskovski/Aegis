@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { safeRel, normalizeManifest, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest } = require('../src/core/extensions');
+const { safeRel, normalizeManifest, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab } = require('../src/core/extensions');
 
 test('XPI runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
@@ -119,4 +119,12 @@ test('anonymous and hardened tabs do not receive extension content scripts', asy
   } finally {
     require('node:fs').rmSync(root,{recursive:true,force:true});
   }
+});
+
+
+test('extensions cannot enumerate or control hardened/anonymous tabs', () => {
+  assert.equal(extensionVisibleTab({securityDomain:'private',disableExtensions:false}),true);
+  assert.equal(extensionVisibleTab({securityDomain:'hardened',disableExtensions:true}),false);
+  assert.equal(extensionVisibleTab({securityDomain:'anonymous',disableExtensions:true}),false);
+  assert.equal(extensionVisibleTab({securityDomain:'private',disableExtensions:true}),false);
 });
