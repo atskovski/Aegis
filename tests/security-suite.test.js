@@ -38,7 +38,7 @@ test('full verification is wired through narrow IPC and visible UI', () => {
 });
 
 test('native context menu exposes security and privacy actions', () => {
-  assert.match(main, /on\('context-menu'/);
+  assert.match(main, /browserRuntime\.on\(view,'context-menu'/);
   assert.match(main, /Site Privacy Inspector/);
   assert.match(main, /Harden This Site/);
   assert.match(main, /Security Suite & Verification/);
