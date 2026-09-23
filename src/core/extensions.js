@@ -535,32 +535,34 @@ class AegisExtensionRuntime{
   backgroundBootstrap(ext){ return webExtensionBootstrap(ext,'__aegisBackgroundBridge'); }
   async startBackground(ext){
     this.stopBackground(ext.id);
-    if(this.suspensionReasons.size)return false;
-    const scripts=this.backgroundScripts(ext);
-    if(!ext.enabled||!scripts.length||!this.BrowserWindow||!this.electronSession)return false;
-    const valid=scripts.filter((rel)=>{const file=path.resolve(ext.path,rel);return file.startsWith(path.resolve(ext.path)+path.sep)&&fs.existsSync(file)&&fs.statSync(file).isFile()});
+    if(this.suspensionReasons.size||ext.enabled===false||!this.BrowserWindow||!this.electronSession)return false;
+    const bg=ext?.manifest?.background||{},scripts=this.backgroundScripts(ext);
+    const ses=this.electronSession.fromPartition('aegis-extension-bg-'+crypto.createHash('sha256').update(ext.id).digest('hex').slice(0,24),{cache:false});
+    try{ses.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>callback({cancel:!networkAllowedByManifest(ext.manifest,details.url)}))}catch{}
+    if(typeof this.registerProtocols==='function')this.registerProtocols(ses.protocol,'extension '+ext.id);
+
+    if(bg.page){
+      const page=safeRel(bg.page);if(!page)return false;
+      const target=path.resolve(ext.path,page),root=path.resolve(ext.path)+path.sep;
+      if(!target.startsWith(root)||!fs.existsSync(target)||!fs.statSync(target).isFile())return false;
+      const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-page-preload.js'),additionalArguments:this.pageArguments(ext,'background')}});
+      host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
+      try{await host.loadURL(extensionResourceUrl(ext,page));return true}catch(err){try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
+    }
+
+    if(!scripts.length)return false;
+    const valid=scripts.filter((rel)=>{try{this.extensionFile(ext,rel);return true}catch{return false}});
     if(!valid.length)return false;
-    const wrapper=path.join(ext.path,'__aegis_background.html');
-    const bootstrapFile=path.join(ext.path,'__aegis_background_bootstrap.js');
+    const wrapper=path.join(ext.path,'__aegis_background.html'),bootstrapFile=path.join(ext.path,'__aegis_background_bootstrap.js');
     fs.writeFileSync(bootstrapFile,this.backgroundBootstrap(ext),{mode:0o600});
     const tags=['<script src="__aegis_background_bootstrap.js"></script>',...valid.map((rel)=>'<script src="'+rel.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></script>')].join('');
     const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; connect-src https: http: aegis-extension:; img-src \'self\' data: aegis-extension:; style-src \'self\' \'unsafe-inline\'; object-src \'none\'">'+tags;
     fs.writeFileSync(wrapper,html,{mode:0o600});
-    const ses=this.electronSession.fromPartition('aegis-extension-bg-'+crypto.createHash('sha256').update(ext.id).digest('hex').slice(0,24),{cache:false});
-    // Extension background networking is least-privilege: only manifest-declared
-    // host permissions may leave the sandboxed background session.
-    try {
-      ses.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>{
-        callback({cancel:!networkAllowedByManifest(ext.manifest,details.url)});
-      });
-    } catch {}
-    if(typeof this.registerProtocols==='function')this.registerProtocols(ses.protocol,'extension '+ext.id);
     const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-host-preload.js'),additionalArguments:['--aegis-extension-id='+encodeURIComponent(ext.id)]}});
-    this.backgroundHosts.set(ext.id,host);
-    host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
+    host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
     try{await host.loadFile(wrapper);return true}catch(err){try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
   }
-  async startAll(){if(this.suspensionReasons.size)return;for(const ext of this.enabled())await this.startBackground(ext)}
+  async startAll(){if(this.suspensionReasons.size)return;for(const ext of this.enabled()){await this.startBackground(ext);this.emitEvent(ext,'runtime.onStartup',[])}}
   suspendAll(reason='privacy-compartment'){
     this.suspensionReasons.add(String(reason));
     for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);
@@ -585,6 +587,6 @@ class AegisExtensionRuntime{
     if(!pending||pending.extensionId!==id||!host||host.webContents!==sender)return false;
     this.pendingMessages.delete(String(payload.messageId));pending.resolve(payload.response);return true;
   }
-  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear()}
+  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear()}
 }
 module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
