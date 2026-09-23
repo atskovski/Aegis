@@ -1002,10 +1002,11 @@ function wireTabView(tab, view) {
     if (!isMainFrame || !url || String(url).startsWith('aegis://')) return;
     tab.extensionInjectionKeys = new Set();
     tab.extensionIds = [];
+    extensionRuntime?.notifyNavigation('webNavigation.onBeforeNavigate',tab,url);
     const nextOrigin = safeOrigin(url);
     if (tab.siteIntelligence?.url !== url) { resetSiteIntelligence(tab, url, nextOrigin); emitState(); }
   });
-  browserRuntime.on(view,'did-start-loading', () => { tab.loading = true; emitState(); });
+  browserRuntime.on(view,'did-start-loading', () => { tab.loading = true; extensionRuntime?.notifyTabUpdated(tab,{status:'loading'}); emitState(); });
   browserRuntime.on(view,'dom-ready', () => {
     extensionRuntime?.inject(tab, 'end').then((ids) => {
       tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
@@ -1016,11 +1017,14 @@ function wireTabView(tab, view) {
   browserRuntime.on(view,'page-title-updated', (event, title) => {
     event.preventDefault();
     tab.title = String(title || 'Tab').replace(/\s+/g, ' ').slice(0, 90);
+    extensionRuntime?.notifyTabUpdated(tab,{title:tab.title});
     emitState();
   });
   browserRuntime.on(view,'did-navigate', (_event, url, httpResponseCode = -1, httpStatusText = '') => {
     const oldOrigin = safeOrigin(tab.url); const newOrigin = safeOrigin(url);
     tab.url = url; tab.topUrl = url; tab.safety = tabSettings(tab).threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+    extensionRuntime?.notifyNavigation('webNavigation.onCommitted',tab,url);
+    extensionRuntime?.notifyTabUpdated(tab,{url,status:'loading'});
     if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
     tab.httpStatus = { code: httpResponseCode, text: httpStatusText };
     const effective = tabSettings(tab);
@@ -1040,6 +1044,8 @@ function wireTabView(tab, view) {
     scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
   });
   browserRuntime.on(view,'did-finish-load', () => {
+    extensionRuntime?.notifyNavigation('webNavigation.onCompleted',tab,tab.url||browserRuntime.url(view));
+    extensionRuntime?.notifyTabUpdated(tab,{status:'complete'});
     applyCosmeticFiltering(tab);
     applySponsorProtection(tab);
     extensionRuntime?.inject(tab, 'idle').then((ids) => {
@@ -1047,9 +1053,10 @@ function wireTabView(tab, view) {
       emitState();
     }).catch((err) => console.warn('Extension document-idle injection failed:', err.message));
   });
-  browserRuntime.on(view,'did-navigate-in-page', (_event, url) => { tab.url = url; emitState(); });
+  browserRuntime.on(view,'did-navigate-in-page', (_event, url) => { tab.url = url; extensionRuntime?.notifyTabUpdated(tab,{url}); emitState(); });
   browserRuntime.on(view,'did-fail-load', (_event, code, desc, url, isMainFrame) => {
     if (isMainFrame && code !== -3 && !String(url || '').startsWith('aegis://')) {
+      extensionRuntime?.notifyNavigation('webNavigation.onErrorOccurred',tab,url,desc||String(code));
       console.error(`Page load failed ${url}: ${desc} (${code})`);
       setTimeout(() => showLoadError(tab, url, code, desc), 0);
     }
@@ -1163,6 +1170,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
   const view = createTabView(tab);
   tab.view = view;
   tabs.set(id, tab);
+  extensionRuntime?.notifyTabCreated(tab);
   browserRuntime.mount(mainWindow,view);
   // Active tabs are presented immediately. Avoid a hide/show race during the
   // first navigation, which can leave a native WebContentsView visually blank
@@ -1268,6 +1276,7 @@ function activateTab(id) {
   if (!target) return;
   for (const tab of tabs.values()) tab.view.setVisible(tab.id === target.id && uiLayer.mode !== 'hidden');
   activeId = target.id;
+  extensionRuntime?.notifyTabActivated(target);
   relayout();
   emitState();
   browserRuntime.focus(target.view);
@@ -1283,7 +1292,9 @@ async function destroyTab(tab) {
   } catch {}
   browserRuntime.unmount(mainWindow,tab.view);
   if (!browserRuntime.destroyed(tab.view)) browserRuntime.close(tab.view);
+  const extensionVisibleBeforeRemoval = !tab.disableExtensions && tab.securityDomain === 'private';
   tabs.delete(tab.id);
+  extensionRuntime?.notifyTabRemoved(tab.id, extensionVisibleBeforeRemoval);
   if (tab.securityDomain === 'anonymous' && ![...tabs.values()].some((t) => t.securityDomain === 'anonymous')) {
     try { await extensionRuntime?.resumeAll('anonymous-tabs'); } catch (err) { console.warn('Could not resume extension backgrounds:', err.message); }
   }
@@ -1641,7 +1652,12 @@ function wireIpc() {
     await Promise.allSettled([...tabs.values()].map((tab)=>replaceTabView(tab,tab.javascriptEnabled)));
     emitState();return {ok};
   });
-  ipcMain.handle('extension:call', (event, payload) => extensionRuntime ? extensionRuntime.call(event.sender, payload) : Promise.reject(new Error('Extension runtime unavailable.')));
+  ipcMain.handle('extension:call', async (event, payload) => {
+    if(!extensionRuntime) throw new Error('Extension runtime unavailable.');
+    const result=await extensionRuntime.call(event.sender,payload);
+    if(/^(?:action|browserAction|pageAction)\./.test(String(payload?.method||'')))emitState();
+    return result;
+  });
   ipcMain.on('extension:message-response', (event, payload) => { if (extensionRuntime) extensionRuntime.handleBackgroundResponse(event.sender, payload); });
 
   ipcMain.on('nav', (event, value) => { if (assertUiSender(event)) navigateTab(activeTab(), value); });
