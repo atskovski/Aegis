@@ -129,7 +129,10 @@ function parseCrxBuffer(buffer){
   throw new Error('Unsupported CRX package version: '+version);
 }
 function extensionId(m,digest,packageInfo={}){
-  const id=m?.browser_specific_settings?.gecko?.id||m?.applications?.gecko?.id||packageInfo?.id||chromeIdFromManifestKey(m)||('webext-'+digest.slice(0,32));
+  const format=String(packageInfo?.format||'').toLowerCase();
+  const signedChromeId=/^crx[23]$/.test(format)?String(packageInfo?.id||'').trim():'';
+  const geckoId=String(m?.browser_specific_settings?.gecko?.id||m?.applications?.gecko?.id||'').trim();
+  const id=signedChromeId||geckoId||packageInfo?.id||chromeIdFromManifestKey(m)||('webext-'+digest.slice(0,32));
   return String(id).toLowerCase().replace(/[^a-z0-9@._-]/g,'-').slice(0,120);
 }
 function apiRoots(m){
