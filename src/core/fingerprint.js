@@ -16,6 +16,8 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
     const DNT = ${doNotTrack ? 'true' : 'false'};
     const ANONYMOUS = ${anonymousMode ? 'true' : 'false'};
     const DISABLE_WEBRTC = ${disableWebRtc ? 'true' : 'false'};
+    const ANONYMOUS = ${anonymousMode ? 'true' : 'false'};
+    const DISABLE_WEBRTC = ${disableWebRtc ? 'true' : 'false'};
     const host = (() => { try { return location.hostname || 'opaque'; } catch { return 'opaque'; } })();
     let h = 2166136261 >>> 0;
     // Maximum/anonymous profiles use a cohort seed, not a per-user seed. This makes
@@ -134,6 +136,21 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
 
     if (STRICT) {
       try { if (globalThis.speechSynthesis) speechSynthesis.getVoices = () => []; } catch {}
+      if (ANONYMOUS || DISABLE_WEBRTC) {
+        for (const key of ['RTCPeerConnection','webkitRTCPeerConnection','mozRTCPeerConnection','RTCDataChannel']) {
+          try { Object.defineProperty(globalThis, key, { configurable:true, enumerable:false, value:undefined, writable:false }); } catch {}
+        }
+        try { if (navigator.mediaDevices) Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable:true, value:async()=>{ throw new DOMException('Media capture disabled by Aegis anonymous compartment','NotAllowedError'); } }); } catch {}
+      }
+      if (ANONYMOUS) {
+        try { Object.defineProperty(navigator, 'share', { configurable:true, value:undefined }); } catch {}
+        try { Object.defineProperty(navigator, 'contacts', { configurable:true, value:undefined }); } catch {}
+        try { Object.defineProperty(navigator, 'bluetooth', { configurable:true, value:undefined }); } catch {}
+        try { Object.defineProperty(navigator, 'usb', { configurable:true, value:undefined }); } catch {}
+        try { Object.defineProperty(navigator, 'serial', { configurable:true, value:undefined }); } catch {}
+        try { Object.defineProperty(navigator, 'hid', { configurable:true, value:undefined }); } catch {}
+        try { Object.defineProperty(navigator, 'credentials', { configurable:true, value:undefined }); } catch {}
+      }
 
       // Common font fingerprinting libraries compare off-screen span metrics across
       // hundreds of candidate fonts. Normalize only that probe-shaped pattern so
