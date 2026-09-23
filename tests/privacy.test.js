@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildGenericUA, isRiskyDownload, makeTabStats, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled, applyExtensionHeaderRemovals } = require('../src/core/privacy');
+const { buildGenericUA, isRiskyDownload, makeTabStats, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled, applyExtensionHeaderRemovals, configurePrivacySession } = require('../src/core/privacy');
 
 test('generic UA hides Electron token and uses reduced Chromium version', () => {
   const ua = buildGenericUA('152.0.7977.130');
@@ -74,4 +74,41 @@ test('extension header removals are case-insensitive and removal-only', () => {
   assert.equal(out.Referer,undefined);
   assert.equal(out.ETag,'abc');
   assert.equal(out['User-Agent'],'Aegis');
+});
+
+
+test('privacy session forwards onResponseStarted into the extension event pipeline', () => {
+  const handlers={};
+  const webRequest={
+    onBeforeRequest:(_filter,fn)=>{handlers.beforeRequest=fn;},
+    onBeforeSendHeaders:(_filter,fn)=>{handlers.beforeSendHeaders=fn;},
+    onHeadersReceived:(_filter,fn)=>{handlers.headersReceived=fn;},
+    onResponseStarted:(_filter,fn)=>{handlers.responseStarted=fn;},
+    onCompleted:(_filter,fn)=>{handlers.completed=fn;},
+    onErrorOccurred:(_filter,fn)=>{handlers.errorOccurred=fn;}
+  };
+  const ses={
+    webRequest,
+    setUserAgent(){},
+    setSSLConfig(){},
+    setPermissionRequestHandler(){},
+    setPermissionCheckHandler(){},
+    spellCheckerEnabled:true
+  };
+  const events=[];
+  const tab={id:1,url:'https://example.test/',topUrl:'https://example.test/',stats:makeTabStats(),shieldsEnabled:true,compatibilityMode:false};
+  configurePrivacySession({
+    ses,tab,chromiumVersion:'152.0.0.0',
+    getSettings:()=>({blockTrackers:false,blockAds:false,blockSocialTrackers:false,blockCryptominers:false,blockThirdPartyCookies:false,stripTrackingParams:false,globalPrivacyControl:true,doNotTrack:true}),
+    onStats(){},
+    onExtensionRequest:(type,details)=>events.push({type,details}),
+    trackerLearner:null,
+    getFilterRules:()=>[],
+    isTemporarilyAllowed:()=>false
+  });
+  assert.equal(typeof handlers.responseStarted,'function');
+  const details={url:'https://cdn.example.test/pixel.gif',resourceType:'image',responseHeaders:{'set-cookie':['x=1']}};
+  handlers.responseStarted(details);
+  assert.equal(events.at(-1).type,'webRequest.onResponseStarted');
+  assert.equal(events.at(-1).details,details);
 });
