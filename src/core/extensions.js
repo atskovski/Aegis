@@ -84,13 +84,31 @@ async function zipEntries(file){
   for(const e of entries) if(!safeRel(e.replace(/\/$/,'')))throw new Error('Unsafe XPI path: '+e);
   return entries;
 }
+function validateExtractedTree(root){
+  let total=0, count=0;
+  const walk=(dir)=>{
+    for(const name of fs.readdirSync(dir)){
+      const full=path.join(dir,name); const stat=fs.lstatSync(full);
+      if(stat.isSymbolicLink()) throw new Error('XPI symlinks are not allowed: '+name);
+      if(stat.isDirectory()) { walk(full); continue; }
+      if(!stat.isFile()) throw new Error('Unsupported XPI filesystem entry: '+name);
+      count += 1; total += stat.size;
+      if(stat.size > 16*1024*1024) throw new Error('XPI contains a file larger than 16 MB: '+name);
+      if(total > 128*1024*1024) throw new Error('Expanded XPI exceeds the 128 MB safety limit.');
+      if(count > 5000) throw new Error('Expanded XPI exceeds the file-count limit.');
+    }
+  };
+  walk(root); return {files:count,bytes:total};
+}
 async function inspectXpi(file,tmpRoot){
-  await zipEntries(file); const tmp=path.join(tmpRoot,'inspect-'+crypto.randomUUID()); fs.mkdirSync(tmp,{recursive:true,mode:0o700});
+  const entries=await zipEntries(file); const tmp=path.join(tmpRoot,'inspect-'+crypto.randomUUID()); fs.mkdirSync(tmp,{recursive:true,mode:0o700});
   try{
     await execFileAsync('/usr/bin/unzip',['-qq','-o',file,'-d',tmp],{maxBuffer:4*1024*1024});
+    validateExtractedTree(tmp);
     let root=tmp; if(!fs.existsSync(path.join(root,'manifest.json'))){const dirs=fs.readdirSync(tmp,{withFileTypes:true}).filter((x)=>x.isDirectory()); if(dirs.length===1)root=path.join(tmp,dirs[0].name);}
     const manifest=normalizeManifest(readJson(path.join(root,'manifest.json')));
-    return {root,manifest,compatibility:compatibility(manifest),risk:installRisk(manifest)};
+    const signatureMetadata=entries.some((e)=>/^META-INF\/(?:mozilla\.rsa|mozilla\.sf|manifest\.mf)$/i.test(e));
+    return {root,tmp,manifest,compatibility:compatibility(manifest),risk:installRisk(manifest),signature:{metadataPresent:signatureMetadata,verified:false}};
   }catch(err){try{fs.rmSync(tmp,{recursive:true,force:true});}catch{} throw err;}
 }
 function bootstrap(ext){
@@ -114,10 +132,10 @@ class AegisExtensionRuntime{
   save(){writeStore(this.indexFile,[...this.items.values()].map(({manifest,compatibility,...r})=>r))}
   list(){return [...this.items.values()].map((e)=>({id:e.id,name:e.manifest.name,version:e.manifest.version,enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),compatibility:e.compatibility,risk:installRisk(e.manifest)}))}
   bridgeArguments(){return this.enabled().map((e)=>'--aegis-extension-world='+encodeURIComponent(e.id)+':'+String(e.worldId||extensionWorldId(e.id)))}
-  async inspect(file){const x=await inspectXpi(file,path.join(this.rootDir,'extension-staging'));try{return {name:x.manifest.name,version:x.manifest.version,description:String(x.manifest.description||''),compatibility:x.compatibility,risk:x.risk}}finally{try{fs.rmSync(path.dirname(x.root),{recursive:true,force:true})}catch{}}}
+  async inspect(file){const x=await inspectXpi(file,path.join(this.rootDir,'extension-staging'));try{return {name:x.manifest.name,version:x.manifest.version,description:String(x.manifest.description||''),compatibility:x.compatibility,risk:x.risk,signature:x.signature}}finally{try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}}}
   async install(file){
     const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'), x=await inspectXpi(file,path.join(this.rootDir,'extension-staging')), id=extensionId(x.manifest,digest), dest=path.join(this.installDir,id);
-    fs.rmSync(dest,{recursive:true,force:true}); fs.renameSync(x.root,dest); try{fs.rmSync(path.dirname(x.root),{recursive:true,force:true})}catch{}
+    fs.rmSync(dest,{recursive:true,force:true}); fs.renameSync(x.root,dest); if(x.tmp!==x.root)try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}
     const e={id,path:dest,worldId:extensionWorldId(id),enabled:true,source:'xpi',digest,installedAt:new Date().toISOString(),manifest:x.manifest,compatibility:x.compatibility}; this.items.set(id,e);this.save();return this.list().find((i)=>i.id===id);
   }
   setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();return this.list().find((i)=>i.id===id)}
@@ -147,4 +165,4 @@ class AegisExtensionRuntime{
     throw new Error('Unsupported extension API: '+m);
   }
 }
-module.exports={extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,matchPattern,matchingContentScripts,installRisk,bootstrap,AegisExtensionRuntime};
+module.exports={extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,matchPattern,matchingContentScripts,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
