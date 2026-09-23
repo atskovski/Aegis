@@ -10,7 +10,7 @@ const { webExtensionBootstrap, localeMessages, commandList } = require('./extens
 const execFileAsync = promisify(execFile);
 const SUPPORTED_ROOTS = new Set([
   'runtime','storage','tabs','permissions','i18n','activeTab',
-  'action','browserAction','pageAction','alarms','commands','scripting','webNavigation'
+  'action','browserAction','pageAction','alarms','commands','scripting','webNavigation','notifications','menus','contextMenus'
 ]);
 const DENIED_ROOTS = Object.freeze({
   webRequest:'Aegis owns the network firewall; blocking webRequest is not exposed.',
@@ -66,6 +66,9 @@ function apiRoots(m){
   if(m.browser_action) roots.add('browserAction');
   if(m.page_action) roots.add('pageAction');
   if(m.commands) roots.add('commands');
+  if(permissions(m).includes('menus')) roots.add('menus');
+  if(permissions(m).includes('contextMenus')) roots.add('contextMenus');
+  if(permissions(m).includes('notifications')) roots.add('notifications');
   return [...roots];
 }
 function extensionAction(m){
@@ -119,6 +122,8 @@ function compatibility(m,detectedRoots=[]){
   if(contentEntries.some((e)=>e?.all_frames)) warnings.push({api:'content_scripts.all_frames',reason:'Aegis currently injects into the top-level document only.'});
   if(Array.isArray(m.optional_permissions)&&m.optional_permissions.length) warnings.push({api:'optional_permissions',reason:'Optional permissions require explicit user approval in Aegis and are not auto-granted.'});
   if(Array.isArray(m.optional_host_permissions)&&m.optional_host_permissions.length) warnings.push({api:'optional_host_permissions',reason:'Optional host access requires explicit user approval in Aegis and is not auto-granted.'});
+  if(permissions(m).includes('notifications')) warnings.push({api:'notifications',reason:'Notifications are rendered as prominent Aegis browser-chrome notices; OS notification buttons and native notification-center persistence are not emulated.'});
+  if(permissions(m).includes('menus')||permissions(m).includes('contextMenus')) warnings.push({api:'menus',reason:'Aegis hosts standard extension context-menu items; advanced Firefox menu surfaces and icons are reduced.'});
   const bg=m.background||{};
   let background='none', backgroundCredit=0;
   if(bg.page){
@@ -240,10 +245,10 @@ function getKeys(store,keys){
   if(typeof keys==='object')return Object.fromEntries(Object.entries(keys).map(([k,d])=>[k,Object.prototype.hasOwnProperty.call(store,k)?store[k]:d])); return {};
 }
 class AegisExtensionRuntime{
-  constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion}){
+  constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion,notifyExtension}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
-    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;
-    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.browserVersion=String(browserVersion||'1.1');
+    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.notifyExtension=typeof notifyExtension==='function'?notifyExtension:null;
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.browserVersion=String(browserVersion||'1.1');
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
@@ -319,7 +324,7 @@ class AegisExtensionRuntime{
     this.items.set(id,e);this.save();if(e.enabled)await this.startBackground(e);this.emitEvent(e,'runtime.onInstalled',[{reason:previous?'update':'install',previousVersion:previous?.manifest?.version||undefined}]);return this.publicRecord(e);
   }
   async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled){await this.startBackground(e);this.emitEvent(e,'runtime.onStartup',[]);}else this.stopBackground(id);return this.publicRecord(e)}
-  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.actionState.delete(id);this.runtimeHealth.delete(id);this.activeGrants.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
+  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.actionState.delete(id);this.runtimeHealth.delete(id);this.activeGrants.delete(id);this.menuItems.delete(id);this.extensionNotifications.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
   enabled(){return [...this.items.values()].filter((e)=>e.enabled!==false)}
   extensionFor(id){const e=this.items.get(String(id||''));if(!e||e.enabled===false)throw new Error('Extension disabled or missing');return e}
   tabById(id){return this.getTabs().find((t)=>t.id===Number(id))}
@@ -351,6 +356,53 @@ class AegisExtensionRuntime{
       const args=typeof argsForExtension==='function'?argsForExtension(e):argsForExtension;
       if(args!==null&&args!==undefined)this.emitEvent(e,type,args);
     }
+  }
+  menuMap(id){if(!this.menuItems.has(id))this.menuItems.set(id,new Map());return this.menuItems.get(id)}
+  menuMatches(item,tab,params={}){
+    if(item.visible===false||item.enabled===false)return false;
+    const contexts=Array.isArray(item.contexts)&&item.contexts.length?item.contexts:['page'];
+    const activeContexts=new Set(['all']);
+    if(params.linkURL)activeContexts.add('link');
+    if(params.selectionText)activeContexts.add('selection');
+    if(params.isEditable)activeContexts.add('editable');
+    if(['image','video','audio'].includes(params.mediaType))activeContexts.add(params.mediaType);
+    if(activeContexts.size===1)activeContexts.add('page');
+    if(!contexts.some((ctx)=>activeContexts.has(ctx)||ctx==='all'))return false;
+    const documentPatterns=Array.isArray(item.documentUrlPatterns)?item.documentUrlPatterns:[];
+    if(documentPatterns.length&&!documentPatterns.some((p)=>matchPattern(tab?.url||'',p)))return false;
+    const target=String(params.linkURL||params.srcURL||'');
+    const targetPatterns=Array.isArray(item.targetUrlPatterns)?item.targetUrlPatterns:[];
+    if(targetPatterns.length&&(!target||!targetPatterns.some((p)=>matchPattern(target,p))))return false;
+    return true;
+  }
+  contextMenuTemplate(tab,params={}){
+    if(!extensionVisibleTab(tab))return [];
+    const groups=[];
+    for(const e of this.enabled()){
+      const declared=new Set(permissions(e.manifest));
+      if(!declared.has('menus')&&!declared.has('contextMenus'))continue;
+      const items=[...this.menuMap(e.id).values()].filter((item)=>this.menuMatches(item,tab,params));
+      if(!items.length)continue;
+      const byParent=new Map();
+      for(const item of items){const parent=String(item.parentId??'__root__');if(!byParent.has(parent))byParent.set(parent,[]);byParent.get(parent).push(item)}
+      const build=(parent='__root__',depth=0)=> (byParent.get(String(parent))||[]).slice(0,40).map((item)=>{
+        if(item.type==='separator')return {type:'separator'};
+        const submenu=depth<3?build(item.id,depth+1):[];
+        return {
+          label:String(item.title||e.manifest.name).replace(/%s/g,String(params.selectionText||'').slice(0,120)).slice(0,160),
+          type:item.type==='checkbox'||item.type==='radio'?item.type:'normal',
+          checked:Boolean(item.checked),
+          enabled:item.enabled!==false,
+          submenu:submenu.length?submenu:undefined,
+          click:()=>{
+            const info={menuItemId:item.originalId??item.id,parentMenuItemId:item.parentId,mediaType:params.mediaType||'',linkUrl:params.linkURL||'',srcUrl:params.srcURL||'',selectionText:String(params.selectionText||''),editable:Boolean(params.isEditable),pageUrl:this.canAccessTab(e,tab)?(tab.url||''):''};
+            const publicTab=this.publicTab(e,tab);this.emitEvent(e,'menus.onClicked',[info,publicTab]);this.emitEvent(e,'contextMenus.onClicked',[info,publicTab]);
+          }
+        };
+      });
+      const submenu=build();if(submenu.length)groups.push({label:String(e.manifest.name||'Extension').slice(0,100),submenu});
+    }
+    return groups;
   }
   clearActiveGrantForTab(tabId){for(const grants of this.activeGrants.values())grants.delete(Number(tabId))}
   notifyTabCreated(tab){this.emitEventAll('tabs.onCreated',(e)=>{const value=this.publicTab(e,tab);return value?[value]:null})}
@@ -583,6 +635,29 @@ class AegisExtensionRuntime{
     if(m==='alarms.clear')return this.clearAlarm(e.id,a[0]);
     if(m==='alarms.clearAll')return this.clearAllAlarms(e.id);
     if(m==='commands.getAll')return commandList(e.manifest);
+
+    if(m==='notifications.create'){
+      if(!declared.has('notifications'))throw new Error('Extension lacks notifications permission.');
+      const id=typeof a[0]==='string'?a[0]:crypto.randomUUID(),details=(typeof a[0]==='string'?(a[1]||{}):(a[0]||{}));
+      const record={id,title:String(details.title||e.manifest.name).slice(0,160),message:String(details.message||'').slice(0,1000),createdAt:new Date().toISOString()};
+      if(!this.extensionNotifications.has(e.id))this.extensionNotifications.set(e.id,new Map());this.extensionNotifications.get(e.id).set(String(id),record);
+      this.notifyExtension?.({extensionId:e.id,name:e.manifest.name,title:record.title,message:record.message,tone:'default'});
+      return String(id);
+    }
+    if(m==='notifications.clear'){const map=this.extensionNotifications.get(e.id);return Boolean(map?.delete(String(a[0]||'')))}
+    if(m==='notifications.getAll')return Object.fromEntries(this.extensionNotifications.get(e.id)||[]);
+
+    if(/^(?:menus|contextMenus)\./.test(m)){
+      if(!declared.has('menus')&&!declared.has('contextMenus'))throw new Error('Extension lacks menus/contextMenus permission.');
+      const [,op]=m.split('.'),map=this.menuMap(e.id);
+      if(op==='create'){
+        const item={...(a[0]||{})},id=item.id!==undefined?String(item.id):String(crypto.randomUUID()),originalId:item.id;
+        item.id=id;map.set(id,item);return item.originalId??id;
+      }
+      if(op==='update'){const id=String(a[0]||''),item=map.get(id);if(!item)return false;Object.assign(item,a[1]||{});return true}
+      if(op==='remove')return map.delete(String(a[0]||''));
+      if(op==='removeAll'){map.clear();return true}
+    }
 
     if(/^(?:action|browserAction|pageAction)\./.test(m)){
       const [,op]=m.split('.'),action=extensionAction(e.manifest);if(!action)throw new Error('Extension has no browser action.');
