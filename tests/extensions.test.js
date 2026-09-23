@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { safeRel, normalizeManifest, compatibility, matchPattern, matchingContentScripts, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime } = require('../src/core/extensions');
+const { safeRel, normalizeManifest, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime } = require('../src/core/extensions');
 
 test('XPI runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
@@ -84,4 +84,20 @@ test('generated background WebExtension bootstrap is valid JavaScript', () => {
   } finally {
     require('node:fs').rmSync(root,{recursive:true,force:true});
   }
+});
+
+
+test('content script run_at phases are explicit and document_start is a documented fallback', () => {
+  assert.equal(contentScriptPhase({run_at:'document_idle'}),'idle');
+  assert.equal(contentScriptPhase({run_at:'document_end'}),'end');
+  assert.equal(contentScriptPhase({run_at:'document_start'}),'end');
+  const report=compatibility({manifest_version:2,name:'T',version:'1',content_scripts:[{matches:['<all_urls>'],run_at:'document_start',js:['start.js']}]});
+  assert.ok(report.warnings.some((x)=>x.api==='content_scripts.run_at'));
+});
+
+test('extension CSS relative assets are rewritten to private extension-resource URLs', () => {
+  const ext={resourceToken:'abc123'};
+  const css=rewriteCssUrls('.x{background:url("../img/icon.png")} .y{mask:url(data:image/png;base64,abc)}',ext,'styles/main.css');
+  assert.match(css,/aegis-extension:\/\/ext\/abc123\/img\/icon\.png/);
+  assert.match(css,/data:image\/png;base64,abc/);
 });
