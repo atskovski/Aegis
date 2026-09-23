@@ -140,7 +140,7 @@
       <p><span>Storage</span><b>Ephemeral per tab</b></p>
       <p><span>WebRTC</span><b>Non-proxied UDP blocked</b></p>
       <p><span>Fingerprint profile</span><b id="fpMode">Strict</b></p><p><span>Safety</span><b id="safetyMode">No warnings</b></p>
-      <p><span>TLS minimum</span><b>TLS 1.2</b></p>
+      <p><span>TLS minimum</span><b>TLS 1.2</b></p><p><span>Bounce purges</span><b id="sentinelBouncePurges">0</b></p><p><span>Renderer crashes</span><b id="sentinelRendererCrashes">0</b></p>
     </div>
 
     <div class="blocked-list"><div class="eyebrow">RECENTLY BLOCKED</div><div id="recentBlocked" class="chips"><span class="muted">Nothing blocked yet</span></div></div>
@@ -193,6 +193,7 @@
             <div class="setting-row"><div><b>Block social trackers</b><small>Blocks third-party social pixels and embedded tracking infrastructure.</small></div><label class="switch"><input id="blockSocialTrackers" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Block cryptominers</b><small>Blocks known browser-mining scripts and mining endpoints before execution.</small></div><label class="switch"><input id="blockCryptominers" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Behavioral tracker learning</b><small>Memory-only learning flags third parties repeatedly seen across unrelated sites. Resets with New Identity.</small></div><label class="switch"><input id="heuristicTrackingProtection" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Bounce-tracker cleanup</b><small>Detects short-lived cross-site redirect intermediaries and purges their cookies, storage, cache storage, and service-worker state after navigation.</small></div><label class="switch"><input id="bounceTrackingProtection" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Site Privacy Intelligence</b><small>Locally observes sensitive API use, permission attempts, storage access, and fingerprint surfaces so the Site Privacy Inspector can explain what each page is trying to access. No telemetry is uploaded.</small></div><label class="switch"><input id="siteIntelligence" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Fingerprinting-script defense</b><small>Blocks high-confidence third-party fingerprinting endpoints before they load.</small></div><label class="switch"><input id="blockFingerprintingScripts" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Cosmetic ad filtering</b><small>Hides common ad containers using browser-owned user-origin CSS, including dynamically inserted ads.</small></div><label class="switch"><input id="cosmeticFiltering" type="checkbox"><span></span></label></div>
