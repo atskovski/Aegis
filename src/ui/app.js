@@ -12,6 +12,7 @@ let activePermissionPrompt = null;
 let lastUiLayerKey = '';
 let currentSettingsPage = 'privacy';
 let sentinelMode = 'simple';
+let pendingAddonInstall = null;
 
 const PROFILE_VALUES = {
   standard: { privacyLevel: 'standard', letterbox: false, blockTrackers: true, blockAds: true, blockSocialTrackers: true, blockCryptominers: true, heuristicTrackingProtection: false, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: false, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: false },
@@ -348,51 +349,275 @@ function renderControlAssurance() {
   });
 }
 
+function addonFeatureLabels(features = {}) {
+  const out = [];
+  if (features.contentScripts) out.push(features.contentScripts + ' content script' + (features.contentScripts === 1 ? '' : 's'));
+  if (features.action) out.push(features.actionKind || 'toolbar action');
+  if (features.popup) out.push('action popup');
+  if (features.options) out.push('options page');
+  if (features.backgroundPage) out.push('background page');
+  if (features.backgroundScripts) out.push(features.backgroundScripts + ' background script' + (features.backgroundScripts === 1 ? '' : 's'));
+  if (features.serviceWorker) out.push('service worker compatibility host');
+  if (features.commands) out.push(features.commands + ' command' + (features.commands === 1 ? '' : 's'));
+  if (features.webAccessibleResources) out.push('web-accessible resources');
+  return out.length ? out : ['manifest-only extension'];
+}
+
+function compatibilityLabel(addon) {
+  const score = Number(addon?.compatibility?.score || 0);
+  const status = addon?.compatibility?.status || (score >= 90 ? 'excellent' : (score >= 70 ? 'partial' : 'limited'));
+  return { score, status, label: status === 'excellent' ? 'Excellent' : (status === 'good' ? 'Good' : (status === 'partial' ? 'Partial' : 'Limited')) };
+}
+
+function makeAddonChip(text, tone = '') {
+  const chip = document.createElement('span');
+  chip.className = 'addon-chip' + (tone ? ' ' + tone : '');
+  chip.textContent = String(text || '');
+  return chip;
+}
+
+function renderAddonInstallReview() {
+  const panel = $('#addonReview');
+  if (!panel) return;
+  if (!pendingAddonInstall?.summary) {
+    panel.classList.add('hidden');
+    return;
+  }
+  const summary = pendingAddonInstall.summary;
+  const compat = compatibilityLabel(summary);
+  panel.classList.remove('hidden');
+  $('#addonReviewName').textContent = summary.name + ' ' + summary.version;
+  $('#addonReviewMeta').textContent = 'Manifest V' + (summary.manifestVersion || '?') + ' · ' + compat.label + ' compatibility · review expires ' + new Date(pendingAddonInstall.expiresAt).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  $('#addonReviewDescription').textContent = summary.description || 'This extension does not provide a description.';
+  const score = $('#addonReviewScore');
+  score.textContent = compat.score + '%';
+  score.className = 'addon-score compat-' + compat.status;
+  $('#addonReviewId').textContent = summary.id || 'Generated after install';
+  $('#addonReviewDigest').textContent = summary.digest || '—';
+
+  const featureBox = $('#addonReviewFeatures'); featureBox.replaceChildren();
+  addonFeatureLabels(summary.features).forEach((item) => featureBox.append(makeAddonChip(item, 'supported')));
+
+  const permissionBox = $('#addonReviewPermissions'); permissionBox.replaceChildren();
+  const risks = summary.risk || [];
+  if (!risks.length) permissionBox.append(makeAddonChip('No declared API permissions', 'quiet'));
+  risks.forEach((item) => permissionBox.append(makeAddonChip(item.permission + ' · ' + item.level, item.level === 'high' ? 'high' : (item.level === 'medium' ? 'medium' : 'quiet')));
+
+  const hostBox = $('#addonReviewHosts'); hostBox.replaceChildren();
+  const hosts = summary.hostPermissions || [];
+  if (!hosts.length) hostBox.append(makeAddonChip('No broad host access', 'quiet'));
+  hosts.forEach((host) => hostBox.append(makeAddonChip(host, host === '<all_urls>' || host === '*://*/*' ? 'high' : 'medium')));
+
+  const unsupportedBox = $('#addonReviewUnsupported'); unsupportedBox.replaceChildren();
+  const unsupported = summary.compatibility?.unsupported || [];
+  const warnings = summary.compatibility?.warnings || [];
+  if (!unsupported.length && !warnings.length) {
+    const line = document.createElement('span'); line.className = 'addon-review-line good'; line.textContent = 'No unsupported APIs were detected in the manifest.';
+    unsupportedBox.append(line);
+  } else {
+    unsupported.forEach((item) => {
+      const line = document.createElement('span'); line.className = 'addon-review-line blocked';
+      const b = document.createElement('b'); b.textContent = item.api;
+      const small = document.createElement('small'); small.textContent = item.reason || 'Not implemented by Aegis.';
+      line.append(b, small); unsupportedBox.append(line);
+    });
+    warnings.forEach((item) => {
+      const line = document.createElement('span'); line.className = 'addon-review-line warning';
+      const b = document.createElement('b'); b.textContent = item.api;
+      const small = document.createElement('small'); small.textContent = item.reason || 'Compatibility differs from Firefox.';
+      line.append(b, small); unsupportedBox.append(line);
+    });
+  }
+}
+
+async function refreshExtensions() {
+  try {
+    const addons = await window.aegis.invoke('extensions:list');
+    if (Array.isArray(addons)) state.extensions = addons;
+  } catch {}
+  renderExtensionActions();
+  renderAddons();
+}
+
+function renderExtensionActions() {
+  const bar = $('#extensionActions');
+  if (!bar) return;
+  bar.replaceChildren();
+  const addons = (state.extensions || []).filter((addon) => addon.enabled && addon.action);
+  bar.classList.toggle('hidden', addons.length === 0);
+  addons.slice(0, 7).forEach((addon) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'extension-action';
+    button.title = addon.action?.title || addon.name;
+    button.setAttribute('aria-label', addon.action?.title || addon.name);
+    if (addon.action?.iconUrl) {
+      const img = document.createElement('img');
+      img.src = addon.action.iconUrl;
+      img.alt = '';
+      button.append(img);
+    } else {
+      const glyph = document.createElement('span');
+      glyph.className = 'extension-action-glyph';
+      glyph.textContent = String(addon.name || 'E').trim().slice(0,1).toUpperCase();
+      button.append(glyph);
+    }
+    if (addon.action?.badgeText) {
+      const badge = document.createElement('span');
+      badge.className = 'extension-action-badge';
+      badge.textContent = String(addon.action.badgeText).slice(0, 6);
+      button.append(badge);
+    }
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const result = await window.aegis.invoke('extensions:open-action', addon.id);
+        if (!result?.ok) showToast({title:addon.name,message:result?.error || 'Extension action could not open.',tone:'danger'});
+      } catch (err) {
+        showToast({title:addon.name,message:'Extension action failed: ' + err.message,tone:'danger'});
+      } finally { button.disabled = false; }
+    });
+    bar.append(button);
+  });
+  if (addons.length > 7) {
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'extension-action extension-action-more';
+    more.textContent = '+' + (addons.length - 7);
+    more.title = 'Open Add-ons manager';
+    more.addEventListener('click', () => openSettings('addons'));
+    bar.append(more);
+  }
+}
+
 function renderAddons() {
   const list = $('#addonList');
   if (!list) return;
   const addons = state.extensions || [];
+  $('#addonInstalledCount').textContent = addons.length;
+  $('#addonEnabledCount').textContent = addons.filter((a) => a.enabled).length;
+  $('#addonActionCount').textContent = addons.filter((a) => a.enabled && a.action).length;
+  $('#addonCompatibilityCount').textContent = addons.filter((a) => Number(a.compatibility?.score || 0) >= 80).length;
+  $('#addonManagerStatus').textContent = addons.length ? (addons.filter((a) => a.enabled).length + ' enabled · isolated extension runtime active') : 'Runtime ready';
+  renderAddonInstallReview();
+
   list.replaceChildren();
   if (!addons.length) {
-    const empty = document.createElement('div'); empty.className = 'suite-empty';
+    const empty = document.createElement('div'); empty.className = 'suite-empty addon-empty';
     const b = document.createElement('b'); b.textContent = 'No add-ons installed';
-    const s = document.createElement('span'); s.textContent = 'Install a Firefox WebExtension .xpi to review its permissions and Aegis compatibility.';
+    const s = document.createElement('span'); s.textContent = 'Choose a Firefox WebExtension .xpi or .zip package. Aegis will inspect it before anything is installed.';
     empty.append(b, s); list.append(empty); return;
   }
+
   addons.forEach((addon) => {
-    const card = document.createElement('div'); card.className = 'addon-card';
-    const head = document.createElement('div'); head.className = 'addon-head';
-    const copy = document.createElement('span');
-    const name = document.createElement('b'); name.textContent = addon.name + ' ' + addon.version;
-    const score = document.createElement('small'); score.textContent = 'Aegis compatibility ' + Number(addon.compatibility?.score || 0) + '% · ' + (addon.enabled ? 'Enabled' : 'Disabled');
-    copy.append(name, score);
-    const toggle = document.createElement('button'); toggle.className = addon.enabled ? 'secondary addon-toggle active' : 'secondary addon-toggle'; toggle.textContent = addon.enabled ? 'Disable' : 'Enable';
+    const compat = compatibilityLabel(addon);
+    const card = document.createElement('article'); card.className = 'addon-card' + (addon.enabled ? '' : ' addon-disabled');
+
+    const head = document.createElement('div'); head.className = 'addon-card-head';
+    const iconWrap = document.createElement('div'); iconWrap.className = 'addon-card-icon';
+    if (addon.action?.iconUrl) {
+      const img = document.createElement('img'); img.src = addon.action.iconUrl; img.alt = ''; iconWrap.append(img);
+    } else {
+      iconWrap.textContent = String(addon.name || 'A').slice(0,1).toUpperCase();
+    }
+    const identity = document.createElement('div'); identity.className = 'addon-identity';
+    const titleRow = document.createElement('div'); titleRow.className = 'addon-title-row';
+    const title = document.createElement('h5'); title.textContent = addon.name;
+    const status = document.createElement('span'); status.className = 'addon-status ' + (addon.enabled ? 'enabled' : 'disabled'); status.textContent = addon.enabled ? 'Enabled' : 'Disabled';
+    titleRow.append(title, status);
+    const meta = document.createElement('p'); meta.textContent = 'v' + addon.version + ' · Manifest V' + (addon.manifestVersion || '?') + ' · ' + addon.id;
+    const desc = document.createElement('small'); desc.textContent = addon.description || 'No description provided.';
+    identity.append(titleRow, meta, desc);
+    const score = document.createElement('div'); score.className = 'addon-score compat-' + compat.status; score.textContent = compat.score + '%';
+    score.title = compat.label + ' Aegis compatibility';
+    head.append(iconWrap, identity, score); card.append(head);
+
+    const features = document.createElement('div'); features.className = 'addon-chip-list addon-features';
+    addonFeatureLabels(addon.features).forEach((item) => features.append(makeAddonChip(item, 'supported')));
+    card.append(features);
+
+    const detailGrid = document.createElement('div'); detailGrid.className = 'addon-details';
+    const permissionCard = document.createElement('span');
+    const pb = document.createElement('b'); pb.textContent = 'Permissions';
+    const ps = document.createElement('small');
+    const risk = addon.risk || [];
+    ps.textContent = risk.length ? risk.map((x) => x.permission + ' (' + x.level + ')').join(', ') : 'No declared API permissions';
+    permissionCard.append(pb, ps);
+
+    const hostCard = document.createElement('span');
+    const hb = document.createElement('b'); hb.textContent = 'Host access';
+    const hs = document.createElement('small'); hs.textContent = (addon.hostPermissions || []).join(', ') || 'No broad host access';
+    hostCard.append(hb, hs);
+
+    const compatibilityCard = document.createElement('span');
+    const cb = document.createElement('b'); cb.textContent = 'Compatibility notes';
+    const cs = document.createElement('small');
+    const unsupported = addon.compatibility?.unsupported || [], warnings = addon.compatibility?.warnings || [];
+    cs.textContent = unsupported.length ? ('Unsupported: ' + unsupported.map((x) => x.api).join(', ')) : (warnings.length ? warnings.map((x) => x.reason).join(' ') : 'No manifest-level incompatibilities detected');
+    compatibilityCard.append(cb, cs);
+
+    const runtimeCard = document.createElement('span');
+    const rb = document.createElement('b'); rb.textContent = 'Runtime';
+    const rs = document.createElement('small'); rs.textContent = (addon.compatibility?.background || 'no background') + ' · ' + (addon.action ? 'toolbar action available' : 'no toolbar action') + (addon.optionsPage ? ' · options page' : '');
+    runtimeCard.append(rb, rs);
+    detailGrid.append(permissionCard, hostCard, compatibilityCard, runtimeCard); card.append(detailGrid);
+
+    const actions = document.createElement('div'); actions.className = 'addon-actions';
+    if (addon.action) {
+      const open = document.createElement('button'); open.className = 'secondary'; open.textContent = addon.action.popup ? 'Open' : 'Run action';
+      open.addEventListener('click', async () => {
+        const result = await window.aegis.invoke('extensions:open-action', addon.id);
+        if (!result?.ok) showToast({title:addon.name,message:result?.error || 'Could not open extension action.',tone:'danger'});
+      });
+      actions.append(open);
+    }
+    if (addon.optionsPage) {
+      const options = document.createElement('button'); options.className = 'secondary'; options.textContent = 'Options';
+      options.addEventListener('click', async () => {
+        const result = await window.aegis.invoke('extensions:open-options', addon.id);
+        if (!result?.ok) showToast({title:addon.name,message:result?.error || 'Could not open extension options.',tone:'danger'});
+      });
+      actions.append(options);
+    }
+    const reload = document.createElement('button'); reload.className = 'secondary'; reload.textContent = 'Reload';
+    reload.addEventListener('click', async () => {
+      reload.disabled = true; reload.textContent = 'Reloading…';
+      const result = await window.aegis.invoke('extensions:reload', addon.id);
+      if (result?.ok) showToast({title:addon.name,message:'Extension runtime reloaded.',tone:'success'});
+      else showToast({title:addon.name,message:result?.error || 'Could not reload extension.',tone:'danger'});
+      reload.disabled = false; reload.textContent = 'Reload';
+    });
+    actions.append(reload);
+
+    const toggle = document.createElement('button'); toggle.className = addon.enabled ? 'secondary addon-toggle active' : 'primary addon-toggle'; toggle.textContent = addon.enabled ? 'Disable' : 'Enable';
     toggle.addEventListener('click', async () => {
+      toggle.disabled = true;
       const result = await window.aegis.invoke('extensions:set-enabled', { id:addon.id, enabled:!addon.enabled });
-      if (!result?.ok) showToast({message:'Could not update add-on: ' + (result?.error || 'unknown error'),tone:'danger'});
+      if (result?.ok) {
+        showToast({title:addon.name,message:addon.enabled ? 'Add-on disabled.' : 'Add-on enabled and runtime started.',tone:'success'});
+        await refreshExtensions();
+      } else showToast({title:addon.name,message:'Could not update add-on: ' + (result?.error || 'unknown error'),tone:'danger'});
+      toggle.disabled = false;
     });
-    head.append(copy, toggle); card.append(head);
+    actions.append(toggle);
 
-    const unsupported = addon.compatibility?.unsupported || [];
-    const warnings = addon.compatibility?.warnings || [];
-    const perms = addon.risk || [];
-    const details = document.createElement('div'); details.className = 'addon-details';
-    const api = document.createElement('span'); api.innerHTML = '<b>Unsupported APIs</b><small></small>';
-    api.querySelector('small').textContent = unsupported.length ? unsupported.map((x) => x.api).join(', ') : 'None detected';
-    const risk = document.createElement('span'); risk.innerHTML = '<b>Permissions</b><small></small>';
-    risk.querySelector('small').textContent = perms.length ? perms.map((x) => x.permission + ' (' + x.level + ')').join(', ') : 'No declared permissions';
-    const bg = document.createElement('span'); bg.innerHTML = '<b>Background runtime</b><small></small>';
-    bg.querySelector('small').textContent = (addon.compatibility?.background || 'none') + (warnings.length ? ' · ' + warnings.map((x) => x.reason).join(' ') : '');
-    details.append(api, risk, bg); card.append(details);
-
-    const foot = document.createElement('div'); foot.className = 'addon-foot';
-    const remove = document.createElement('button'); remove.className = 'text-btn danger-text'; remove.textContent = 'Remove';
+    const remove = document.createElement('button'); remove.className = 'secondary addon-remove'; remove.textContent = 'Remove';
     remove.addEventListener('click', async () => {
-      if (!confirm('Remove ' + addon.name + ' and its local extension data?')) return;
+      if (remove.dataset.confirm !== 'yes') {
+        remove.dataset.confirm = 'yes'; remove.textContent = 'Confirm remove'; remove.classList.add('confirming');
+        showToast({title:'Remove ' + addon.name,message:'Click “Confirm remove” again to delete the add-on and its local extension data.',tone:'warning',duration:6500});
+        setTimeout(() => { if (remove.isConnected) { remove.dataset.confirm = ''; remove.textContent = 'Remove'; remove.classList.remove('confirming'); } }, 7000);
+        return;
+      }
+      remove.disabled = true;
       const result = await window.aegis.invoke('extensions:remove', addon.id);
-      if (!result?.ok) showToast({message:'Could not remove add-on.',tone:'danger'});
+      if (result?.ok) {
+        showToast({title:addon.name,message:'Add-on and local extension data removed.',tone:'success'});
+        await refreshExtensions();
+      } else showToast({title:addon.name,message:result?.error || 'Could not remove add-on.',tone:'danger'});
     });
-    foot.append(remove); card.append(foot); list.append(card);
+    actions.append(remove);
+    card.append(actions);
+    list.append(card);
   });
 }
 
@@ -696,6 +921,7 @@ function render() {
   renderNetworkDiagnostics();
   renderSecuritySuite();
   renderControlAssurance();
+  renderExtensionActions();
   renderAddons();
   if (!$('#settingsPanel').classList.contains('hidden') && !draftSettings) draftSettings = deepClone(state.settings);
   if (!$('#settingsPanel').classList.contains('hidden')) renderSettingsDraft();
@@ -1118,13 +1344,37 @@ $('#clearDownloads').addEventListener('click', () => window.aegis.send('download
 $('#runNetworkTest').addEventListener('click', runNetworkTest);
 $('#runSecuritySuite').addEventListener('click', runSecuritySuite);
 $('#installXpi').addEventListener('click', async () => {
-  const button = $('#installXpi'); button.disabled = true; button.textContent = 'Reviewing…';
+  const button = $('#installXpi'); button.disabled = true; button.textContent = 'Inspecting…';
   try {
-    const result = await window.aegis.invoke('extensions:install');
-    if (result?.ok) showToast({ message:'Installed ' + result.extension.name + '. Matching content scripts will run in isolated extension worlds.', tone:'success' });
-    else if (!result?.canceled) showToast({ message:'Extension install failed: ' + (result?.error || 'unknown error'), tone:'danger' });
-  } catch (err) { showToast({ message:'Extension install failed: ' + err.message, tone:'danger' }); }
-  finally { button.disabled = false; button.textContent = 'Install .xpi'; }
+    const result = await window.aegis.invoke('extensions:pick-package');
+    if (result?.ok) {
+      pendingAddonInstall = { token:result.token, summary:result.summary, expiresAt:result.expiresAt };
+      renderAddonInstallReview();
+      $('#addonReview').scrollIntoView({behavior: state.settings.appearance?.reduceMotion ? 'auto' : 'smooth', block:'nearest'});
+      showToast({title:'Package inspected',message:'Review compatibility, permissions and host access before installing ' + result.summary.name + '.',tone:'default'});
+    } else if (!result?.canceled) showToast({title:'Package inspection failed',message:result?.error || 'Could not inspect extension package.',tone:'danger'});
+  } catch (err) { showToast({title:'Package inspection failed',message:err.message,tone:'danger'}); }
+  finally { button.disabled = false; button.textContent = 'Choose package'; }
+});
+$('#cancelAddonInstall').addEventListener('click', async () => {
+  if (pendingAddonInstall?.token) {
+    try { await window.aegis.invoke('extensions:cancel-install', pendingAddonInstall.token); } catch {}
+  }
+  pendingAddonInstall = null; renderAddonInstallReview();
+});
+$('#confirmAddonInstall').addEventListener('click', async () => {
+  if (!pendingAddonInstall?.token) return;
+  const button = $('#confirmAddonInstall'); button.disabled = true; button.textContent = 'Installing…';
+  const name = pendingAddonInstall.summary?.name || 'add-on';
+  try {
+    const result = await window.aegis.invoke('extensions:install-staged', pendingAddonInstall.token);
+    if (result?.ok) {
+      pendingAddonInstall = null;
+      await refreshExtensions();
+      showToast({title:'Add-on installed',message:result.extension.name + ' ' + result.extension.version + ' is installed. Supported background, content, toolbar and options features are now active.',tone:'success',duration:8000});
+    } else showToast({title:'Extension install failed',message:result?.error || 'Unknown installation error.',tone:'danger'});
+  } catch (err) { showToast({title:'Extension install failed',message:err.message,tone:'danger'}); }
+  finally { button.disabled = false; button.textContent = 'Install add-on'; renderAddonInstallReview(); }
 });
 $('#refreshFilterLists')?.addEventListener('click',async()=>{const b=$('#refreshFilterLists');b.disabled=true;b.textContent='Updating…';const r=await window.aegis.invoke('adblock:refresh-lists');const ok=(r?.results||[]).filter(x=>x.ok).length,total=(r?.results||[]).length;$('#filterListStatus').textContent=total?`${ok}/${total} enabled filter lists updated and compiled.`:'No enabled filter lists.';showToast(r?.ok?'Filter lists updated.':'Some filter lists could not update.',r?.ok?'success':'warning');b.disabled=false;b.textContent='Update lists';});
 $('#pickAdElement')?.addEventListener('click',async()=>{closeSettings();const r=await window.aegis.invoke('adblock:pick-element');if(r?.ok)showToast('Blocked element with rule: '+r.rule,'success');else if(!r?.canceled)showToast(r?.error||'Element picker failed.','danger');});
