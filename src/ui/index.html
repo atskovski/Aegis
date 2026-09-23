@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: aegis-extension:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Aegis</title>
   <link rel="stylesheet" href="aegis://app/styles.css">
@@ -27,6 +27,7 @@
         <button type="button" id="bookmarkBtn" class="address-action" title="Bookmark this page (⌘D)" aria-label="Bookmark this page">☆</button>
         <button type="button" id="shield" class="shield-pill" title="Privacy report"><span class="shield-glyph">◈</span><span id="blockedCount">0</span></button>
       </form>
+      <div id="extensionActions" class="extension-actions" aria-label="Extension toolbar actions"></div>
       <button class="identity" id="identity" title="Destroy all sessions and rotate identity"><span>↻</span> New Identity</button>
       <button class="icon-btn library-btn" id="libraryBtn" title="Bookmarks & downloads">▤</button>
       <button class="icon-btn command-btn" id="commandBtn" title="Command palette (⌘K)">⌘</button>
@@ -316,14 +317,59 @@
           </div>
         </section>
 
-        <section class="settings-page" data-settings-page="addons">
-          <div class="page-title"><h3>Add-ons & WebExtensions</h3><p>Install Firefox-style .xpi WebExtensions through the Aegis Extension Runtime. Aegis validates permissions and reports unsupported APIs before installation.</p></div>
+        <section class="settings-page addons-page" data-settings-page="addons">
+          <div class="page-title"><h3>Add-ons & WebExtensions</h3><p>Aegis now hosts a broader Firefox/Chromium WebExtension compatibility layer: content scripts, toolbar actions and popups, options pages, background/event pages, storage, tabs, scripting, alarms, commands and navigation events.</p></div>
+
           <div class="addon-hero">
-            <div><span class="eyebrow">AEGIS EXTENSION RUNTIME</span><h4>Install an XPI</h4><p>Content scripts run in a dedicated isolated world with no Node.js access. Extensions cannot silently replace Aegis routing, disable the privacy firewall, or use native messaging.</p></div>
-            <button id="installXpi" class="primary">Install .xpi</button>
+            <div>
+              <span class="eyebrow">AEGIS EXTENSION RUNTIME 2</span>
+              <h4>Install a WebExtension package</h4>
+              <p>Select a Firefox <b>.xpi</b> or unpacked-compatible <b>.zip</b> package. Aegis inspects the manifest, package digest, host access and API compatibility before installation. Nothing is activated until you approve the review.</p>
+            </div>
+            <button id="installXpi" class="primary addon-install-btn">Choose package</button>
           </div>
-          <div class="info-callout warning"><b>Compatibility is explicit</b><span>Firefox and Chromium WebExtension APIs differ. Aegis shows a compatibility score and unsupported APIs instead of pretending an add-on works when it does not.</span></div>
-          <div id="addonList" class="addon-list"><div class="suite-empty"><b>No add-ons installed</b><span>Install a Firefox WebExtension package to see its permissions and compatibility.</span></div></div>
+
+          <div id="addonRuntimeSummary" class="addon-runtime-summary" aria-live="polite">
+            <div><strong id="addonInstalledCount">0</strong><span>installed</span></div>
+            <div><strong id="addonEnabledCount">0</strong><span>enabled</span></div>
+            <div><strong id="addonActionCount">0</strong><span>toolbar actions</span></div>
+            <div><strong id="addonCompatibilityCount">0</strong><span>high compatibility</span></div>
+          </div>
+
+          <div id="addonReview" class="addon-review hidden" aria-live="polite">
+            <div class="addon-review-head">
+              <div class="addon-review-icon">⬡</div>
+              <div>
+                <span class="eyebrow">INSTALL REVIEW</span>
+                <h4 id="addonReviewName">Extension package</h4>
+                <p id="addonReviewMeta">Waiting for package inspection…</p>
+              </div>
+              <div id="addonReviewScore" class="addon-score">—</div>
+            </div>
+            <p id="addonReviewDescription" class="addon-review-description"></p>
+            <div class="addon-review-grid">
+              <section><b>Capabilities Aegis can host</b><div id="addonReviewFeatures" class="addon-chip-list"></div></section>
+              <section><b>Requested permissions</b><div id="addonReviewPermissions" class="addon-chip-list"></div></section>
+              <section><b>Host access</b><div id="addonReviewHosts" class="addon-chip-list"></div></section>
+              <section><b>Unsupported / limited APIs</b><div id="addonReviewUnsupported" class="addon-review-lines"></div></section>
+            </div>
+            <div class="addon-review-integrity"><span>Package ID</span><code id="addonReviewId">—</code><span>SHA-256</span><code id="addonReviewDigest">—</code></div>
+            <div class="addon-review-actions">
+              <button id="cancelAddonInstall" class="secondary">Cancel</button>
+              <button id="confirmAddonInstall" class="primary">Install add-on</button>
+            </div>
+          </div>
+
+          <div class="addon-boundary-grid">
+            <div class="info-callout success"><b>Implemented compatibility</b><span>Content scripts, background scripts/pages, action/browserAction/pageAction popups, options pages, runtime messaging, storage, tabs, activeTab, scripting, alarms, commands, webNavigation and extension-local resources.</span></div>
+            <div class="info-callout warning"><b>Protected browser boundary</b><span>Extensions cannot replace Aegis proxy routing, use native messaging, access hardened/anonymous tabs, manage other extensions, attach the debugger, or disable Aegis security controls. Some Firefox-only APIs remain explicitly unsupported.</span></div>
+          </div>
+
+          <div class="addon-section-head">
+            <div><span class="eyebrow">INSTALLED ADD-ONS</span><h4>Your extensions</h4></div>
+            <span id="addonManagerStatus" class="addon-manager-status">Runtime ready</span>
+          </div>
+          <div id="addonList" class="addon-list"><div class="suite-empty"><b>No add-ons installed</b><span>Choose a Firefox WebExtension .xpi or .zip package to inspect and install it.</span></div></div>
         </section>
 
         <section class="settings-page" data-settings-page="enterprise">
