@@ -172,9 +172,12 @@ function internalProtocolHandler(request) {
 function extensionProtocolHandler(request) {
   if (!extensionRuntime) return new Response('Extension runtime unavailable', { status: 503 });
   let u; try { u = new URL(request.url); } catch { return new Response('Bad request', { status: 400 }); }
-  if (u.hostname !== 'ext') return new Response('Not found', { status: 404 });
   const parts = u.pathname.split('/').filter(Boolean);
-  const token = parts.shift() || '';
+  // New extension resources use the private resource token as the hostname,
+  // giving each extension page a distinct origin. The legacy /ext/<token>/ path
+  // remains readable so an already-open page can finish cleanly during upgrades.
+  const token = u.hostname === 'ext' ? (parts.shift() || '') : u.hostname;
+  if (!token) return new Response('Not found', { status: 404 });
   let rel = '';
   try { rel = decodeURIComponent(parts.join('/')); } catch { return new Response('Bad resource path', { status: 400 }); }
   const resource = extensionRuntime.resolveResource(token, rel);
