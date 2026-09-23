@@ -54,6 +54,15 @@ function headersToWebRequestArray(headers = {}) {
   for(const [name,raw] of Object.entries(headers||{})) for(const value of (Array.isArray(raw)?raw:[raw])) out.push({name:String(name),value:String(value??'')});
   return out;
 }
+function safeReferrerReduction(current,candidate){
+  const before=String(current||''),after=String(candidate||'');
+  if(!before||!after||after.length>before.length)return false;
+  try{
+    const a=new URL(before),b=new URL(after);
+    if(a.origin!==b.origin)return false;
+    return before.startsWith(after);
+  }catch{return false}
+}
 function applyBlockingHeaderDecision(headers, candidate, phase='request') {
   const out={...(headers||{})};
   const rows=Array.isArray(candidate)?candidate:[];
@@ -66,6 +75,11 @@ function applyBlockingHeaderDecision(headers, candidate, phase='request') {
   if(phase==='request'){
     const dnt=desired.get('dnt');if(dnt?.some((v)=>v==='1'))out.DNT='1';
     const gpc=desired.get('sec-gpc');if(gpc?.some((v)=>v==='1'))out['Sec-GPC']='1';
+    const referer=desired.get('referer')?.[0],refererKey=Object.keys(out).find((key)=>String(key).toLowerCase()==='referer');
+    if(refererKey&&referer!==undefined){
+      const raw=out[refererKey],current=String(Array.isArray(raw)?raw[0]:raw||'');
+      if(safeReferrerReduction(current,referer))out[refererKey]=Array.isArray(raw)?[referer]:referer;
+    }
   }
   return out;
 }
@@ -254,4 +268,4 @@ function freshSeed() { return crypto.randomBytes(24).toString('hex'); }
 function safeDownloadName(name) { return String(name || 'download').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 180); }
 function isRiskyDownload(filename) { return /\.(?:dmg|pkg|app|exe|msi|scr|bat|cmd|com|ps1|vbs|js|jse|jar|sh|command|desktop|deb|rpm|apk|iso)$/i.test(filename || ''); }
 function defaultDownloadPath(app, filename) { return path.join(app.getPath('downloads'), 'Aegis Downloads', safeDownloadName(filename)); }
-module.exports = { makeTabStats, configurePrivacySession, buildGenericUA, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled, applyExtensionHeaderRemovals };
+module.exports = { makeTabStats, configurePrivacySession, buildGenericUA, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled, applyExtensionHeaderRemovals, applyBlockingHeaderDecision, safeReferrerReduction };
