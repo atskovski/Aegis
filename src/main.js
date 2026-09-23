@@ -884,12 +884,36 @@ const REMOTE_RENDERER_POLICY = Object.freeze({
   transparent: false
 });
 
+function extensionPageResourceAllowed(tab, raw) {
+  if (!tab?.extensionPageExtensionId || !extensionRuntime) return false;
+  let u; try { u = new URL(String(raw || '')); } catch { return false; }
+  if (u.protocol !== 'aegis-extension:') return false;
+  let ext; try { ext = extensionRuntime.extensionFor(tab.extensionPageExtensionId); } catch { return false; }
+  if (u.hostname !== ext.resourceToken) return false;
+  const parts = u.pathname.split('/').filter(Boolean);
+  let rel = ''; try { rel = decodeURIComponent(parts.join('/')); } catch { return false; }
+  return Boolean(extensionRuntime.resolveResource(ext.resourceToken, rel));
+}
+
+function tabNavigationAllowed(tab, raw) {
+  if (tab?.extensionPageExtensionId) return extensionPageResourceAllowed(tab, raw);
+  try { if (new URL(String(raw || '')).protocol === 'aegis-extension:') return false; } catch {}
+  return isAllowedNavigation(raw);
+}
+
 function createTabView(tab) {
   tab.rendererPolicy = { ...REMOTE_RENDERER_POLICY };
+  let preload = path.join(__dirname, 'extension-bridge-preload.js');
+  let additionalArguments = extensionRuntime ? extensionRuntime.bridgeArguments() : [];
+  if (tab.extensionPageExtensionId && extensionRuntime) {
+    const ext = extensionRuntime.extensionFor(tab.extensionPageExtensionId);
+    preload = path.join(__dirname, 'extension-page-preload.js');
+    additionalArguments = extensionRuntime.pageArguments(ext, 'tab');
+  }
   const view = browserRuntime.view({
       ...REMOTE_RENDERER_POLICY,
-      preload: path.join(__dirname, 'extension-bridge-preload.js'),
-      additionalArguments: extensionRuntime ? extensionRuntime.bridgeArguments() : [],
+      preload,
+      additionalArguments,
       session: tab.privateSession,
       javascript: Boolean(tab.javascriptEnabled)
   });
@@ -974,7 +998,7 @@ function wireTabView(tab, view) {
     const effective = tabSettings(tab);
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
     const managed=securityKernel.navigate({url,tab});
-    if (!url || !isAllowedNavigation(url) || !managed.allow || !shouldAllowInternalNavigation(browserRuntime.url(view), url)) {
+    if (!url || !tabNavigationAllowed(tab, url) || !managed.allow || !shouldAllowInternalNavigation(browserRuntime.url(view), url)) {
       event.preventDefault(); toast(`Blocked unsafe navigation${url ? `: ${String(url).split(':')[0]}:` : '.'}`, 'danger'); return;
     }
     if (url !== original) {
@@ -992,14 +1016,14 @@ function wireTabView(tab, view) {
   browserRuntime.on(view,'will-frame-navigate', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
     const url = navigationUrl(event, legacyDetails);
     const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
-    if (!url || !isAllowedNavigation(url) || (isMainFrame && !shouldAllowInternalNavigation(browserRuntime.url(view), url))) event.preventDefault();
+    if (!url || !tabNavigationAllowed(tab, url) || (isMainFrame && !shouldAllowInternalNavigation(browserRuntime.url(view), url))) event.preventDefault();
   });
   browserRuntime.on(view,'will-redirect', (event, legacyDetails) => {
     const original = navigationUrl(event, legacyDetails);
     const effective = tabSettings(tab);
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
     const managed=securityKernel.redirect({url,tab});
-    if (!url || !isAllowedNavigation(url) || !managed.allow || !shouldAllowInternalNavigation(browserRuntime.url(view), url)) { event.preventDefault(); toast('Blocked unsafe or enterprise-restricted redirect.', 'danger'); return; }
+    if (!url || !tabNavigationAllowed(tab, url) || !managed.allow || !shouldAllowInternalNavigation(browserRuntime.url(view), url)) { event.preventDefault(); toast('Blocked unsafe or enterprise-restricted redirect.', 'danger'); return; }
     if (url !== original) { event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState(); browserRuntime.load(view,url).catch(() => {}); }
   });
   browserRuntime.on(view,'did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
@@ -1175,7 +1199,8 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
     anonymousAt: null,
     torProxy: options.torProxy || '',
     torVerified: false,
-    disableExtensions: Boolean(options.disableExtensions)
+    disableExtensions: Boolean(options.disableExtensions),
+    extensionPageExtensionId: String(options.extensionPageExtensionId || '')
   };
   if (tab.securityDomain === 'hardened') hardenTabState(tab);
   if (tab.securityDomain === 'anonymous') {
@@ -1263,8 +1288,8 @@ async function navigateTab(tab, raw) {
     return false;
   }
   tab.safety = effective.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
-  if (!isAllowedNavigation(url)) {
-    toast('That address uses a blocked protocol.', 'danger');
+  if (!tabNavigationAllowed(tab, url)) {
+    toast('That address uses a blocked protocol or an extension-owned page outside its sandbox.', 'danger');
     return false;
   }
   if (shouldUpgradeHttp(url, tab.allowHttp)) {
