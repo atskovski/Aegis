@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 const listeners = new Map();
 const eventListeners = new Map();
@@ -45,4 +45,74 @@ ipcRenderer.on('extension:event', (_event, payload) => {
   if (!set) return;
   const safe = { type:String(payload?.type || ''), args:Array.isArray(payload?.args) ? payload.args : [] };
   for (const fn of [...set]) { try { fn(safe); } catch {} }
+});
+
+ipcRenderer.on('extension:frame-inject', async (_event, payload) => {
+  const extensionId = String(payload?.extensionId || '');
+  const requestId = String(payload?.requestId || '');
+  const worldId = Number(payload?.worldId);
+  const requestedRoutingId = Number(payload?.frameRoutingId);
+  const failures = [];
+  let scriptCount = 0, cssCount = 0;
+
+  const respond = (extra = {}) => ipcRenderer.send('extension:frame-inject-result', {
+    requestId,
+    extensionId,
+    frameRoutingId:Number(webFrame.routingId),
+    frameProcessId:Number(process.pid),
+    scriptCount,
+    cssCount,
+    failures,
+    ...extra
+  });
+
+  if (!requestId || !validId(extensionId) || !listeners.has(extensionId)) {
+    respond({ ok:false, error:'Extension frame bridge is unavailable.' });
+    return;
+  }
+  if (!Number.isInteger(worldId) || worldId < 1000) {
+    respond({ ok:false, error:'Invalid extension isolated-world id.' });
+    return;
+  }
+  if (Number.isFinite(requestedRoutingId) && requestedRoutingId !== Number(webFrame.routingId)) {
+    respond({ ok:false, error:'Extension frame routing mismatch.' });
+    return;
+  }
+
+  const scripts = Array.isArray(payload?.scripts) ? payload.scripts.slice(0, 128) : [];
+  const css = Array.isArray(payload?.css) ? payload.css.slice(0, 128) : [];
+  const world = String(payload?.world || 'ISOLATED').toUpperCase();
+
+  for (const item of scripts) {
+    const label = String(item?.label || 'script').slice(0, 240);
+    const code = String(item?.code || '');
+    if (!code || code.length > 8 * 1024 * 1024) {
+      failures.push({ kind:'script', label, message:'Script payload is empty or exceeds the per-file limit.' });
+      continue;
+    }
+    try {
+      if (world === 'MAIN') await webFrame.executeJavaScript(code, false);
+      else await webFrame.executeJavaScriptInIsolatedWorld(worldId, [{ code, url:String(item?.url || '') }], false);
+      scriptCount += 1;
+    } catch (err) {
+      failures.push({ kind:'script', label, message:String(err?.message || err || 'Script execution failed.').slice(0,500) });
+    }
+  }
+
+  for (const item of css) {
+    const label = String(item?.label || 'style').slice(0,240);
+    const code = String(item?.code || '');
+    if (!code || code.length > 4 * 1024 * 1024) {
+      failures.push({ kind:'css', label, message:'CSS payload is empty or exceeds the per-file limit.' });
+      continue;
+    }
+    try {
+      await webFrame.insertCSS(code, { cssOrigin:'author' });
+      cssCount += 1;
+    } catch (err) {
+      failures.push({ kind:'css', label, message:String(err?.message || err || 'CSS insertion failed.').slice(0,500) });
+    }
+  }
+
+  respond({ ok:true });
 });
