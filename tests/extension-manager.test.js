@@ -13,6 +13,7 @@ const main=read('src/main.js');
 const runtime=read('src/core/extensions.js');
 const shim=read('src/core/extension-shim.js');
 const pagePreload=read('src/extension-page-preload.js');
+const bridgePreload=read('src/extension-bridge-preload.js');
 
 test('Add-ons manager exposes staged review and installed-extension controls',()=>{
   for(const id of [
@@ -64,6 +65,15 @@ test('extension runtime hosts the major WebExtension execution surfaces',()=>{
   assert.match(runtime,/notifyTabUpdated/);
   assert.match(runtime,/notifyNavigation/);
   assert.match(runtime,/clearActiveGrantForTab/);
+  assert.match(runtime,/requiresSubFramePreload/);
+  assert.match(runtime,/injectAllSubframes/);
+  assert.match(runtime,/sendTabMessage/);
+  assert.match(main,/nodeIntegrationInSubFrames: subframeBridge/);
+  assert.match(main,/frame-created/);
+  assert.match(main,/extension:frame-inject-result/);
+  assert.match(main,/extension:frame-message-result/);
+  assert.match(bridgePreload,/extension:frame-inject/);
+  assert.match(bridgePreload,/extension:frame-message/);
   assert.match(runtime,/Aegis isolated-world bridge was not ready for this document/);
   assert.match(runtime,/content-script:'\+rel/);
   assert.match(runtime,/sourceURL='\+extensionResourceUrl/);
