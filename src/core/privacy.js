@@ -56,10 +56,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   };
   const permissionCheck = (webContents, permission, requestingOrigin, details = {}) => { const settings = getSettings(); const merged = { ...details, requestingOrigin }; const keys = permissionKeys(permission, merged); const origin = safeOrigin(requestingOrigin) || requestOrigin(webContents, merged); return keys.length > 0 && keys.every((key) => (typeof isTemporarilyAllowed === 'function' && isTemporarilyAllowed(origin, key)) || permissionDecision(settings, origin, key) === 'allow'); };
   if(engine?.installPermissionHandlers)engine.installPermissionHandlers(ses,{request:permissionRequest,check:permissionCheck});else{ses.setPermissionRequestHandler(permissionRequest);ses.setPermissionCheckHandler(permissionCheck);}
-  ses.setDevicePermissionHandler(() => false);
-  ses.on('select-hid-device', (event, details, callback) => { event.preventDefault(); callback(); });
-  ses.on('select-serial-port', (event, portList, webContents, callback) => { event.preventDefault(); callback(''); });
-  ses.on('select-usb-device', (event, details, callback) => { event.preventDefault(); callback(); });
+  if(engine?.installDevicePermissionHandlers) engine.installDevicePermissionHandlers(ses);
 
   ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
     const settings = getSettings();
