@@ -81,7 +81,7 @@ test('extension menus and notifications integrate through Aegis-owned chrome',()
 
 test('Runtime 5 manager and bridge expose Chrome package health repair and persistent Port messaging',()=>{
   assert.match(html,/AEGIS EXTENSION RUNTIME 5/);
-  assert.match(html,/Chrome Web Store, extension ID, or direct package URL/);
+  assert.match(html,/Chrome Web Store, Firefox Add-ons, extension ID, or direct package URL/);
   assert.match(html,/What Aegis implements/);
   assert.match(ui,/function addonHealth/);
   assert.match(ui,/Health check/);
@@ -103,6 +103,7 @@ test('Chrome package manager exposes CRX Web Store and unpacked flows',()=>{
   assert.match(html,/CRX2\/CRX3, XPI, ZIP and unpacked/);
   assert.match(main,/chromewebstore\.google\.com/);
   assert.match(main,/clients2\.google\.com\/service\/update2\/crx/);
+  assert.match(main,/addons\.mozilla\.org\/api\/v5\/addons\/addon/);
   assert.match(main,/acceptformat=crx2,crx3/);
   assert.match(runtime,/parseCrxBuffer/);
   assert.match(runtime,/format:'crx3'/);
