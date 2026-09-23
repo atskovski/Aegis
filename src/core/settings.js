@@ -218,11 +218,11 @@ function sanitizeSettings(raw = {}) {
     permissionDefaults: sanitizePermissionDefaults(raw.permissionDefaults),
     sitePermissions: sanitizeSitePermissions(raw.sitePermissions),
     appearance: {
-      theme: choice(migratedTheme, ['nebula','graphite','light'], d.appearance.theme),
+      theme: choice(migratedTheme, ['nebula','graphite','light','ocean','forest','ember','highcontrast'], d.appearance.theme),
       density: choice(raw.appearance?.density, ['compact','comfortable'], d.appearance.density),
       showPrivacyScore: bool(raw.appearance?.showPrivacyScore, d.appearance.showPrivacyScore),
       reduceMotion: bool(raw.appearance?.reduceMotion, d.appearance.reduceMotion),
-      accent: choice(raw.appearance?.accent, ['cyan','violet','emerald'], d.appearance.accent),
+      accent: choice(raw.appearance?.accent, ['cyan','violet','emerald','blue','amber','rose'], d.appearance.accent),
       textScale: choice(raw.appearance?.textScale, ['standard','large','xlarge'], d.appearance.textScale)
     }
   };
