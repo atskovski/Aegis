@@ -1,5 +1,44 @@
 # Aegis Privacy Browser — Changelog
 
+## v1.0.0 — Runtime Guardian
+
+Aegis 1.0 consolidates the hardened browser, Sentinel and verification work into the first production-version baseline.
+
+### Security engine
+- Per-tab ephemeral private sessions with Hardened and Anonymous security compartments.
+- Fail-closed Tor-route verification for Anonymous mode when Tor routing is required.
+- HTTPS-first navigation, TLS 1.2 minimum, invalid-certificate fail-closed handling and certificate-failure evidence.
+- Permission request/check/device firewalls, private/LAN destination controls and third-party request isolation.
+- Independent tracker, ad, social, cryptominer, fingerprint-script, beacon, ETag and tracking-parameter defenses.
+- Bounce-tracker detection with intermediary cookie/storage/IndexedDB/cache/service-worker destruction.
+- WebRTC exposure shutdown for anonymous compartments and non-proxied UDP hardening.
+- Extension isolated worlds, explicit XPI compatibility reporting, host visibility restrictions and tab capability enforcement.
+- Download risk blocking plus SHA-256, received-size and MIME/extension consistency evidence.
+- Renderer crash evidence and protected renderer reconstruction without intentionally relaxing the tab policy.
+
+### Fingerprint and identity engine
+- Cohort-normalized browser identity for protected modes across UA, Client Hints, language, timezone, screen, hardware, Canvas, WebGL, Audio, fonts and media-device surfaces.
+- High-entropy UA Client Hints removed from protected network requests.
+- Runtime comparison of JavaScript-visible identity and network identity.
+- Same-renderer stability and cross-tab cohort checks.
+- Letterboxing and privacy-profile-specific exposure reduction.
+
+### Runtime verification
+- Behavioral renderer/Node isolation probe.
+- Permission-firewall and privacy-preload readiness checks.
+- WebRTC candidate inspection.
+- Storage-resurrection cleanup test.
+- Disposable session-isolation test.
+- Network route, DNS/HTTPS and opt-in public-IP proof.
+- Tor-route verification for Anonymous mode.
+- Runtime control-assurance registry using ENFORCED / DEGRADED / DISABLED independently from PASS / WARNING / INFO / FAIL / NOT TESTED.
+- Bounded Security Event Ledger for certificate failures, renderer failures/recovery and enforced state cleanup.
+- External verification lab links for EFF Cover Your Tracks and BrowserLeaks surfaces.
+
+### Release security position
+Aegis 1.0 does not claim zero fingerprinting, guaranteed anonymity, TLS-stack impersonation, or Tor Browser equivalence. EFF notes that fingerprinting is difficult to defeat and that protection mechanisms can themselves contribute to uniqueness. These residual limitations are intentionally surfaced rather than converted into green status indicators.
+
+
 ## v1.0.0-beta.1 — Sentinel 2.0 / Extension Runtime
 
 - Added Simple and Advanced Sentinel views with routed IP, third-party/tracker, fingerprint and permission intelligence.
