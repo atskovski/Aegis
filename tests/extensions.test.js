@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { safeRel, normalizeManifest, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab, scanUsedApiRoots } = require('../src/core/extensions');
+const { safeRel, normalizeManifest, extensionId, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab, scanUsedApiRoots } = require('../src/core/extensions');
 
 test('XPI runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
@@ -318,4 +318,21 @@ test('runtime.connect Port messages route between a content context and backgrou
     assert.equal(sourceEvents.length >= 1,true);
     assert.equal(runtime.ports.size,0);
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
+
+test('signed Chrome CRX identity wins over Firefox manifest identity', () => {
+  const manifest={
+    manifest_version:2,name:'Cross-browser',version:'1.0',
+    browser_specific_settings:{gecko:{id:'jid1-MnnxcxisBPnSXQ@jetpack'}}
+  };
+  assert.equal(extensionId(manifest,'a'.repeat(64),{format:'crx3',id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp',verified:true}),'pkehgijcmpdhfbdbbnkijodmdjhbjlgp');
+});
+
+test('Firefox and generic packages still preserve Gecko identity', () => {
+  const manifest={
+    manifest_version:2,name:'Firefox package',version:'1.0',
+    browser_specific_settings:{gecko:{id:'jid1-MnnxcxisBPnSXQ@jetpack'}}
+  };
+  assert.equal(extensionId(manifest,'b'.repeat(64),{format:'xpi',id:''}),'jid1-mnnxcxisbpnsxq@jetpack');
 });
