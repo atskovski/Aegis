@@ -819,6 +819,7 @@ function renderSettingsDraft() {
   $('#anonymousDisableExtensions').checked = s.anonymity?.disableExtensions !== false;
   $('#anonymousDisableJavaScript').checked = s.anonymity?.disableJavaScript !== false;
   $('#enterpriseMode').checked = Boolean(s.enterpriseMode);
+  const mp=s.managedPolicy; $('#managedPolicyStatus').textContent=mp ? `Managed policy ${mp.id||'unnamed'} ${mp.version||''} active · ${(mp.lockedKeys||[]).length} locked setting groups` : 'No administrator policy loaded. Set AEGIS_POLICY_PUBLIC_KEY before importing a signed policy.';
   $('#enterpriseBlockExtensions').checked = Boolean(s.enterprise?.blockUnlistedExtensions);
   $('#enterpriseDisablePrinting').checked = Boolean(s.enterprise?.disablePrinting);
   $('#enterpriseDisableClipboard').checked = s.enterprise?.disableClipboardRead !== false;
@@ -1103,6 +1104,7 @@ $('#installXpi').addEventListener('click', async () => {
   } catch (err) { showToast({ message:'Extension install failed: ' + err.message, tone:'danger' }); }
   finally { button.disabled = false; button.textContent = 'Install .xpi'; }
 });
+$('#importManagedPolicy').addEventListener('click',async()=>{const r=await window.aegis.invoke('enterprise:import-policy');if(r?.ok){state.settings=await window.aegis.invoke('settings:get');loadSettings();showToast('Signed managed policy verified and applied.','success');}else if(!r?.canceled)showToast(r?.error||'Managed policy import failed.','danger');});
 $('#networkTestFromNetwork').addEventListener('click', () => { openSettings('diagnostics'); runNetworkTest(); });
 $('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
 $('[data-security-test]').forEach((button) => button.addEventListener('click', async () => {
