@@ -72,20 +72,26 @@ function chromeId(bytes){
   return [...bytes.subarray(0,16)].map((value)=>alphabet[(value>>4)&15]+alphabet[value&15]).join('');
 }
 function wrapCrx2(zipFile,crxFile){
-  const zip=fs.readFileSync(zipFile),publicKey=Buffer.from('aegis-chrome-test-public-key'),signature=Buffer.from('test-signature');
+  const crypto=require('node:crypto'),zip=fs.readFileSync(zipFile),keys=crypto.generateKeyPairSync('rsa',{modulusLength:2048});
+  const publicKey=keys.publicKey.export({type:'spki',format:'der'}),signature=crypto.sign('sha1',zip,{key:keys.privateKey,padding:crypto.constants.RSA_PKCS1_PADDING});
   const header=Buffer.alloc(16);header.write('Cr24',0,'ascii');header.writeUInt32LE(2,4);header.writeUInt32LE(publicKey.length,8);header.writeUInt32LE(signature.length,12);
   fs.writeFileSync(crxFile,Buffer.concat([header,publicKey,signature,zip]));
-  return chromeId(require('node:crypto').createHash('sha256').update(publicKey).digest());
+  return chromeId(crypto.createHash('sha256').update(publicKey).digest());
 }
 function varint(value){
   const out=[];let v=value;
   do{let b=v&0x7f;v=Math.floor(v/128);if(v)b|=0x80;out.push(b)}while(v);
   return Buffer.from(out);
 }
-function wrapCrx3(zipFile,crxFile,idBytes){
-  const zip=fs.readFileSync(zipFile);
-  const signedData=Buffer.concat([Buffer.from([0x0a,0x10]),idBytes]);
-  const tag=varint(10000*8+2),headerBody=Buffer.concat([tag,varint(signedData.length),signedData]);
+function protoField(field,value){const data=Buffer.from(value);return Buffer.concat([varint(field*8+2),varint(data.length),data])}
+function wrapCrx3(zipFile,crxFile){
+  const crypto=require('node:crypto'),zip=fs.readFileSync(zipFile),keys=crypto.generateKeyPairSync('rsa',{modulusLength:2048});
+  const publicKey=keys.publicKey.export({type:'spki',format:'der'}),idBytes=crypto.createHash('sha256').update(publicKey).digest().subarray(0,16);
+  const signedData=protoField(1,idBytes),size=Buffer.alloc(4);size.writeUInt32LE(signedData.length,0);
+  const payload=Buffer.concat([Buffer.from('CRX3 SignedData','utf8'),Buffer.from([0]),size,signedData,zip]);
+  const signature=crypto.sign('sha256',payload,{key:keys.privateKey,padding:crypto.constants.RSA_PKCS1_PADDING});
+  const proof=Buffer.concat([protoField(1,publicKey),protoField(2,signature)]);
+  const headerBody=Buffer.concat([protoField(2,proof),protoField(10000,signedData)]);
   const header=Buffer.alloc(12);header.write('Cr24',0,'ascii');header.writeUInt32LE(3,4);header.writeUInt32LE(headerBody.length,8);
   fs.writeFileSync(crxFile,Buffer.concat([header,headerBody,zip]));
   return chromeId(idBytes);
@@ -108,6 +114,7 @@ test('CRX2 package preserves Chrome extension identity through install',async()=
     const staged=await runtime.stage(crx);
     assert.equal(staged.summary.id,expected);
     assert.equal(staged.summary.packageFormat,'crx2');
+    assert.equal(staged.summary.signature.verified,true);
     const installed=await runtime.installStaged(staged.token);
     assert.equal(installed.id,expected);
     assert.equal(installed.source,'crx2');
@@ -119,11 +126,12 @@ test('CRX3 package reads embedded Chrome extension id',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-crx3-'));
   try{
     const runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
-    const built=makeChromeZip(root),crx=path.join(root,'extension-v3.crx'),idBytes=Buffer.from('00112233445566778899aabbccddeeff','hex'),expected=wrapCrx3(built.zip,crx,idBytes);
+    const built=makeChromeZip(root),crx=path.join(root,'extension-v3.crx'),expected=wrapCrx3(built.zip,crx);
     const staged=await runtime.stage(crx);
     assert.equal(staged.summary.id,expected);
     assert.equal(staged.summary.packageFormat,'crx3');
     assert.equal(staged.summary.signature.format,'crx3');
+    assert.equal(staged.summary.signature.verified,true);
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
