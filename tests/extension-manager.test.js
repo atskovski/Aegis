@@ -55,7 +55,7 @@ test('extension runtime hosts the major WebExtension execution surfaces',()=>{
 });
 
 test('shared shim and extension page preload expose matching WebExtension namespaces',()=>{
-  for(const api of ['runtime','storage','tabs','windows','cookies','permissions','i18n','alarms','commands','scripting','webNavigation','notifications','menus','contextMenus','action','browserAction','pageAction']){
+  for(const api of ['runtime','storage','tabs','windows','cookies','permissions','i18n','alarms','commands','scripting','webNavigation','webRequest','declarativeNetRequest','privacy','notifications','menus','contextMenus','action','browserAction','pageAction']){
     assert.ok(shim.includes(api),api+' missing from shared shim');
     assert.ok(pagePreload.includes(api),api+' missing from extension page preload');
   }
