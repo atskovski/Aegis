@@ -179,6 +179,74 @@ test('background bootstrap preserves runtime.sendMessage response handling and u
 });
 
 
+test('callback-style runtime messaging preserves asynchronous sendResponse', async () => {
+  const vm=require('node:vm');
+  const { webExtensionBootstrap }=require('../src/core/extension-shim');
+  const ext={id:'response@example',resourceToken:'responsetoken',path:__dirname,manifest:{manifest_version:3,name:'Response',version:'1',background:{service_worker:'bg.js'}}};
+  let inbound=null,response=null;
+  const context={
+    setTimeout,
+    __aegisBackgroundBridge:{
+      call:()=>Promise.resolve(),
+      onMessage:(fn)=>{inbound=fn},
+      onEvent:()=>{},
+      respond:(messageId,value)=>{response={messageId,value}}
+    }
+  };
+  vm.runInNewContext(webExtensionBootstrap(ext,'__aegisBackgroundBridge'),context);
+  context.chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
+    setTimeout(()=>sendResponse({ok:true,value:message.value,origin:sender.origin}),5);
+    return true;
+  });
+  await inbound({messageId:'m1',message:{value:42},sender:{origin:'https://example.com'}});
+  assert.deepEqual(JSON.parse(JSON.stringify(response)),{messageId:'m1',value:{ok:true,value:42,origin:'https://example.com'}});
+});
+
+test('registered content scripts support MV3 dynamic scripting metadata', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-registered-scripts-'));
+  try{
+    const extRoot=path.join(root,'extension');fs.mkdirSync(extRoot,{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'dnt.js'),'globalThis.__dnt=true;');
+    const manifest={manifest_version:3,name:'Dynamic',version:'1',permissions:['scripting'],host_permissions:['<all_urls>']};
+    const runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[],createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'dynamic-test',path:extRoot,enabled:true,manifest,detectedApis:['scripting'],compatibility:compatibility(manifest,['scripting'])};
+    runtime.items.set(e.id,e);
+    runtime.registerContentScripts(e,[{id:'dnt_signal',js:['dnt.js'],matches:['<all_urls>'],runAt:'document_start',allFrames:true,world:'MAIN',persistAcrossSessions:false}]);
+    const rows=runtime.getRegisteredContentScripts(e,{});
+    assert.equal(rows.length,1);
+    assert.equal(rows[0].id,'dnt_signal');
+    assert.equal(rows[0].world,'MAIN');
+    assert.equal(rows[0].runAt,'document_start');
+    assert.equal(rows[0].allFrames,true);
+    assert.equal(contentScriptPhase(runtime.contentScriptsFor(e).at(-1)),'start');
+    runtime.unregisterContentScripts(e,{ids:['dnt_signal']});
+    assert.equal(runtime.getRegisteredContentScripts(e,{}).length,0);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
+test('MAIN-world scripting executes packaged files without the isolated API bootstrap', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-main-world-'));
+  try{
+    const extRoot=path.join(root,'extension');fs.mkdirSync(extRoot,{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'main.js'),'globalThis.__mainWorldWorked=true;');
+    const calls=[];
+    const contents={
+      isDestroyed:()=>false,
+      executeJavaScript:async(code)=>{calls.push(code);return 'ok'},
+      executeJavaScriptInIsolatedWorld:async()=>{throw new Error('isolated world should not run')}
+    };
+    const tab={id:1,url:'https://example.com/',securityDomain:'private',disableExtensions:false,view:{webContents:contents}};
+    const manifest={manifest_version:3,name:'Main World',version:'1',permissions:['scripting'],host_permissions:['<all_urls>']};
+    const runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[tab],getActiveId:()=>1,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'main-world',path:extRoot,enabled:true,manifest,detectedApis:['scripting'],compatibility:compatibility(manifest,['scripting'])};
+    runtime.items.set(e.id,e);
+    const result=await runtime.executeExtensionScript(e,tab,{target:{tabId:1,frameIds:[0]},world:'MAIN',files:['main.js']});
+    assert.equal(result[0].frameId,0);
+    assert.equal(calls.length,1);
+    assert.match(calls[0],/__mainWorldWorked/);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
 test('notifications and context menus are supported with explicit reduced-surface warnings', () => {
   const report=compatibility({manifest_version:2,name:'T',version:'1',permissions:['notifications','menus']});
   assert.ok(report.supported.includes('notifications'));
