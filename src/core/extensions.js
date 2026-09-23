@@ -295,21 +295,22 @@ class AegisExtensionRuntime{
       };
     }finally{try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}}
   }
-  async stage(file){
+  async stage(file,{owned=false}={}){
     const summary=await this.inspect(file);
     const token=crypto.randomUUID();
     const expiresAt=Date.now()+5*60*1000;
-    this.pendingInstalls.set(token,{file:String(file),summary,expiresAt});
-    for(const [key,value] of this.pendingInstalls) if(value.expiresAt<Date.now())this.pendingInstalls.delete(key);
+    this.pendingInstalls.set(token,{file:String(file),summary,expiresAt,owned:Boolean(owned)});
+    for(const [key,value] of this.pendingInstalls) if(value.expiresAt<Date.now()){this.pendingInstalls.delete(key);if(value.owned)try{fs.rmSync(value.file,{force:true})}catch{}}
     return {token,summary,expiresAt:new Date(expiresAt).toISOString()};
   }
-  cancelStage(token){return this.pendingInstalls.delete(String(token||''))}
+  cancelStage(token){const key=String(token||''),staged=this.pendingInstalls.get(key);if(!staged)return false;this.pendingInstalls.delete(key);if(staged.owned)try{fs.rmSync(staged.file,{force:true})}catch{}return true}
   reviewStage(token){const staged=this.pendingInstalls.get(String(token||''));return staged&&staged.expiresAt>=Date.now()?staged.summary:null}
   async installStaged(token){
-    const staged=this.pendingInstalls.get(String(token||''));
-    if(!staged||staged.expiresAt<Date.now()){this.pendingInstalls.delete(String(token||''));throw new Error('Extension review expired. Select the package again.');}
-    this.pendingInstalls.delete(String(token||''));
-    return this.install(staged.file);
+    const key=String(token||''),staged=this.pendingInstalls.get(key);
+    if(!staged||staged.expiresAt<Date.now()){this.pendingInstalls.delete(key);if(staged?.owned)try{fs.rmSync(staged.file,{force:true})}catch{}throw new Error('Extension review expired. Select the package again.');}
+    this.pendingInstalls.delete(key);
+    try{return await this.install(staged.file)}
+    finally{if(staged.owned)try{fs.rmSync(staged.file,{force:true})}catch{}}
   }
   async install(file){
     const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'), x=await inspectXpi(file,path.join(this.rootDir,'extension-staging')), id=extensionId(x.manifest,digest), dest=path.join(this.installDir,id);
