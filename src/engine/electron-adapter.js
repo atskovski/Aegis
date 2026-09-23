@@ -33,7 +33,7 @@ function createElectronChromiumAdapter(){
   loadURL:(view,url,options)=>wc(view).loadURL(url,options),
   getURL:(view)=>wc(view).getURL(),
   on:(view,event,handler)=>{const x=wc(view);x.on(event,handler);return ()=>x.removeListener(event,handler);},
-  reload:(view)=>wc(view).reload(), stop:(view)=>wc(view).stop(), focus:(view)=>wc(view).focus(), setZoomMode:(view,mode)=>{const x=wc(view);if(typeof x.setZoomMode==='function')x.setZoomMode(mode);},
+  reload:(view)=>wc(view).reload(), stop:(view)=>wc(view).stop(), focus:(view)=>wc(view).focus(), setZoomMode:(view,mode)=>{const x=wc(view);if(typeof x.setZoomMode==='function')x.setZoomMode(mode);}, setBounds:(view,bounds)=>view.setBounds(bounds), getBounds:(view)=>view.getBounds(), setVisible:(view,visible)=>view.setVisible(Boolean(visible)),
   navigationHistory:(view)=>wc(view).navigationHistory,
   sessionOf:(view)=>wc(view).session,
   clearSessionData:(ses,options)=>ses.clearData(options), clearSessionCache:(ses)=>ses.clearCache(), closeSessionConnections:(ses)=>ses.closeAllConnections(),
