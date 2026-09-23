@@ -32,6 +32,13 @@ function normalizeManifest(m){
   return m;
 }
 function permissions(m){ return [...new Set([...(Array.isArray(m.permissions)?m.permissions:[]),...(Array.isArray(m.host_permissions)?m.host_permissions:[])])]; }
+function hostPermissions(m){
+  return permissions(m).filter((p)=>p === '<all_urls>' || /^(?:\*|https?):\/\//.test(String(p||'')));
+}
+function networkAllowedByManifest(m,url){
+  const patterns=hostPermissions(m);
+  return patterns.some((p)=>matchPattern(url,p));
+}
 function extensionWorldId(id){
   const h=crypto.createHash('sha256').update(String(id)).digest();
   return 1100 + (h.readUInt32BE(0) % 50000);
@@ -157,7 +164,7 @@ function getKeys(store,keys){
 class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
-    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();
+    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.suspensionReasons=new Set();
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest)})}catch{}}}
@@ -181,6 +188,7 @@ class AegisExtensionRuntime{
     return {extensionId:ext.id,path:target,relative:safe};
   }
   async inject(tab,phase='idle'){
+    if(tab?.disableExtensions || tab?.securityDomain === 'anonymous' || tab?.securityDomain === 'hardened') return [];
     if(!tab?.view?.webContents||tab.view.webContents.isDestroyed())return [];
     const url=tab.view.webContents.getURL(); if(!/^https?:\/\//.test(url))return [];
     if(!tab.extensionInjectionKeys)tab.extensionInjectionKeys=new Set();
@@ -243,6 +251,7 @@ class AegisExtensionRuntime{
   }
   async startBackground(ext){
     this.stopBackground(ext.id);
+    if(this.suspensionReasons.size)return false;
     const scripts=this.backgroundScripts(ext);
     if(!ext.enabled||!scripts.length||!this.BrowserWindow||!this.electronSession)return false;
     const valid=scripts.filter((rel)=>{const file=path.resolve(ext.path,rel);return file.startsWith(path.resolve(ext.path)+path.sep)&&fs.existsSync(file)&&fs.statSync(file).isFile()});
@@ -254,13 +263,28 @@ class AegisExtensionRuntime{
     const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; connect-src https: http: aegis-extension:; img-src \'self\' data: aegis-extension:; style-src \'self\' \'unsafe-inline\'; object-src \'none\'">'+tags;
     fs.writeFileSync(wrapper,html,{mode:0o600});
     const ses=this.electronSession.fromPartition('aegis-extension-bg-'+crypto.createHash('sha256').update(ext.id).digest('hex').slice(0,24),{cache:false});
+    // Extension background networking is least-privilege: only manifest-declared
+    // host permissions may leave the sandboxed background session.
+    try {
+      ses.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>{
+        callback({cancel:!networkAllowedByManifest(ext.manifest,details.url)});
+      });
+    } catch {}
     if(typeof this.registerProtocols==='function')this.registerProtocols(ses.protocol,'extension '+ext.id);
     const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-host-preload.js'),additionalArguments:['--aegis-extension-id='+encodeURIComponent(ext.id)]}});
     this.backgroundHosts.set(ext.id,host);
     host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
     try{await host.loadFile(wrapper);return true}catch(err){try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
   }
-  async startAll(){for(const ext of this.enabled())await this.startBackground(ext)}
+  async startAll(){if(this.suspensionReasons.size)return;for(const ext of this.enabled())await this.startBackground(ext)}
+  suspendAll(reason='privacy-compartment'){
+    this.suspensionReasons.add(String(reason));
+    for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);
+  }
+  async resumeAll(reason='privacy-compartment'){
+    this.suspensionReasons.delete(String(reason));
+    if(!this.suspensionReasons.size)await this.startAll();
+  }
   stopBackground(id){const host=this.backgroundHosts.get(id);if(host&&!host.isDestroyed())try{host.destroy()}catch{}this.backgroundHosts.delete(id)}
   sendRuntimeMessage(ext, sourceTab, message){
     const host=this.backgroundHosts.get(ext.id);
@@ -279,4 +303,4 @@ class AegisExtensionRuntime{
   }
   stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear()}
 }
-module.exports={extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
+module.exports={hostPermissions,networkAllowedByManifest,extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
