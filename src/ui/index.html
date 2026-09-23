@@ -341,6 +341,21 @@
             <div class="suite-empty"><b>Verification has not been run</b><span>Run the Security Suite to collect current protection evidence.</span></div>
           </div>
 
+          <div class="diagnostic-divider"><span>External verification lab</span></div>
+          <div class="test-lab">
+            <div class="test-lab-copy"><b>Test the hardened compartment against independent sites</b><span>Each test opens in a fresh hardened, memory-only tab with extensions disabled. Third-party services can observe the network route used by that tab.</span></div>
+            <div class="test-lab-grid">
+              <button class="secondary" data-security-test="eff">EFF Cover Your Tracks</button>
+              <button class="secondary" data-security-test="ip">IP / DNS surface</button>
+              <button class="secondary" data-security-test="webrtc">WebRTC leak</button>
+              <button class="secondary" data-security-test="canvas">Canvas fingerprint</button>
+              <button class="secondary" data-security-test="webgl">WebGL fingerprint</button>
+              <button class="secondary" data-security-test="tls">TLS fingerprint</button>
+              <button class="secondary" data-security-test="javascript">JavaScript surfaces</button>
+            </div>
+            <div class="info-callout"><b>Interpretation</b><span>Aegis treats these results as evidence, not a guarantee. Fingerprint uniqueness depends on the comparison population, and a browser cannot hide a public IP without an anonymity/VPN route.</span></div>
+          </div>
+
           <div class="diagnostic-divider"><span>Privacy-control enforcement</span></div>
           <div id="privacyControlResults" class="control-assurance"></div>
 
