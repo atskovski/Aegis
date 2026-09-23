@@ -41,7 +41,7 @@ Runtime 5 currently implements or emulates the following major surfaces:
 
 - runtime: manifest/URL/platform/browser metadata, messaging, long-lived Ports, reload, contexts and options opening.
 - storage: local, session, local compatibility sync and read-only managed.
-- tabs: query/get/create/update/reload/remove/sendMessage, executeScript, CSS insertion/removal, zoom and visible-tab capture.
+- tabs: query/get/create/update/reload/remove/sendMessage, including frame-targeted messaging, plus executeScript, CSS insertion/removal, zoom and visible-tab capture.
 - windows: basic current-window and window metadata operations used by extension UIs.
 - cookies: host-scoped access tied to extension host permissions and visible private tabs.
 - permissions: declared-permission inspection.
@@ -66,7 +66,7 @@ Runtime 5 does not claim universal Chrome or Firefox API parity.
 - declarativeNetRequest modifyHeaders is intentionally not allowed to weaken Aegis security headers, and matched-rule telemetry is reduced.
 - proxy replacement, native messaging, browsing-history database access, extension management, debugger APIs and DevTools extension pages are withheld.
 - optional_permissions and optional_host_permissions are detected and reviewed, but runtime permission-request/removal prompts are not yet implemented.
-- content_scripts.all_frames and scripting allFrames are not yet implemented; supported script injection targets the top-level frame.
+- manifest and dynamically registered `content_scripts.all_frames` are injected into loaded subframes through Aegis's sandboxed iframe bridge, including `match_about_blank` origin fallback. Exact `document_start` ordering can still differ from upstream Chrome/Firefox. Programmatic `scripting.executeScript({target:{allFrames:true}})` remains top-frame-only for now.
 - document_start uses Aegis early-navigation isolated-world injection, but exact Firefox/Chromium pre-page-script ordering is not guaranteed on every navigation.
 - MV3 service workers run in a persistent sandboxed host rather than Chromium's suspend/resume lifecycle.
 - function-object scripting injection is not transferred across Aegis IPC; packaged files or code strings are supported.
