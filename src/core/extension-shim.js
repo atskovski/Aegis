@@ -45,6 +45,7 @@ function webExtensionBootstrap(ext, bridgeGlobal = '__aegisExtensionBridge') {
 
   return `(()=>{'use strict';
 const ID=${id},TOKEN=${token},M=Object.freeze(${manifest}),MSG=Object.freeze(${messages}),B=globalThis[${bridge}];if(!B)return;
+if(globalThis.__aegisWebExtensionBootstrapId===ID)return;
 const events=new Map();
 const listeners=(name)=>{if(!events.has(name))events.set(name,[]);return events.get(name)};
 const event=(name)=>({addListener:(f)=>{if(typeof f==='function'&&!listeners(name).includes(f))listeners(name).push(f)},removeListener:(f)=>{const a=listeners(name),i=a.indexOf(f);if(i>=0)a.splice(i,1)},hasListener:(f)=>listeners(name).includes(f),hasListeners:()=>listeners(name).length>0});
@@ -78,7 +79,9 @@ notifications:{create:(...a)=>call('notifications.create',...a),clear:(...a)=>ca
 menus:{create:(d={},cb)=>{const details={...(d||{})},id=details.id!==undefined?String(details.id):('aegis-menu-'+Math.random().toString(36).slice(2));details.id=id;call('menus.create',details,cb);return id},update:(...a)=>call('menus.update',...a),remove:(...a)=>call('menus.remove',...a),removeAll:(...a)=>call('menus.removeAll',...a),onClicked:event('menus.onClicked')},
 contextMenus:{create:(d={},cb)=>{const details={...(d||{})},id=details.id!==undefined?String(details.id):('aegis-menu-'+Math.random().toString(36).slice(2));details.id=id;call('contextMenus.create',details,cb);return id},update:(...a)=>call('contextMenus.update',...a),remove:(...a)=>call('contextMenus.remove',...a),removeAll:(...a)=>call('contextMenus.removeAll',...a),onClicked:event('contextMenus.onClicked')},
 action:actionApi('action'),browserAction:actionApi('browserAction'),pageAction:actionApi('pageAction')};
-Object.defineProperty(globalThis,'browser',{value:api,configurable:false});if(!globalThis.chrome)Object.defineProperty(globalThis,'chrome',{value:api,configurable:false});
+try{Object.defineProperty(globalThis,'__aegisWebExtensionBootstrapId',{value:ID,writable:false,configurable:false})}catch{globalThis.__aegisWebExtensionBootstrapId=ID}
+const expose=(name)=>{try{const existing=globalThis[name];if(existing&&typeof existing==='object'){for(const [key,value] of Object.entries(api))try{existing[key]=value}catch{};return existing}Object.defineProperty(globalThis,name,{value:api,writable:false,configurable:false});return api}catch{try{globalThis[name]=api;return globalThis[name]}catch{return api}}};
+expose('browser');expose('chrome');
 ${messageHook}
 B.onEvent?.((p)=>{const type=String(p?.type||''),args=Array.isArray(p?.args)?p.args:[];if(type==='runtime.portMessage'){const port=ports.get(String(args[0]||''));if(port)port.onMessage._emit(args[1],port);return}if(type==='runtime.portDisconnect'){const id=String(args[0]||''),port=ports.get(id);if(port){ports.delete(id);port.onDisconnect._emit(port)}return}if(type==='runtime.onConnect'&&args[0]?.__aegisPort){const d=args[0],port=makePort(String(d.portId||''),d.name||'',d.sender||{});for(const fn of [...listeners('runtime.onConnect')])try{fn(port)}catch{}return}const a=listeners(type);for(const fn of [...a]){try{fn(...args)}catch{}}});
 })();`;
