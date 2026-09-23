@@ -1068,7 +1068,16 @@ $('#installXpi').addEventListener('click', async () => {
   finally { button.disabled = false; button.textContent = 'Install .xpi'; }
 });
 $('#networkTestFromNetwork').addEventListener('click', () => { openSettings('diagnostics'); runNetworkTest(); });
-$$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
+$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
+$('[data-security-test]').forEach((button) => button.addEventListener('click', async () => {
+  button.disabled=true;
+  try {
+    const result=await window.aegis.invoke('security-test:open',button.dataset.securityTest);
+    if(result?.ok){ hidePanels(); showToast({message:'Opened independent security test in a fresh hardened compartment.',tone:'success'}); }
+    else showToast({message:'Could not open security test: '+(result?.error||'unknown error'),tone:'danger'});
+  } catch(err){ showToast({message:'Could not open security test: '+err.message,tone:'danger'}); }
+  finally { button.disabled=false; }
+}));
 
 $$('.settings-nav-item').forEach((b) => b.addEventListener('click', () => { switchSettingsPage(b.dataset.settingsTarget); clearSettingsSearch(); }));
 $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
