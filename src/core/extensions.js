@@ -143,7 +143,7 @@ class AegisExtensionRuntime{
   async install(file){
     const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'), x=await inspectXpi(file,path.join(this.rootDir,'extension-staging')), id=extensionId(x.manifest,digest), dest=path.join(this.installDir,id);
     fs.rmSync(dest,{recursive:true,force:true}); fs.renameSync(x.root,dest); if(x.tmp!==x.root)try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}
-    const e={id,path:dest,worldId:extensionWorldId(id),resourceToken:crypto.randomBytes(18).toString('hex'),enabled:true,source:'xpi',digest,installedAt:new Date().toISOString(),manifest:x.manifest,compatibility:x.compatibility}; this.items.set(id,e);this.save();return this.list().find((i)=>i.id===id);
+    const e={id,path:dest,worldId:extensionWorldId(id),resourceToken:crypto.randomBytes(18).toString('hex'),enabled:true,source:'xpi',digest,installedAt:new Date().toISOString(),manifest:x.manifest,compatibility:x.compatibility}; this.items.set(id,e);this.save();await this.startBackground(e);return this.list().find((i)=>i.id===id);
   }
   async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled)await this.startBackground(e);else this.stopBackground(id);return this.list().find((i)=>i.id===id)}
   remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.items.delete(id);this.sessionStores.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}return true}
