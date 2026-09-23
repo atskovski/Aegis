@@ -98,6 +98,7 @@ function anonymousOverrides(globalSettings = {}, torProxy = '127.0.0.1:9050') {
     blockThirdPartyRequests: true,
     disableExtensions: anonymity.disableExtensions !== false,
     disableWebRtc: true,
+    javascriptDefault: anonymity.disableJavaScript === false,
     anonymousRouteRequired: true,
     proxy: {
       mode: 'socks5',
