@@ -38,9 +38,9 @@ test('Extensions manager exposes staged review and installed-extension controls'
   assert.match(ui,/updateFor:addon\.id/);
   assert.match(ui,/Update rejected because the downloaded package identity does not match/);
   assert.match(ui,/Already current at version/);
-  assert.match(ui,/Add-on updated/);
+  assert.match(ui,/Extension updated/);
   assert.match(ui,/let refreshError = '';/);
-  assert.match(ui,/The Add-ons view could not refresh automatically/);
+  assert.match(ui,/The Extensions view could not refresh automatically/);
   assert.match(ui,/100% package installed/);
   assert.match(ui,/Package installation is complete\. API\/runtime compatibility is reported separately\./);
   assert.doesNotMatch(ui,/confirm\('Remove '/);
