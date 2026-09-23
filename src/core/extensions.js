@@ -1423,7 +1423,15 @@ class AegisExtensionRuntime{
     const messageId=crypto.randomUUID(),visible=sourceTab&&!sourceTab.disableExtensions&&sourceTab.securityDomain!=='anonymous'&&sourceTab.securityDomain!=='hardened';
     let sender;
     if(visible){
-      const topRaw=String(sourceTab.url||''),frameRaw=String(sourceFrame?.url||topRaw);let origin='null';try{origin=new URL(frameRaw).origin}catch{}
+      const topRaw=String(sourceTab.url||''),frameRaw=String(sourceFrame?.url||topRaw);let origin='null';
+      try{origin=new URL(frameRaw).origin}catch{}
+      if(origin==='null'&&sourceFrame){
+        let parent=sourceFrame.parent||null;
+        while(parent&&origin==='null'){
+          try{const candidate=new URL(String(parent.url||''));if(/^https?:$/.test(candidate.protocol))origin=candidate.origin}catch{}
+          parent=parent?.parent||null;
+        }
+      }
       const frameId=sourceFrame&&sourceTab?.view?.webContents?.mainFrame!==sourceFrame?Number(sourceFrame.routingId||0):0;
       sender={id:ext.id,tab:this.publicTab(ext,sourceTab)||{id:sourceTab.id,url:topRaw,title:sourceTab.title||'',incognito:true},frameId,url:frameRaw,origin};
     }else{
