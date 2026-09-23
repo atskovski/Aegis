@@ -11,10 +11,9 @@ const execFileAsync = promisify(execFile);
 const SUPPORTED_ROOTS = new Set([
   'runtime','storage','tabs','windows','cookies','permissions','i18n','activeTab',
   'action','browserAction','pageAction','alarms','commands','scripting','webNavigation','notifications','menus','contextMenus',
-  'privacy','declarativeNetRequest','declarativeNetRequestWithHostAccess','webRequest'
+  'privacy','declarativeNetRequest','declarativeNetRequestWithHostAccess','webRequest','webRequestBlocking'
 ]);
 const DENIED_ROOTS = Object.freeze({
-  webRequestBlocking:'Aegis owns the network firewall; synchronous blocking webRequest listeners are not exposed; use declarativeNetRequest.',
   proxy:'Extensions cannot replace Aegis network routing.',
   nativeMessaging:'Native messaging is disabled.',
   history:'Aegis deliberately does not keep a browsing-history database.',
@@ -255,7 +254,8 @@ function compatibility(m,detectedRoots=[]){
   if(Array.isArray(m.optional_permissions)&&m.optional_permissions.length) warnings.push({api:'optional_permissions',reason:'Optional permissions require explicit user approval in Aegis and are not auto-granted.'});
   if(Array.isArray(m.optional_host_permissions)&&m.optional_host_permissions.length) warnings.push({api:'optional_host_permissions',reason:'Optional host access requires explicit user approval in Aegis and is not auto-granted.'});
   if(permissions(m).includes('notifications')) warnings.push({api:'notifications',reason:'Notifications are rendered as prominent Aegis browser-chrome notices; OS notification buttons and native notification-center persistence are not emulated.'});
-  if(permissions(m).includes('webRequest')) warnings.push({api:'webRequest',reason:'Aegis forwards request-observation events to extensions. Synchronous blocking listener responses remain owned by the Aegis network firewall; use declarativeNetRequest for blocking.'});
+  if(permissions(m).includes('webRequestBlocking')) warnings.push({api:'webRequestBlocking',reason:'Aegis supports bounded MV2 blocking listeners for cancel, redirect and privacy-strengthening header changes. Extension decisions can only make Aegis stricter; they cannot override Aegis firewall blocks or weaken protected headers.'});
+  else if(permissions(m).includes('webRequest')) warnings.push({api:'webRequest',reason:'Aegis forwards request-observation events to extensions. Blocking behavior requires the declared webRequestBlocking permission.'});
   if(permissions(m).some((p)=>p==='declarativeNetRequest'||p==='declarativeNetRequestWithHostAccess')) warnings.push({api:'declarativeNetRequest',reason:'Aegis imports static, dynamic and session DNR rules for block, allow, redirect and upgradeScheme actions. Privacy-strengthening modifyHeaders removals are supported for cookies, referrers and cache/tracking identifiers; security-weakening header changes remain blocked.'});
   if(permissions(m).includes('privacy')) warnings.push({api:'privacy',reason:'Privacy settings are exposed through an Aegis-controlled compatibility surface. Extensions can query them; attempts to weaken Aegis-enforced protections are ignored.'});
   if(permissions(m).includes('menus')||permissions(m).includes('contextMenus')) warnings.push({api:'menus',reason:'Aegis hosts standard extension context-menu items; advanced Firefox menu surfaces and icons are reduced.'});
@@ -721,6 +721,19 @@ class AegisExtensionRuntime{
       if(details.error!=null)payload.error=String(details.error);
       this.emitEvent(e,String(type),[payload]);
     }
+  }
+  blockingWebRequestDetails(tab,details={}){
+    const toHeaders=(value)=>{if(Array.isArray(value))return value.map((h)=>({name:String(h?.name||''),value:String(h?.value??'')})).filter((h)=>h.name);const out=[];for(const [name,raw] of Object.entries(value||{})){for(const item of (Array.isArray(raw)?raw:[raw]))out.push({name:String(name),value:String(item??'')})}return out;};
+    const payload={requestId:String(details.id||details.requestId||''),url:String(details.url||''),method:String(details.method||'GET'),tabId:tab.id,type:DNR_RESOURCE_TYPES[details.resourceType]||String(details.resourceType||'other').replace(/[A-Z]/g,(m)=>'_'+m.toLowerCase()),frameId:Number(details.frameId??details.frame?.routingId??0),parentFrameId:Number(details.parentFrameId??details.frame?.parent?.routingId??-1),initiator:String(details.initiatorOrigin||details.initiator||tab.topUrl||tab.url||''),documentUrl:String(details.documentUrl||details.frame?.url||tab.topUrl||tab.url||''),timeStamp:Number(details.timestamp||details.timeStamp||Date.now())};
+    if(details.requestHeaders)payload.requestHeaders=toHeaders(details.requestHeaders);if(details.responseHeaders)payload.responseHeaders=toHeaders(details.responseHeaders);if(details.statusCode!=null)payload.statusCode=Number(details.statusCode);if(details.statusLine!=null)payload.statusLine=String(details.statusLine);if(details.fromCache!=null)payload.fromCache=Boolean(details.fromCache);if(details.ip!=null)payload.ip=String(details.ip);if(details.error!=null)payload.error=String(details.error);return payload;
+  }
+  async blockingWebRequestDecision(tab,type,details={},timeoutMs=350){
+    if(!extensionVisibleTab(tab))return null;const url=String(details.url||''),jobs=[];
+    for(const e of this.enabled()){const declared=new Set(permissions(e.manifest));if(!declared.has('webRequest')||!declared.has('webRequestBlocking')||!networkAllowedByManifest(e.manifest,url))continue;const host=this.backgroundHosts.get(e.id);if(!host||host.isDestroyed())continue;const requestId=crypto.randomUUID(),payload={extensionId:e.id,requestId,type:String(type||''),details:this.blockingWebRequestDetails(tab,details)};jobs.push(new Promise((resolve)=>{const timer=setTimeout(()=>{this.pendingBlockingRequests.delete(requestId);resolve(null)},Math.max(50,Math.min(1000,Number(timeoutMs)||350)));this.pendingBlockingRequests.set(requestId,{extensionId:e.id,host:host.webContents,resolve:(value)=>{clearTimeout(timer);resolve(value)}});try{host.webContents.send('extension:blocking-webrequest',payload)}catch{clearTimeout(timer);this.pendingBlockingRequests.delete(requestId);resolve(null)}}));}
+    if(!jobs.length)return null;const results=await Promise.all(jobs),merged={};for(const value of results){if(!value||typeof value!=='object')continue;if(value.cancel===true)merged.cancel=true;const redirect=String(value.redirectUrl||value.redirectURL||'');if(!merged.redirectURL&&/^https?:\/\//i.test(redirect))merged.redirectURL=redirect;if(Array.isArray(value.requestHeaders))merged.requestHeaders=value.requestHeaders;if(Array.isArray(value.responseHeaders))merged.responseHeaders=value.responseHeaders;}return Object.keys(merged).length?merged:null;
+  }
+  handleBlockingWebRequestResponse(sender,payload={}){
+    const requestId=String(payload.requestId||''),pending=this.pendingBlockingRequests.get(requestId);if(!pending||pending.host!==sender||pending.extensionId!==String(payload.extensionId||''))return false;this.pendingBlockingRequests.delete(requestId);const raw=payload.response&&typeof payload.response==='object'?payload.response:null;if(!raw){pending.resolve(null);return true}const safe={cancel:raw.cancel===true};const redirect=String(raw.redirectUrl||raw.redirectURL||'');if(/^https?:\/\//i.test(redirect))safe.redirectURL=redirect;if(Array.isArray(raw.requestHeaders))safe.requestHeaders=raw.requestHeaders.slice(0,256);if(Array.isArray(raw.responseHeaders))safe.responseHeaders=raw.responseHeaders.slice(0,256);pending.resolve(safe);return true;
   }
   privacyValue(key){
     const s=this.getSettings()||{};switch(String(key||'')){case 'network.webRTCIPHandlingPolicy':return 'disable_non_proxied_udp';case 'network.networkPredictionEnabled':return false;case 'services.passwordSavingEnabled':case 'services.autofillAddressEnabled':case 'services.autofillCreditCardEnabled':return false;case 'websites.thirdPartyCookiesAllowed':return s.blockThirdPartyCookies===false;case 'websites.hyperlinkAuditingEnabled':return s.blockTrackingBeacons===false;case 'websites.referrersEnabled':return s.stripCrossSiteReferrers===false;case 'websites.protectedContentEnabled':return false;default:return undefined}}
