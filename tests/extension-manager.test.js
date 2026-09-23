@@ -79,8 +79,8 @@ test('extension menus and notifications integrate through Aegis-owned chrome',()
 });
 
 
-test('Runtime 4 manager and bridge expose Chrome package health repair and persistent Port messaging',()=>{
-  assert.match(html,/AEGIS EXTENSION RUNTIME 4/);
+test('Runtime 5 manager and bridge expose Chrome package health repair and persistent Port messaging',()=>{
+  assert.match(html,/AEGIS EXTENSION RUNTIME 5/);
   assert.match(html,/Chrome Web Store, extension ID, or direct package URL/);
   assert.match(html,/What Aegis implements/);
   assert.match(ui,/function addonHealth/);
