@@ -1,0 +1,4 @@
+'use strict';
+const WEIGHTS=Object.freeze({canvas:8,webgl:9,webgpu:10,audio:8,fonts:8,screen:4,clientHints:6,mediaDevices:7,webrtc:9,hardware:5,memory:4,gamepad:6,sensors:7,battery:5,timezone:3,locale:3,speech:5,timers:4,storage:3});
+function createFingerprintTelemetry(limit=300){const events=[];return {record(surface,detail={}){if(!WEIGHTS[surface])return;events.push({surface,at:Date.now(),detail});if(events.length>limit)events.splice(0,events.length-limit)},snapshot(windowMs=10000){const cutoff=Date.now()-windowMs,recent=events.filter(e=>e.at>=cutoff),unique=[...new Set(recent.map(e=>e.surface))],score=Math.min(100,unique.reduce((n,s)=>n+WEIGHTS[s],0)+Math.min(25,recent.length));return {level:score>=55?'aggressive':score>=25?'elevated':'low',score,surfaces:unique,probes:recent.length,windowMs}},clear(){events.length=0}}}
+module.exports={WEIGHTS,createFingerprintTelemetry};
