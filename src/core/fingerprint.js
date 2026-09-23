@@ -1,6 +1,6 @@
 'use strict';
 
-function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'strict', disableServiceWorkers = true, globalPrivacyControl = true, doNotTrack = true }) {
+function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'strict', disableServiceWorkers = true, globalPrivacyControl = true, doNotTrack = true, anonymousMode = false, disableWebRtc = false }) {
   const ua = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromiumMajor}.0.0.0 Safari/537.36`;
   const strict = profile === 'strict' || profile === 'maximum';
   const maximum = profile === 'maximum';
@@ -14,9 +14,15 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
     const DISABLE_SW = ${disableServiceWorkers ? 'true' : 'false'};
     const GPC = ${globalPrivacyControl ? 'true' : 'false'};
     const DNT = ${doNotTrack ? 'true' : 'false'};
+    const ANONYMOUS = ${anonymousMode ? 'true' : 'false'};
+    const DISABLE_WEBRTC = ${disableWebRtc ? 'true' : 'false'};
     const host = (() => { try { return location.hostname || 'opaque'; } catch { return 'opaque'; } })();
     let h = 2166136261 >>> 0;
-    const input = BASE + '|' + host;
+    // Maximum/anonymous profiles use a cohort seed, not a per-user seed. This makes
+    // perturbation deterministic across Aegis users at the same first party instead
+    // of creating a stable, user-specific randomized fingerprint.
+    const COHORT = 'aegis-cohort-v1';
+    const input = (MAXIMUM || ANONYMOUS ? COHORT : BASE) + '|' + host;
     for (let i = 0; i < input.length; i++) { h ^= input.charCodeAt(i); h = Math.imul(h, 16777619); }
     const randByte = (index) => {
       let x = (h ^ Math.imul(index + 1, 0x45d9f3b)) >>> 0;
@@ -49,6 +55,15 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
       }
       try { Object.defineProperty(navigator, 'connection', { configurable: true, value: undefined }); } catch {}
       try { Object.defineProperty(navigator, 'getBattery', { configurable: true, value: undefined }); } catch {}
+      if (ANONYMOUS) {
+        try { undef(navProto, 'bluetooth'); } catch {}
+        try { undef(navProto, 'usb'); } catch {}
+        try { undef(navProto, 'serial'); } catch {}
+        try { undef(navProto, 'hid'); } catch {}
+        try { undef(navProto, 'presentation'); } catch {}
+        try { undef(navProto, 'wakeLock'); } catch {}
+        try { undef(navProto, 'xr'); } catch {}
+      }
       if (STRICT) { try { undef(globalThis, 'queryLocalFonts'); } catch {} }
 
       const uaData = Object.freeze({
@@ -109,6 +124,12 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
           });
         }
       } catch {}
+    }
+
+    if (DISABLE_WEBRTC) {
+      try { undef(globalThis, 'RTCPeerConnection'); } catch {}
+      try { undef(globalThis, 'webkitRTCPeerConnection'); } catch {}
+      try { undef(globalThis, 'RTCDataChannel'); } catch {}
     }
 
     if (STRICT) {
@@ -257,6 +278,10 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
       } catch {}
 
       try {
+        if (MAXIMUM || ANONYMOUS) {
+          const nativeCreate = globalThis.AudioContext && AudioContext.prototype.createAnalyser;
+          if (nativeCreate) AudioContext.prototype.createAnalyser = function(...args) { const a = nativeCreate.apply(this,args); try { Object.defineProperty(a,'frequencyBinCount',{configurable:true,get:()=>1024}); } catch {} return a; };
+        }
         const nativeChannel = AudioBuffer.prototype.getChannelData;
         AudioBuffer.prototype.getChannelData = function(channel) {
           const original = nativeChannel.call(this, channel);
