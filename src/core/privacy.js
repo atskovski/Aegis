@@ -162,7 +162,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, async (details, callback) => {
     if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onBeforeSendHeaders', details); } catch {} }
     const settings = getSettings();
-    const h = { ...(details.requestHeaders || {}) };
+    let h = { ...(details.requestHeaders || {}) };
     const topUrl = tab.topUrl || tab.url || details.url;
     const thirdParty = isThirdParty(details.url, topUrl);
     const cdn = thirdParty && settings.publicCdnIsolation && isPublicCdn(details.url);
@@ -193,7 +193,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
       try {
         const blockingDecision=await getExtensionBlockingDecision('webRequest.onBeforeSendHeaders',{...details,requestHeaders:headersToWebRequestArray(h)});
         if(blockingDecision?.cancel)return callback({cancel:true});
-        if(Array.isArray(blockingDecision?.requestHeaders))Object.assign(h,applyBlockingHeaderDecision(h,blockingDecision.requestHeaders,'request'));
+        if(Array.isArray(blockingDecision?.requestHeaders))h=applyBlockingHeaderDecision(h,blockingDecision.requestHeaders,'request');
       } catch {}
     }
     const requestHeaderOps = typeof getExtensionHeaderModifications === 'function'
@@ -208,7 +208,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
 
   ses.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, async (details, callback) => {
     if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onHeadersReceived', details); } catch {} }
-    const settings = getSettings(); const headers = { ...(details.responseHeaders || {}) }; const topUrl = tab.topUrl || tab.url || details.url; const thirdParty = isThirdParty(details.url, topUrl); const known = isKnownTracker(details.url); const cdn = thirdParty && settings.publicCdnIsolation && isPublicCdn(details.url);
+    const settings = getSettings(); let headers = { ...(details.responseHeaders || {}) }; const topUrl = tab.topUrl || tab.url || details.url; const thirdParty = isThirdParty(details.url, topUrl); const known = isKnownTracker(details.url); const cdn = thirdParty && settings.publicCdnIsolation && isPublicCdn(details.url);
     for (const k of Object.keys(headers)) {
       const lower = k.toLowerCase();
       if (lower === 'report-to' || lower === 'nel') delete headers[k];
@@ -220,7 +220,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
       try {
         const blockingDecision=await getExtensionBlockingDecision('webRequest.onHeadersReceived',{...details,responseHeaders:headersToWebRequestArray(headers)});
         if(blockingDecision?.cancel)return callback({cancel:true});
-        if(Array.isArray(blockingDecision?.responseHeaders))Object.assign(headers,applyBlockingHeaderDecision(headers,blockingDecision.responseHeaders,'response'));
+        if(Array.isArray(blockingDecision?.responseHeaders))headers=applyBlockingHeaderDecision(headers,blockingDecision.responseHeaders,'response');
       } catch {}
     }
     const responseHeaderOps = typeof getExtensionHeaderModifications === 'function'
