@@ -945,13 +945,13 @@ function syncUiLayer() {
 }
 
 function showPanel(id) {
-  ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $$('#' + x).classList.toggle('hidden', x !== id));
+  ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $('#' + x).classList.toggle('hidden', x !== id));
   if (id !== 'settingsPanel') draftSettings = null;
   requestAnimationFrame(syncUiLayer);
 }
 
 function hidePanels() {
-  ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $$('#' + x).classList.add('hidden'));
+  ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $('#' + x).classList.add('hidden'));
   draftSettings = null;
   applyAppearance(state.settings);
   requestAnimationFrame(syncUiLayer);
@@ -1136,7 +1136,7 @@ const draftControlIds = [
   'enterpriseMode','enterpriseBlockExtensions','enterpriseDisablePrinting','enterpriseDisableClipboard','enterpriseDisableCapture','enterpriseUrlAllowlist','enterpriseUrlBlocklist','enterpriseExtensionAllowlist','proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','filterListAutoUpdate','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
 ];
-draftControlIds.forEach((id) => $$('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
+draftControlIds.forEach((id) => $('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
 $$('[data-permission-default]').forEach((el) => el.addEventListener('change', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
 
 $('#torPreset').addEventListener('click', () => {
