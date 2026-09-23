@@ -1,118 +1,144 @@
 <p align="center"><img src="assets/brand/aegis-lockup.svg" alt="Aegis Privacy Browser" width="430"></p>
 
-# Aegis Privacy Browser v1.0 — Runtime Guardian
+# Aegis Privacy Browser 1.0 — Runtime Guardian
 
-Aegis 1.0 is a local-first privacy and security browser for macOS built on Electron/Chromium. The 1.0 architecture treats security controls as enforceable contracts: browser policy, backend enforcement, behavioral runtime probes and user-visible evidence must agree before a protection is presented as working.
+Aegis 1.0 is a local-first macOS privacy, security and managed-browser platform built on Electron/Chromium. Its design rule is simple: a security setting is not treated as protection merely because a toggle is enabled. Aegis couples policy, browser-process enforcement, behavioral runtime checks and user-visible evidence.
 
-Aegis does **not** claim anonymity or “zero fingerprint.” A direct/system route can expose a public IP, Chromium transport characteristics remain observable, and sophisticated fingerprinting can still distinguish a browser. Aegis instead reduces tracking and attack surface, isolates high-risk browsing contexts, verifies important protections at runtime, and reports residual exposure explicitly.
+Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or Tor Browser equivalence. It reduces attack surface and linkability, isolates high-risk activity, can fail closed for selected routes, and reports important residual exposure instead of converting limitations into green badges.
 
-## Aegis 1.0 security architecture
+## What's new in 1.0
 
-- Per-tab **ephemeral session isolation** with a behavioral cookie-separation proof.
-- Native main-process **ad/tracker filtering** plus conservative **cosmetic filtering**.
-- Coverage for video/mobile/programmatic ad SDKs, social pixels, analytics and verification providers.
-- **Tracking transport guard** for known `sendBeacon` and anchor-ping tracker destinations.
-- **Privacy API guard** for local fonts, device APIs, Protected Audience and selected private-token/storage surfaces.
-- Strict/Maximum **fingerprint resistance** for UA/Client Hints, timezone, language, screen metrics, hardware values, Canvas, WebGL, media devices, audio/font surfaces and timer precision.
-- Startup WebRTC policy plus a live **ICE-candidate local-IP test**.
-- Explicit public-IP route verification labeled as information—not as proof of anonymity.
-- Permission firewall with **Allow once**, **Allow 10 minutes**, persistent allow/block, and risk explanations.
-- Native right-click security actions and per-site hardening.
-- Aegis Sentinel site privacy inspector with local third-party, sensitive API, identity-surface and activity evidence.
-- Larger default typography with **Standard / Large / Extra Large** text scales.
-- New production SVG brand system, PRD, threat model, security model and benchmark baseline.
+### Runtime Guardian and Security Suite
+- Behavioral verification of renderer/Node isolation, session separation, storage cleanup, WebRTC exposure, network identity coherence and fingerprint cohort consistency.
+- PASS / WARNING / INFO / FAIL / NOT TESTED evidence model.
+- Disposable routed diagnostic sessions for DNS/HTTPS reachability and opt-in public-IP observation.
+- Runtime security event ledger with bounded retention and secret redaction before evidence is retained.
+- Exportable redacted `aegis.security-events.v1` JSON evidence.
+- TLS certificate errors fail closed and are recorded as security evidence; Aegis does not claim to rewrite Chromium's TLS fingerprint.
 
-## Why v0.9 exists
+### Privacy and fingerprint resistance
+- Standard, Strict and Maximum privacy profiles.
+- Cohort-oriented normalization for UA/Client Hints, locale, timezone, screen metrics, hardware concurrency and device memory.
+- Canvas/audio perturbation, WebGL identity reduction and protected-profile WebGPU suppression.
+- Local-font, plugin/MIME, battery/network and selected high-entropy API reduction.
+- Letterboxing, timer reduction, service-worker controls and GPC/DNT.
+- Startup WebRTC non-proxied UDP restrictions plus behavioral ICE-candidate testing.
+- Maximum mode deliberately does **not** monkey-patch JavaScript `eval`; script shutdown belongs to the explicit anonymous/Safest-style compartment.
 
-The supplied v0.8 benchmark evidence showed that raw network interception was substantially stronger than cosmetic filtering and privacy-API/fingerprint protection. Guardian specifically targets those gaps. See [`docs/BENCHMARK_BASELINE.md`](docs/BENCHMARK_BASELINE.md) and [`docs/PRD.md`](docs/PRD.md).
+### Tracking and storage defense
+- Native request filtering for ads, analytics, social trackers, attribution, telemetry, fingerprinting endpoints and cryptomining.
+- Third-party request/cookie controls, tracking-parameter removal, redirect-wrapper cleanup and cross-site referrer reduction.
+- ETag protection, tracking-beacon/anchor-ping defense and conservative cosmetic filtering.
+- Cookie AutoDelete-style origin cleanup and bounce-tracker detection with intermediary storage purging.
+- Memory-only tracker learning.
+- Optional SponsorBlock integration.
+
+### Isolated security compartments
+- Unique non-persistent Chromium partitions for ordinary tabs.
+- Harden This Site creates materially stronger per-site behavior rather than a cosmetic status change.
+- Anonymous compartment requires the configured Tor SOCKS route to verify before remote browsing when Tor verification is required.
+- Anonymous mode blocks local-network destinations, extensions and downloads and can disable JavaScript.
+- New Identity destroys active browsing identities, clears ephemeral state and rotates identity seeds.
+- Aegis explicitly does not claim that an Electron/Chromium anonymous compartment is equivalent to Tor Browser.
+
+### Permissions and Site Privacy Intelligence
+- Main-process permission mediation for camera, microphone, geolocation, notifications, clipboard read, display capture, local fonts, MIDI, USB, Serial and HID.
+- Allow once, Allow 10 minutes, persistent per-origin decisions and explicit blocking.
+- Sentinel Simple and Advanced views explain requested data, blocked/allowed activity, third parties, fingerprint surfaces, route posture, TLS observation and runtime evidence.
+- Per-site privacy/security status and one-click hardening.
+
+### Aegis Extension Runtime
+- Installs inspected Firefox-style `.xpi` WebExtension packages into an Aegis-owned runtime.
+- ZIP/path traversal and package-size validation, manifest validation, SHA-256 package identity and compatibility reporting.
+- Dedicated isolated execution worlds for extension content scripts.
+- Permission/host checks for exposed tab data and mutations.
+- Hardened/anonymous tabs are excluded from extension access.
+- Aegis reports unsupported APIs instead of pretending arbitrary Firefox compatibility. Background/service-worker parity, blocking webRequest, native messaging and several privileged Firefox APIs are not claimed.
+
+### Enterprise Security Center
+- Browser-process URL allowlists and blocklists.
+- Extension allowlisting and block-unlisted-extension policy.
+- Managed clipboard-read, display-capture and printing DLP restrictions.
+- Signed administrator policy bundles verified with Ed25519.
+- Set `AEGIS_POLICY_PUBLIC_KEY` to the administrator public key before importing a signed policy.
+- Verified policy provenance and locked setting groups prevent ordinary UI patches from overriding administrator-managed controls.
+- Invalid, modified or expired managed policies are rejected and recorded.
+- Redacted security-evidence export for incident/compliance workflows.
+- Site isolation remains part of the remote renderer security baseline.
+
+Aegis local policy enforcement is not a substitute for an organization's MDM, EDR, SIEM, certificate deployment or OS-level DLP infrastructure.
+
+## Secure renderer baseline
+
+Remote content runs with a deliberately restrictive Chromium/Electron policy: sandbox enabled, context isolation enabled, Node integration disabled, subframe Node integration disabled, web security enabled, insecure-content execution disabled, WebView disabled, plugins disabled, developer tools disabled, drag/drop navigation disabled, WebSQL disabled and media autoplay gated on user activation.
+
+Aegis also enables site-per-process and disables or reduces selected background/speculative Chromium facilities at startup.
+
+## Downloads
+
+Downloads are isolated from anonymous mode, never described as malware-safe merely because they completed, and receive local integrity evidence after completion:
+- SHA-256
+- observed MIME type
+- on-disk size verification
+- basic MIME/extension mismatch warning
+- explicit high-risk download handling
+
+A SHA-256 digest proves file identity/integrity only; it is **not** a malware verdict.
+
+## Appearance and accessibility
+
+Browser chrome supports:
+- Nebula Glass
+- Graphite
+- Arctic Light
+- Deep Ocean
+- Forest
+- Ember
+- High Contrast
+
+Accent palettes include Electric Cyan, Ultraviolet, Emerald, Security Blue, Amber and Rose. Standard, Large and Extra Large text scales and multiple density options are available. These are browser-chrome preferences rather than deliberate webpage fingerprint attributes.
 
 ## Start on macOS
 
-1. Extract the release into a fresh folder.
-2. Double-click **`Smoke-Test-Aegis.command`** first. It launches the real browser, creates an isolated tab, attempts an external HTTPS navigation, and exits after the smoke result.
+1. Clone or extract Aegis.
+2. Double-click **`Smoke-Test-Aegis.command`** to run the native launch/network smoke path.
 3. Double-click **`Run-Aegis.command`** for normal use.
-4. Use **Settings → Diagnostics → Run Security Suite** to verify the active runtime.
-5. Use **`Diagnose-Aegis.command`** for engine integrity, routing/startup markers, quarantine/code-sign diagnostics, and the local launch log.
+4. Open **Settings → Diagnostics → Run Security Suite**.
+5. Use **`Diagnose-Aegis.command`** for runtime/startup diagnostics.
 
-Normal launch does not require npm or Node. The launcher copies Aegis to `~/Library/Application Support/Aegis Privacy Browser/runtime-v1.0.0`, installs the pinned Electron 44.4.3 runtime for Apple Silicon or Intel, validates the expected release archive, runs local preflight checks, and starts the browser from Application Support.
+For repository development:
+
+```sh
+npm install
+npm run verify
+npm start
+```
+
+Electron is pinned in `package.json`. The macOS launchers use zsh and keep the browser runtime under the user's Application Support directory.
 
 ## Security Suite evidence model
 
-Aegis does not turn every enabled preference into a green check. Results are separated into:
+| State | Meaning |
+| --- | --- |
+| **PASS** | A configured enforcement path or behavioral test succeeded. |
+| **WARNING** | Protection is active but a meaningful caveat exists. |
+| **INFO** | Observed evidence or a known limitation; not a pass/fail claim. |
+| **FAIL** | Required behavior failed. |
+| **NOT TESTED** | A meaningful verification could not run in the current state. |
 
-- **PASS** — the configured control or behavioral test succeeded.
-- **WARNING** — usable, but the current posture has a meaningful caveat.
-- **INFO** — evidence or a known limitation that is not pass/fail.
-- **FAIL** — the expected control or behavioral result failed.
-- **NOT TESTED** — the test could not be run in the current state.
+The suite covers renderer/process isolation, permission enforcement, privacy/fingerprint preload readiness, HTTPS-first posture, privacy API surfaces, GPC/DNT, WebGL/WebGPU-related exposure, WebRTC, site isolation, tracker/cookie/beacon defenses, storage resurrection cleanup, session isolation, fingerprint stability/cohort consistency, network/JavaScript identity coherence, route posture, DNS/HTTPS reachability and public-IP observation.
 
-Current verification covers renderer isolation, permission handlers, fingerprint preload readiness, cosmetic filtering, HTTPS-first behavior, privacy-API exposure, GPC, screen normalization, WebGL debug renderer exposure, browser product-token leakage, WebRTC host candidates, startup WebRTC policy, site isolation, third-party cookie defense, network tracker filtering, beacon filtering, TLS fingerprint visibility, disposable session isolation, route posture, DNS/HTTPS reachability, and observed public IP.
+## Data model and secret handling
 
-## Privacy architecture
+Aegis is local-first. It has no Aegis cloud account or browser telemetry service. Browsing compartments are ephemeral; Sentinel evidence is local and bounded. Settings, explicit bookmarks, download metadata and required local runtime diagnostics may persist.
 
-Every ordinary tab receives a unique non-persistent Chromium partition. Disk cache is disabled for private browsing sessions, closing a tab clears its session data/cache/connections, and **New Identity** destroys all active tab sessions, rotates ephemeral identity state, clears memory-only tracker learning, and opens a fresh tab.
+Diagnostic/event data passes through defensive secret redaction. Credential-shaped keys, bearer values, API-key/password/token fields, private-key fields, secret URL parameters and proxy credentials are masked before relevant evidence is retained or exported. UI password masking alone is not treated as encryption.
 
-Aegis intentionally persists only settings, explicit bookmarks, download metadata and local launcher/runtime diagnostics. It does not implement an Aegis browsing-history database, cloud sync, account system, or browser telemetry service.
+## Network and anonymity
 
-## Filtering stack
+Aegis supports System, Direct, SOCKS5, HTTP and HTTPS proxy modes. Fixed proxy configurations can fail closed. Anonymous mode is designed around a verified Tor SOCKS route rather than silently falling back to a direct connection.
 
-Aegis implements its protections directly rather than depending on privileged browser extensions:
-
-- High-confidence local domain/category blocking for ads, analytics, social, marketing, attribution, telemetry, fingerprinting scripts and cryptomining.
-- Cross-site context checks and memory-only behavioral tracker learning.
-- Local custom hostname allow/block rules.
-- Tracking-parameter stripping and redirect-wrapper cleanup.
-- Third-party cookie/header restrictions and referrer reduction.
-- Conservative user-origin cosmetic CSS filtering.
-- Known tracker `sendBeacon` and anchor-ping suppression.
-- ETag reduction and public-CDN isolation controls.
-- Optional SponsorBlock integration for YouTube sponsor segments.
-
-Aegis is **not yet a full uBlock Origin-compatible filter language/scriptlet engine**. That remains a roadmap item.
-
-## Fingerprint resistance
-
-**Standard** minimizes compatibility-sensitive spoofing. **Strict** is the recommended default. **Maximum** applies more aggressive controls and can break sites.
-
-Strict/Maximum standardize or reduce selected UA/Client Hints, locale/timezone, screen dimensions, hardware concurrency/device memory, Canvas outputs, WebGL debug identity, device identifiers, local fonts, audio surfaces, speech voices and timing precision. Maximum can disable additional rendering/execution surfaces.
-
-A one-time fingerprinting test may still call an Aegis instance “unique.” The design target is to reduce entropy and linkability, not promise mathematical invisibility.
-
-## Network and IP privacy
-
-Aegis supports System, Direct, SOCKS5, HTTP and HTTPS proxy modes. Fixed proxy modes can fail closed. The Security Suite performs route/connectivity checks in a disposable session.
-
-A successful public-IP lookup is intentionally reported as **INFO**. It tells you which address destination sites can observe through the configured route. If IP masking is required, use a trusted VPN, Tor, or proxy configuration appropriate to your threat model.
-
-## Permissions
-
-Camera, microphone, location, notifications, clipboard read, screen capture, MIDI, USB, Serial and HID are mediated through explicit Electron permission handlers. The prompt explains what the site is asking for and offers:
-
-- Allow once
-- Allow for 10 minutes (tab-scoped, memory-only)
-- Always allow for this origin
-- Block once
-- Always block for this origin
-
-## Aegis Sentinel
-
-The toolbar Sentinel beacon opens a local Site Privacy Inspector showing:
-
-- What sensitive capabilities the page is using or requesting.
-- Third-party hostnames contacted or blocked.
-- Identity/fingerprint surfaces observed.
-- Current protection layers and posture.
-- Recent privacy/network activity.
-- Per-site permission controls.
-- One-click **Harden This Site**.
-
-Sentinel activity is per-tab and ephemeral. It is intended as an explanatory instrument, not a guarantee that a site is safe.
-
-## UI and brand
-
-Guardian defaults to larger text and supports Standard/Large/Extra Large scaling. The Aegis shield mark represents protection; the central mint node represents **verification**—the idea that protection should be inspectable.
-
-Brand assets and usage guidance live in [`assets/brand/`](assets/brand/) and [`docs/BRAND.md`](docs/BRAND.md).
+Destination sites can still observe the egress IP and Chromium transport characteristics. DNS behavior, endpoint software and network infrastructure remain part of the threat model. Use the route evidence in Sentinel/Diagnostics rather than assuming a proxy toggle proves anonymity.
 
 ## Keyboard shortcuts
 
@@ -124,26 +150,31 @@ Brand assets and usage guidance live in [`assets/brand/`](assets/brand/) and [`d
 - `Cmd/Ctrl + ,` — settings
 - `Cmd/Ctrl + Shift + N` — New Identity
 
-## Verification for contributors
+## Repository verification
 
 ```sh
-npm install
 npm run verify
 ```
 
-The repository includes core logic tests, UI/IPC contract tests, startup harness tests, privacy/security-suite tests, and Guardian-specific regression tests. The final native macOS GUI/network smoke test must still run on macOS because CI or Linux test environments cannot prove the exact macOS Chromium rendering/network path.
+The verification command runs the Node test suite, syntax-checks the browser/security modules, validates UI/IPC contracts and runs the repository self-check. GitHub Actions executes the supported CI matrix.
+
+Native macOS GUI behavior, real-world fingerprint comparison populations, live leak services, Apple signing/notarization and independent penetration/security review cannot be proven by unit tests alone and remain separate release-assurance activities.
 
 ## Documentation
 
-- [`docs/PRD.md`](docs/PRD.md) — complete product requirements and acceptance criteria.
-- [`docs/BRAND.md`](docs/BRAND.md) — logo, color, typography, iconography and voice.
-- [`docs/BENCHMARK_BASELINE.md`](docs/BENCHMARK_BASELINE.md) — sanitized v0.8 baseline and v0.9 targets.
-- [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md) — automated, native macOS, external-regression, and distribution release gates.
-- [`SECURITY.md`](SECURITY.md) — security model.
-- [`THREAT_MODEL.md`](THREAT_MODEL.md) — adversaries, protected assets and limits.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — component/system architecture.
-- [`FEATURES.md`](FEATURES.md) — implementation matrix.
+- [Product requirements](docs/PRD.md)
+- [Architecture](ARCHITECTURE.md)
+- [Feature matrix](FEATURES.md)
+- [Security model](SECURITY.md)
+- [Threat model](THREAT_MODEL.md)
+- [Privacy-control contract](docs/PRIVACY-CONTROL-CONTRACT.md)
+- [Extension runtime](docs/EXTENSIONS.md)
+- [Benchmark baseline](docs/BENCHMARK_BASELINE.md)
+- [Release checklist](docs/RELEASE-CHECKLIST.md)
+- [Brand system](docs/BRAND.md)
 
-## Release status
+## 1.0 status
 
-v0.9.0 is a **hardened local macOS development/release-candidate build**, not yet a fully public Apple distribution. A production v1.0 still requires signed/notarized app packaging, signed updates, reproducible release provenance, broad native macOS compatibility testing, an accessibility audit, and independent security review.
+The repository version is **1.0.0**. Aegis 1.0 now contains the Runtime Guardian architecture, isolated browsing compartments, enterprise policy engine, signed managed-policy verification, Aegis Extension Runtime, runtime Security Suite, Sentinel evidence model, tracking/storage defenses, fingerprint-reduction framework, download integrity evidence, secret-safe diagnostics and expanded appearance system.
+
+The repository should still distinguish a feature-complete codebase from a publicly trusted binary release: broad native compatibility testing, Apple signing/notarization, signed update distribution, reproducible release provenance and independent security review are distribution/release-assurance steps rather than claims the source tree can make by itself.
