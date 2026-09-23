@@ -1562,7 +1562,7 @@ function wireIpc() {
       if(!selector)return {ok:false,canceled:true};
       const rule=host+'##'+String(selector).slice(0,500);
       settings.customFilterRules=(settings.customFilterRules?settings.customFilterRules.trimEnd()+'\n':'')+rule;
-      settings=sanitizeSettings(settings);filterRules=parseFilterRules(settings.customFilterRules||'');saveSettings();await applyCosmeticFiltering(tab);emitState();
+      settings=sanitizeSettings(settings);rebuildFilterRules();saveSettings();await applyCosmeticFiltering(tab);emitState();
       return {ok:true,rule};
     }catch(err){return {ok:false,error:'Element picker failed: '+err.message};}
   });
@@ -1941,7 +1941,7 @@ function wireIpc() {
       appearance: { ...settings.appearance, ...(patch.appearance || {}) },
       sitePermissions: settings.sitePermissions
     });
-    filterRules = parseFilterRules(settings.customFilterRules || '');
+    rebuildFilterRules();
     saveSettings();
     relayout();
     const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(browserRuntime.sessionOf(tab.view), {}, tab)));
