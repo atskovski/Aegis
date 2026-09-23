@@ -499,7 +499,7 @@ class AegisExtensionRuntime{
   contentScriptsFor(e){return [...(Array.isArray(e.manifest?.content_scripts)?e.manifest.content_scripts:[]),...this.registeredScriptsFor(e).values()]}
   requiresSubFramePreload(tab=null){
     if(tab&&!extensionVisibleTab(tab))return false;
-    return this.enabled().some((e)=>this.contentScriptsFor(e).some((entry)=>Boolean(entry?.all_frames??entry?.allFrames)));
+    return this.enabled().some((e)=>this.contentScriptsFor(e).some((entry)=>Boolean(entry?.all_frames??entry?.allFrames))||permissions(e.manifest).includes('scripting'));
   }
   frameMatchUrl(tab,frame,entry){
     const raw=String(frame?.url||'');
@@ -1064,20 +1064,50 @@ class AegisExtensionRuntime{
   }
   async executeExtensionScript(e,tab,details={}){
     if(!this.canAccessTab(e,tab,{inject:true}))throw new Error('Extension lacks host or activeTab access to this tab.');
-    const frameIds=Array.isArray(details.target?.frameIds)?details.target.frameIds.map(Number):[];
-    if(frameIds.some((id)=>id!==0))throw new Error('Non-top-frame script injection is not supported yet.');
-    const files=[...(Array.isArray(details.files)?details.files:[]),...(details.file?[details.file]:[])],world=String(details.world||'ISOLATED').toUpperCase(),contents=tab.view.webContents;
+    const target=details.target||{},frameIds=Array.isArray(target.frameIds)?target.frameIds.map(Number):(Number.isFinite(Number(details.frameId))?[Number(details.frameId)]:[]);
+    const allFrames=Boolean(target.allFrames??details.allFrames),files=[...(Array.isArray(details.files)?details.files:[]),...(details.file?[details.file]:[])],world=String(details.world||'ISOLATED').toUpperCase(),contents=tab.view.webContents;
     if(!files.length&&!details.code)throw new Error('Function-object injection is not transferable through Aegis IPC; use files or code.');
-    let result;
-    if(world==='MAIN'){
-      for(const rel of files){const code=fs.readFileSync(this.extensionFile(e,rel),'utf8')+'\n//# sourceURL='+extensionResourceUrl(e,rel);result=await contents.executeJavaScript(code,false)}
-      if(details.code)result=await contents.executeJavaScript(String(details.code),false);
-    }else{
-      await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:bootstrap(e),url:extensionResourceUrl(e,'__aegis_scripting_bootstrap.js')}],false);
-      for(const rel of files)result=await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:fs.readFileSync(this.extensionFile(e,rel),'utf8'),url:extensionResourceUrl(e,rel)}],false);
-      if(details.code)result=await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:String(details.code)}],false);
+    const main=contents.mainFrame,frames=Array.isArray(main?.framesInSubtree)?main.framesInSubtree:[];
+    let selected=[];
+    if(allFrames)selected=frames.length?frames:[main];
+    else if(frameIds.length){
+      for(const id of frameIds){
+        if(id===0){if(main)selected.push(main);continue}
+        const frame=frames.find((x)=>x!==main&&Number(x?.routingId)===id&&!x?.isDestroyed?.());
+        if(!frame)throw new Error('Requested extension frame is unavailable: '+id);
+        selected.push(frame);
+      }
+    }else selected=main?[main]:[];
+    if(!selected.length)throw new Error('No target frame is available for script injection.');
+
+    const packaged=[];
+    if(world!=='MAIN')packaged.push({label:'__aegis_scripting_bootstrap.js',code:bootstrap(e),url:extensionResourceUrl(e,'__aegis_scripting_bootstrap.js')});
+    for(const rel of files){
+      const safe=safeRel(rel);if(!safe)throw new Error('Unsafe extension script path: '+String(rel||''));
+      packaged.push({label:safe,code:fs.readFileSync(this.extensionFile(e,safe),'utf8')+'\n//# sourceURL='+extensionResourceUrl(e,safe),url:extensionResourceUrl(e,safe)});
     }
-    return [{frameId:0,result}];
+    if(details.code)packaged.push({label:'__aegis_inline_script.js',code:String(details.code),url:extensionResourceUrl(e,'__aegis_inline_script.js')});
+
+    const results=[];
+    for(const frame of selected){
+      if(frame===main){
+        let result;
+        if(world==='MAIN'){
+          for(const item of packaged)result=await contents.executeJavaScript(item.code,false);
+        }else{
+          for(const item of packaged)result=await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:item.code,url:item.url}],false);
+        }
+        results.push({frameId:0,result});
+        continue;
+      }
+      const response=await this.sendFrameInjection(contents,frame,{extensionId:e.id,worldId:e.worldId||extensionWorldId(e.id),world,scripts:packaged,css:[]});
+      if(!response?.ok)throw new Error('Frame '+String(frame.routingId)+' script injection failed: '+String(response?.error||'unknown error'));
+      if(Array.isArray(response.failures)&&response.failures.length){
+        const failure=response.failures[0];throw new Error(String(failure?.label||'frame script')+': '+String(failure?.message||'execution failed'));
+      }
+      results.push({frameId:Number(frame.routingId),result:response.result});
+    }
+    return results;
   }
   async insertExtensionCss(e,tab,details={}){
     if(!this.canAccessTab(e,tab,{inject:true}))throw new Error('Extension lacks host or activeTab access to this tab.');
