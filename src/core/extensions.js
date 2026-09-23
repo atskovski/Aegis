@@ -51,7 +51,8 @@ function compatibility(m){
   }
   const cs=Array.isArray(m.content_scripts)?m.content_scripts.length:0;
   const bg=m.background?'not-implemented':'none';
-  const score=Math.round(100*(supported.length+(cs?1:0)+(bg!=='none'?1:0))/Math.max(1,apiRoots(m).length+(cs?1:0)+(bg!=='none'?1:0)));
+  if(bg==='not-implemented') unsupported.push({api:'background',reason:'Background pages/service workers are not implemented by the current Aegis runtime.'});
+  const score=Math.round(100*(supported.length+(cs?1:0))/Math.max(1,apiRoots(m).length+(cs?1:0)+(bg!=='none'?1:0)));
   return {score,supported,unsupported,contentScripts:cs,background:bg};
 }
 function matchPattern(url,p){
