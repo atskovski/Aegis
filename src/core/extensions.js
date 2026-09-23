@@ -67,8 +67,8 @@ function readProtoVarint(buf,state){
   while(state.i<buf.length&&shift<56){const byte=buf[state.i++];value+=(byte&0x7f)*2**shift;if(!(byte&0x80))return value;shift+=7}
   throw new Error('Invalid CRX protobuf varint.');
 }
-function protoLengthField(buf,field){
-  const state={i:0};
+function protoLengthFields(buf,field){
+  const values=[],state={i:0};
   while(state.i<buf.length){
     const tag=readProtoVarint(buf,state),number=Math.floor(tag/8),wire=tag&7;
     if(wire===0){readProtoVarint(buf,state);continue}
@@ -77,9 +77,18 @@ function protoLengthField(buf,field){
     if(wire!==2)throw new Error('Unsupported CRX protobuf wire type.');
     const len=readProtoVarint(buf,state);if(len<0||state.i+len>buf.length)throw new Error('Invalid CRX protobuf field length.');
     const value=buf.subarray(state.i,state.i+len);state.i+=len;
-    if(number===field)return value;
+    if(number===field)values.push(value);
   }
-  return null;
+  return values;
+}
+function protoLengthField(buf,field){return protoLengthFields(buf,field)[0]||null}
+function verifyCrxProof(publicKey,signature,payload,algorithm){
+  if(!publicKey?.length||!signature?.length)return false;
+  try{
+    const key={key:Buffer.from(publicKey),format:'der',type:'spki'};
+    if(algorithm==='rsa')key.padding=crypto.constants.RSA_PKCS1_PADDING;
+    return crypto.verify('sha256',payload,key,Buffer.from(signature));
+  }catch{return false}
 }
 function parseCrxBuffer(buffer){
   const buf=Buffer.from(buffer||[]);
@@ -88,16 +97,34 @@ function parseCrxBuffer(buffer){
   if(version===2){
     if(buf.length<16)throw new Error('Invalid CRX2 header.');
     const publicKeyLength=buf.readUInt32LE(8),signatureLength=buf.readUInt32LE(12),zipOffset=16+publicKeyLength+signatureLength;
-    if(publicKeyLength>4*1024*1024||signatureLength>4*1024*1024||zipOffset>=buf.length)throw new Error('Invalid CRX2 header lengths.');
-    const publicKey=buf.subarray(16,16+publicKeyLength);
-    return {format:'crx2',version,zipOffset,id:chromeIdFromBytes(crypto.createHash('sha256').update(publicKey).digest().subarray(0,16)),signatureMetadata:true,verified:false};
+    if(publicKeyLength>65536||signatureLength>65536||zipOffset>=buf.length)throw new Error('Invalid CRX2 header lengths.');
+    const publicKey=buf.subarray(16,16+publicKeyLength),signature=buf.subarray(16+publicKeyLength,zipOffset),archive=buf.subarray(zipOffset);
+    const id=chromeIdFromBytes(crypto.createHash('sha256').update(publicKey).digest().subarray(0,16));
+    let verified=false;try{verified=crypto.verify('sha1',archive,{key:publicKey,format:'der',type:'spki',padding:crypto.constants.RSA_PKCS1_PADDING},signature)}catch{}
+    return {format:'crx2',version,zipOffset,id,signatureMetadata:true,verified};
   }
   if(version===3){
     const headerLength=buf.readUInt32LE(8),zipOffset=12+headerLength;
-    if(headerLength>16*1024*1024||zipOffset>=buf.length)throw new Error('Invalid CRX3 header length.');
-    const header=buf.subarray(12,zipOffset),signedData=protoLengthField(header,10000),crxId=signedData?protoLengthField(signedData,1):null;
+    if(headerLength>262144||zipOffset>=buf.length)throw new Error('Invalid CRX3 header length.');
+    const header=buf.subarray(12,zipOffset);
+    for(const token of [Buffer.from([0x50,0x4b,0x05,0x06]),Buffer.from([0x50,0x4b,0x06,0x06]),Buffer.from([0x50,0x4b,0x06,0x07])])if(header.indexOf(token)>=0)throw new Error('Unsafe ZIP end marker found inside CRX3 header.');
+    const signedData=protoLengthField(header,10000),crxId=signedData?protoLengthField(signedData,1):null;
     const id=crxId&&crxId.length===16?chromeIdFromBytes(crxId):'';
-    return {format:'crx3',version,zipOffset,id,signatureMetadata:true,verified:false};
+    if(!signedData||!id)throw new Error('CRX3 signed extension identity is missing.');
+    const size=Buffer.alloc(4);size.writeUInt32LE(signedData.length,0);
+    const payload=Buffer.concat([Buffer.from('CRX3 SignedData','utf8'),Buffer.from([0]),size,signedData,buf.subarray(zipOffset)]);
+    let verified=false,developerProof=false;
+    for(const [field,algorithm] of [[2,'rsa'],[3,'ecdsa']]){
+      for(const proof of protoLengthFields(header,field)){
+        const publicKey=protoLengthField(proof,1),signature=protoLengthField(proof,2);if(!publicKey||!signature)continue;
+        const proofId=chromeIdFromBytes(crypto.createHash('sha256').update(publicKey).digest().subarray(0,16));
+        if(proofId!==id)continue;
+        developerProof=true;
+        if(verifyCrxProof(publicKey,signature,payload,algorithm)){verified=true;break}
+      }
+      if(verified)break;
+    }
+    return {format:'crx3',version,zipOffset,id,signatureMetadata:true,verified,developerProof};
   }
   throw new Error('Unsupported CRX package version: '+version);
 }
