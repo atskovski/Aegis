@@ -38,6 +38,30 @@ function normalizeManifest(m){
   if(!String(m.name||'').trim()||!String(m.version||'').trim()) throw new Error('Extension name/version is required.');
   return m;
 }
+function localeTable(root,manifest){
+  const locale=safeRel(manifest?.default_locale||'');
+  if(!locale)return {};
+  try{
+    const raw=readJson(path.join(root,'_locales',locale,'messages.json')),out={};
+    for(const [key,value] of Object.entries(raw||{}))if(value&&typeof value.message==='string')out[String(key).toLowerCase()]=value.message;
+    return out;
+  }catch{return {}}
+}
+function localizeManifest(root,manifest){
+  const messages=localeTable(root,manifest);
+  if(!Object.keys(messages).length)return manifest;
+  const resolve=(value)=>typeof value==='string'?value.replace(/__MSG_([A-Za-z0-9_@.-]+)__/g,(whole,key)=>messages[String(key).toLowerCase()]??whole):value;
+  const clone=JSON.parse(JSON.stringify(manifest));
+  for(const key of ['name','short_name','description'])if(typeof clone[key]==='string')clone[key]=resolve(clone[key]);
+  for(const key of ['action','browser_action','page_action'])if(clone[key]&&typeof clone[key].default_title==='string')clone[key].default_title=resolve(clone[key].default_title);
+  return clone;
+}
+function packageEcosystem(manifest,packageInfo={}){
+  const format=String(packageInfo?.format||'').toLowerCase();
+  if(format==='crx2'||format==='crx3')return 'chrome';
+  if(format==='xpi'||manifest?.browser_specific_settings?.gecko||manifest?.applications?.gecko)return 'firefox';
+  return 'webextension';
+}
 function permissions(m){ return [...new Set([...(Array.isArray(m.permissions)?m.permissions:[]),...(Array.isArray(m.host_permissions)?m.host_permissions:[])])]; }
 function hostPermissions(m){
   return permissions(m).filter((p)=>p === '<all_urls>' || /^(?:\*|https?):\/\//.test(String(p||'')));
@@ -286,7 +310,12 @@ function scanUsedApiRoots(root){
       if(!stat.isFile()||!extensions.has(path.extname(name).toLowerCase())||stat.size>maxFile)continue;
       files+=1;total+=stat.size;
       let source='';try{source=fs.readFileSync(full,'utf8')}catch{continue}
-      for(const match of source.matchAll(/\b(?:browser|chrome)\.([A-Za-z_$][\w$]*)/g))roots.add(match[1]);
+      for(const match of source.matchAll(/\b(?:browser|chrome)\.([A-Za-z_$][\w$]*)/g)){
+        const api=String(match[1]||''),before=source.slice(Math.max(0,(match.index||0)-48),match.index||0);
+        if(/(?:https?|wss?):\/\/[^\s'\"`]*$/i.test(before))continue;
+        if(['com','org','net','io','dev','app','google','mozilla'].includes(api))continue;
+        roots.add(api);
+      }
     }
   };
   walk(root);return [...roots].sort();
@@ -313,7 +342,7 @@ async function inspectPackage(file,tmpRoot){
     await execFileAsync('/usr/bin/unzip',['-qq','-o',prepared.archive,'-d',tmp],{maxBuffer:4*1024*1024});
     validateExtractedTree(tmp);
     let root=tmp;if(!fs.existsSync(path.join(root,'manifest.json'))){const dirs=fs.readdirSync(tmp,{withFileTypes:true}).filter((x)=>x.isDirectory());if(dirs.length===1)root=path.join(tmp,dirs[0].name);}
-    const manifest=normalizeManifest(readJson(path.join(root,'manifest.json'))),detectedApis=scanUsedApiRoots(root);
+    const rawManifest=normalizeManifest(readJson(path.join(root,'manifest.json'))),manifest=localizeManifest(root,rawManifest),detectedApis=scanUsedApiRoots(root);
     const mozillaMetadata=entries.some((e)=>/^META-INF\/(?:mozilla\.rsa|mozilla\.sf|manifest\.mf)$/i.test(e));
     const packageInfo={...prepared.packageInfo,signatureMetadata:Boolean(prepared.packageInfo.signatureMetadata||mozillaMetadata)};
     return {root,tmp,manifest,detectedApis,packageInfo,compatibility:compatibility(manifest,detectedApis),risk:installRisk(manifest),signature:{metadataPresent:packageInfo.signatureMetadata,verified:Boolean(packageInfo.verified),format:packageInfo.format||'zip'}};
@@ -322,7 +351,7 @@ async function inspectPackage(file,tmpRoot){
 }
 function inspectUnpackedDirectory(dir){
   const root=path.resolve(String(dir||''));const stat=fs.statSync(root);if(!stat.isDirectory())throw new Error('Unpacked extension path is not a directory.');
-  validateExtractedTree(root);const manifest=normalizeManifest(readJson(path.join(root,'manifest.json'))),detectedApis=scanUsedApiRoots(root);
+  validateExtractedTree(root);const rawManifest=normalizeManifest(readJson(path.join(root,'manifest.json'))),manifest=localizeManifest(root,rawManifest),detectedApis=scanUsedApiRoots(root);
   const stableId=chromeIdFromManifestKey(manifest)||chromeIdFromBytes(crypto.createHash('sha256').update(fs.realpathSync(root)).digest().subarray(0,16));
   return {root,manifest,detectedApis,packageInfo:{format:'unpacked',id:stableId,signatureMetadata:false,verified:false},compatibility:compatibility(manifest,detectedApis),risk:installRisk(manifest),signature:{metadataPresent:false,verified:false,format:'unpacked'}};
 }
@@ -341,7 +370,7 @@ class AegisExtensionRuntime{
     this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.browserVersion=String(browserVersion||'1.1');
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
-  load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
+  load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const rawManifest=normalizeManifest(readJson(path.join(row.path,'manifest.json'))),manifest=localizeManifest(row.path,rawManifest);this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
   save(){writeStore(this.indexFile,[...this.items.values()].map(({manifest,compatibility,...r})=>r))}
   healthFor(id){
     if(!this.runtimeHealth.has(id))this.runtimeHealth.set(id,{errors:[],lastStartedAt:'',lastInjectionAt:'',lastDiagnostic:null});
@@ -361,7 +390,7 @@ class AegisExtensionRuntime{
     const state=this.actionState.get(e.id)||{},health=this.healthFor(e.id),backgroundExpected=Boolean(e.manifest?.background&&(e.manifest.background.page||e.manifest.background.service_worker||(Array.isArray(e.manifest.background.scripts)&&e.manifest.background.scripts.length)));
     return {
       id:e.id,name:e.manifest.name,version:e.manifest.version,description:String(e.manifest.description||''),
-      manifestVersion:Number(e.manifest.manifest_version||0),enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),
+      manifestVersion:Number(e.manifest.manifest_version||0),ecosystem:packageEcosystem(e.manifest,{format:e.source}),installability:{status:'installed',packageCoverage:100},enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),
       compatibility:e.compatibility,risk:installRisk(e.manifest),installedAt:e.installedAt||'',updatedAt:e.updatedAt||'',
       source:e.source||'webextension',sourceUrl:e.sourceUrl||'',digest:e.digest||'',permissions:permissions(e.manifest),hostPermissions:hostPermissions(e.manifest),
       optionalPermissions:[...(Array.isArray(e.manifest.optional_permissions)?e.manifest.optional_permissions:[]),...(Array.isArray(e.manifest.optional_host_permissions)?e.manifest.optional_host_permissions:[])],
@@ -379,7 +408,7 @@ class AegisExtensionRuntime{
     return {
       id,name:x.manifest.name,version:x.manifest.version,description:String(x.manifest.description||''),
       manifestVersion:Number(x.manifest.manifest_version||0),compatibility:x.compatibility,risk:x.risk,signature:x.signature,
-      packageFormat:x.packageInfo?.format||'zip',digest,permissions:permissions(x.manifest),hostPermissions:hostPermissions(x.manifest),detectedApis:x.detectedApis||[],
+      packageFormat:x.packageInfo?.format||'zip',ecosystem:packageEcosystem(x.manifest,x.packageInfo||{}),installability:{status:'installable',packageCoverage:100,note:'The package can be installed completely; API/runtime compatibility is reported separately.'},digest,permissions:permissions(x.manifest),hostPermissions:hostPermissions(x.manifest),detectedApis:x.detectedApis||[],
       optionalPermissions:[...(Array.isArray(x.manifest.optional_permissions)?x.manifest.optional_permissions:[]),...(Array.isArray(x.manifest.optional_host_permissions)?x.manifest.optional_host_permissions:[])],
       action:extensionAction(x.manifest),optionsPage:optionsPage(x.manifest),features:manifestFeatures(x.manifest)
     };
@@ -960,4 +989,4 @@ class AegisExtensionRuntime{
   }
   stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear();this.ports.clear()}
 }
-module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,scanUsedApiRoots,validateExtractedTree,bootstrap,AegisExtensionRuntime};
+module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,localizeManifest,packageEcosystem,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,scanUsedApiRoots,validateExtractedTree,bootstrap,AegisExtensionRuntime};
