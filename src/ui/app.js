@@ -533,7 +533,7 @@ function renderAddons() {
   if (!all.length) {
     const empty = document.createElement('div'); empty.className = 'suite-empty addon-empty';
     const b = document.createElement('b'); b.textContent = 'No add-ons installed';
-    const s = document.createElement('span'); s.textContent = 'Choose a Firefox WebExtension .xpi/.zip or paste a direct HTTPS package URL. Aegis will inspect it before anything is installed.';
+    const s = document.createElement('span'); s.textContent = 'Choose a Chrome CRX, Firefox XPI, ZIP, unpacked extension, Chrome Web Store URL, or extension ID. Aegis installs the complete package and reports API coverage separately.';
     empty.append(b, s); list.append(empty); return;
   }
   if (!addons.length) {
