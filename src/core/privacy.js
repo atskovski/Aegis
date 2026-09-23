@@ -39,7 +39,7 @@ function categoryEnabled(settings, category) {
   return settings.blockTrackers !== false;
 }
 
-function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
+function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
   const genericUA = buildGenericUA(chromiumVersion);
   ses.setUserAgent(genericUA, 'en-US,en');
   ses.spellCheckerEnabled = false;
@@ -57,22 +57,6 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   const permissionCheck = (webContents, permission, requestingOrigin, details = {}) => { const settings = getSettings(); const merged = { ...details, requestingOrigin }; const keys = permissionKeys(permission, merged); const origin = safeOrigin(requestingOrigin) || requestOrigin(webContents, merged); return keys.length > 0 && keys.every((key) => (typeof isTemporarilyAllowed === 'function' && isTemporarilyAllowed(origin, key)) || permissionDecision(settings, origin, key) === 'allow'); };
   if(engine?.installPermissionHandlers)engine.installPermissionHandlers(ses,{request:permissionRequest,check:permissionCheck});else{ses.setPermissionRequestHandler(permissionRequest);ses.setPermissionCheckHandler(permissionCheck);}
   if(engine?.installDevicePermissionHandlers) engine.installDevicePermissionHandlers(ses);
-
-  ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
-    const settings = getSettings();
-    const headers = { ...(details.requestHeaders || {}) };
-    // Keep the network identity coherent with the JS-visible privacy cohort.
-    headers['User-Agent'] = genericUA;
-    headers['Accept-Language'] = 'en-US,en;q=0.5';
-    if (settings.doNotTrack !== false) headers['DNT'] = '1'; else delete headers['DNT'];
-    if (settings.globalPrivacyControl !== false) headers['Sec-GPC'] = '1'; else delete headers['Sec-GPC'];
-    // High-entropy UA client hints are unnecessary for normal browsing and create
-    // another cross-layer fingerprint. Chromium may regenerate low-entropy hints.
-    for (const key of Object.keys(headers)) {
-      if (/^sec-ch-ua-(full-version|full-version-list|arch|bitness|model|platform-version|wow64)$/i.test(key)) delete headers[key];
-    }
-    callback({ requestHeaders: headers });
-  });
 
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
     const settings = getSettings();
@@ -127,11 +111,24 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   });
 
   ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
-    const settings = getSettings(); const h = { ...(details.requestHeaders || {}) }; const topUrl = tab.topUrl || tab.url || details.url; const thirdParty = isThirdParty(details.url, topUrl); const cdn = thirdParty && settings.publicCdnIsolation && isPublicCdn(details.url);
-    if (settings.doNotTrack) h.DNT = '1'; else delete h.DNT;
-    if (settings.globalPrivacyControl) h['Sec-GPC'] = '1'; else delete h['Sec-GPC'];
-    h['Accept-Language'] = 'en-US,en;q=0.5'; delete h['X-Client-Data']; delete h['x-client-data'];
-    if (settings.privacyLevel !== 'standard') for (const key of ['Sec-CH-UA-Arch','Sec-CH-UA-Bitness','Sec-CH-UA-Full-Version','Sec-CH-UA-Full-Version-List','Sec-CH-UA-Model','Sec-CH-UA-Platform-Version','sec-ch-ua-arch','sec-ch-ua-bitness','sec-ch-ua-full-version','sec-ch-ua-full-version-list','sec-ch-ua-model','sec-ch-ua-platform-version']) delete h[key];
+    const settings = getSettings();
+    const h = { ...(details.requestHeaders || {}) };
+    const topUrl = tab.topUrl || tab.url || details.url;
+    const thirdParty = isThirdParty(details.url, topUrl);
+    const cdn = thirdParty && settings.publicCdnIsolation && isPublicCdn(details.url);
+
+    // One deterministic request-header pipeline: identity normalization,
+    // privacy signals, tracking-header stripping, referrer/cookie isolation and
+    // optional Security Suite observation all execute before the request leaves.
+    h['User-Agent'] = genericUA;
+    h['Accept-Language'] = 'en-US,en;q=0.5';
+    if (settings.doNotTrack !== false) h.DNT = '1'; else delete h.DNT;
+    if (settings.globalPrivacyControl !== false) h['Sec-GPC'] = '1'; else delete h['Sec-GPC'];
+    delete h['X-Client-Data']; delete h['x-client-data'];
+    for (const key of Object.keys(h)) {
+      if (/^sec-ch-ua-(full-version|full-version-list|arch|bitness|model|platform-version|wow64)$/i.test(key)) delete h[key];
+    }
+
     const refKey = Object.keys(h).find((k) => k.toLowerCase() === 'referer');
     if (refKey && ((settings.stripCrossSiteReferrers && thirdParty) || cdn)) delete h[refKey];
     if (thirdParty && settings.etagProtection && (isKnownTracker(details.url) || trackerLearner?.isLikelyTracker(safeHost(details.url)))) {
@@ -141,6 +138,9 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
     if ((thirdParty && settings.blockThirdPartyCookies && !tab.compatibilityMode) || cdn) {
       const cookieKey = Object.keys(h).find((k) => k.toLowerCase() === 'cookie');
       if (cookieKey) { delete h[cookieKey]; tab.stats.thirdPartyCookiesBlocked += 1; if (cdn) tab.stats.cdnIsolations += 1; onStats(tab); }
+    }
+    if (typeof onRequestHeaders === 'function') {
+      try { onRequestHeaders({ url: details.url, resourceType: details.resourceType, requestHeaders: { ...h } }); } catch {}
     }
     callback({ requestHeaders: h });
   });
