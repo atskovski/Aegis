@@ -162,6 +162,17 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
     }
     callback({ responseHeaders: headers });
   });
+
+  try {
+    ses.webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
+      if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onCompleted', details); } catch {} }
+    });
+  } catch {}
+  try {
+    ses.webRequest.onErrorOccurred({ urls: ['*://*/*'] }, (details) => {
+      if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onErrorOccurred', details); } catch {} }
+    });
+  } catch {}
   return ses;
 }
 
