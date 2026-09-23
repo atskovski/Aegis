@@ -1158,13 +1158,9 @@ async function hardenTab(tab) {
   const origin = safeOrigin(tab.url);
   hardenTabState(tab);
   if (origin) {
-    const hardened = { ...(settings.sitePermissions[origin] || {}) };
-    for (const key of SENSITIVE_PERMISSION_KEYS) {
-      clearTemporaryPermission(tab.id, origin, key);
-      hardened[key] = 'block';
-    }
-    settings.sitePermissions[origin] = hardened;
-    saveSettings();
+    // Remove temporary grants. Persistent site exceptions remain untouched because
+    // hardened enforcement comes from the tab's effective policy, not global prefs.
+    for (const key of SENSITIVE_PERMISSION_KEYS) clearTemporaryPermission(tab.id, origin, key);
   }
 
   // Remove state accumulated before hardening so the reloaded page starts from a
@@ -1176,12 +1172,6 @@ async function hardenTab(tab) {
   } catch (err) { console.warn('Harden cleanup warning:', err.message); }
 
   tab.javascriptEnabled = true;
-  // A hardened compartment is tab-scoped. Do not persist a global site exception:
-  // that would silently alter future ordinary tabs for the same origin.
-  if (origin && settings.sitePermissions[origin]) {
-    delete settings.sitePermissions[origin];
-    saveSettings();
-  }
   await replaceTabView(tab, true);
   await applyCosmeticFiltering(tab);
   emitState();
