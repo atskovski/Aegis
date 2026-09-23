@@ -435,7 +435,7 @@ class AegisExtensionRuntime{
     health.errors.unshift({scope:String(scope||'runtime'),message,at:new Date().toISOString()});health.errors=health.errors.slice(0,8);
   }
   clearRuntimeErrors(id,scope=''){
-    const health=this.healthFor(id);health.errors=scope?health.errors.filter((x)=>x.scope!==scope):[];
+    const health=this.healthFor(id);health.errors=scope?health.errors.filter((x)=>x.scope!==scope&&!x.scope.startsWith(scope+':')):[];
   }
   publicRecord(e){
     const action=extensionAction(e.manifest);
@@ -798,31 +798,43 @@ class AegisExtensionRuntime{
   async inject(tab,phase='idle',urlOverride=''){
     if(tab?.disableExtensions || tab?.securityDomain === 'anonymous' || tab?.securityDomain === 'hardened') return [];
     if(!tab?.view?.webContents||tab.view.webContents.isDestroyed())return [];
-    const url=String(urlOverride||tab.view.webContents.getURL()||''); if(!/^https?:\/\//.test(url))return [];
+    const contents=tab.view.webContents,url=String(urlOverride||contents.getURL()||''); if(!/^https?:\/\//.test(url))return [];
     if(!tab.extensionInjectionKeys)tab.extensionInjectionKeys=new Set();
     const done=[];
     for(const e of this.enabled()){
-      const all=Array.isArray(e.manifest.content_scripts)?e.manifest.content_scripts:[];
+      const all=this.contentScriptsFor(e);
       for(let index=0;index<all.length;index++){
         const entry=all[index];
         if(contentScriptPhase(entry)!==phase||!matchingContentScripts({content_scripts:[entry]},url,phase).length)continue;
-        const key=e.id+':'+index+':'+phase;
+        const entryId=entry.__registered?('registered:'+entry.id):String(index),key=e.id+':'+entryId+':'+phase;
         if(tab.extensionInjectionKeys.has(key))continue;
-        const scripts=[{code:bootstrap(e)}];
-        for(const rel of Array.isArray(entry.js)?entry.js:[]){
-          const s=safeRel(rel),f=path.resolve(e.path,s);
-          if(s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f))scripts.push({code:fs.readFileSync(f,'utf8')});
-        }
-        let scriptOk=scripts.length===1;
-        if(scripts.length>1){
-          try{await tab.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),scripts,false);scriptOk=true;done.push(e.id);const health=this.healthFor(e.id);health.lastInjectionAt=new Date().toISOString();this.clearRuntimeErrors(e.id,'content-script')}catch(err){this.noteRuntimeError(e.id,'content-script',err)}
+        const js=(Array.isArray(entry.js)?entry.js:[]).map(safeRel).filter(Boolean),world=String(entry.world||'ISOLATED').toUpperCase();
+        let scriptOk=!js.length;
+        if(js.length){
+          try{
+            if(world==='MAIN'){
+              for(const rel of js){
+                const source=fs.readFileSync(this.extensionFile(e,rel),'utf8')+'\n//# sourceURL='+extensionResourceUrl(e,rel);
+                await contents.executeJavaScript(source,false);
+              }
+            }else{
+              await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:bootstrap(e),url:extensionResourceUrl(e,'__aegis_content_bootstrap.js')}],false);
+              for(const rel of js){
+                const source=fs.readFileSync(this.extensionFile(e,rel),'utf8');
+                try{await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:source,url:extensionResourceUrl(e,rel)}],false)}
+                catch(err){this.noteRuntimeError(e.id,'content-script:'+rel,err);throw err}
+              }
+            }
+            scriptOk=true;done.push(e.id);const health=this.healthFor(e.id);health.lastInjectionAt=new Date().toISOString();this.clearRuntimeErrors(e.id,'content-script');
+          }catch(err){if(!this.healthFor(e.id).errors.some((x)=>x.scope.startsWith('content-script:')&&x.message===String(err?.message||err)))this.noteRuntimeError(e.id,'content-script',err)}
         }
         const cssParts=[];
         for(const rel of Array.isArray(entry.css)?entry.css:[]){
-          const s=safeRel(rel),f=path.resolve(e.path,s);
-          if(s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f))cssParts.push(rewriteCssUrls(fs.readFileSync(f,'utf8'),e,s));
+          const s=safeRel(rel);if(!s)continue;
+          try{cssParts.push(rewriteCssUrls(fs.readFileSync(this.extensionFile(e,s),'utf8'),e,s))}
+          catch(err){this.noteRuntimeError(e.id,'content-css:'+s,err)}
         }
-        if(cssParts.length)try{await tab.view.webContents.insertCSS(cssParts.join('\n'),{cssOrigin:'author'});done.push(e.id)}catch(err){this.noteRuntimeError(e.id,'content-css',err)}
+        if(cssParts.length)try{await contents.insertCSS(cssParts.join('\n'),{cssOrigin:'author'});done.push(e.id);this.clearRuntimeErrors(e.id,'content-css')}catch(err){this.noteRuntimeError(e.id,'content-css',err)}
         if(scriptOk||cssParts.length)tab.extensionInjectionKeys.add(key);
       }
     }
@@ -835,13 +847,19 @@ class AegisExtensionRuntime{
   }
   async executeExtensionScript(e,tab,details={}){
     if(!this.canAccessTab(e,tab,{inject:true}))throw new Error('Extension lacks host or activeTab access to this tab.');
-    if(details.allFrames||details.target?.allFrames)throw new Error('allFrames script injection is not supported yet.');
-    const files=[...(Array.isArray(details.files)?details.files:[]),...(details.file?[details.file]:[])];
-    const scripts=[{code:bootstrap(e)}];
-    for(const rel of files)scripts.push({code:fs.readFileSync(this.extensionFile(e,rel),'utf8')});
-    if(details.code) scripts.push({code:String(details.code)});
-    if(scripts.length===1)throw new Error('Function-object injection is not transferable through Aegis IPC; use files or code.');
-    const result=await tab.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),scripts,false);
+    const frameIds=Array.isArray(details.target?.frameIds)?details.target.frameIds.map(Number):[];
+    if(frameIds.some((id)=>id!==0))throw new Error('Non-top-frame script injection is not supported yet.');
+    const files=[...(Array.isArray(details.files)?details.files:[]),...(details.file?[details.file]:[])],world=String(details.world||'ISOLATED').toUpperCase(),contents=tab.view.webContents;
+    if(!files.length&&!details.code)throw new Error('Function-object injection is not transferable through Aegis IPC; use files or code.');
+    let result;
+    if(world==='MAIN'){
+      for(const rel of files){const code=fs.readFileSync(this.extensionFile(e,rel),'utf8')+'\n//# sourceURL='+extensionResourceUrl(e,rel);result=await contents.executeJavaScript(code,false)}
+      if(details.code)result=await contents.executeJavaScript(String(details.code),false);
+    }else{
+      await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:bootstrap(e),url:extensionResourceUrl(e,'__aegis_scripting_bootstrap.js')}],false);
+      for(const rel of files)result=await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:fs.readFileSync(this.extensionFile(e,rel),'utf8'),url:extensionResourceUrl(e,rel)}],false);
+      if(details.code)result=await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:String(details.code)}],false);
+    }
     return [{frameId:0,result}];
   }
   async insertExtensionCss(e,tab,details={}){
