@@ -116,3 +116,39 @@ ipcRenderer.on('extension:frame-inject', async (_event, payload) => {
 
   respond({ ok:true });
 });
+
+
+ipcRenderer.on('extension:frame-message', async (_event, payload) => {
+  const extensionId = String(payload?.extensionId || '');
+  const requestId = String(payload?.requestId || '');
+  const worldId = Number(payload?.worldId);
+  const requestedRoutingId = Number(payload?.frameRoutingId);
+  const respond = (extra = {}) => ipcRenderer.send('extension:frame-message-result', {
+    requestId,
+    extensionId,
+    frameRoutingId:Number(webFrame.routingId),
+    ...extra
+  });
+
+  if (!requestId || !validId(extensionId) || !listeners.has(extensionId)) {
+    respond({ ok:false, error:'Extension frame message bridge is unavailable.' });
+    return;
+  }
+  if (!Number.isInteger(worldId) || worldId < 1000) {
+    respond({ ok:false, error:'Invalid extension isolated-world id.' });
+    return;
+  }
+  if (Number.isFinite(requestedRoutingId) && requestedRoutingId !== Number(webFrame.routingId)) {
+    respond({ ok:false, error:'Extension frame routing mismatch.' });
+    return;
+  }
+
+  try {
+    const code = 'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage(' +
+      JSON.stringify(payload?.message) + ',' + JSON.stringify(payload?.sender || {id:extensionId}) + '):undefined';
+    const response = await webFrame.executeJavaScriptInIsolatedWorld(worldId, [{ code }], false);
+    respond({ ok:true, response });
+  } catch (err) {
+    respond({ ok:false, error:String(err?.message || err || 'Frame message failed.').slice(0,500) });
+  }
+});
