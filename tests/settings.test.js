@@ -1,0 +1,55 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { sanitizeSettings, searchTemplateFor, profileDefaults } = require('../src/core/settings');
+
+test('sanitizes unknown privacy profile to strict', () => {
+  assert.equal(sanitizeSettings({ privacyLevel: 'mystery' }).privacyLevel, 'strict');
+});
+
+test('migrates compatible profile to standard', () => {
+  assert.equal(sanitizeSettings({ privacyLevel: 'compatible' }).privacyLevel, 'standard');
+});
+
+test('rejects invalid custom search template', () => {
+  const s = sanitizeSettings({ searchEngine: 'custom', customSearchTemplate: 'https://example.com/search' });
+  assert.equal(s.customSearchTemplate, '');
+  assert.equal(searchTemplateFor(s), 'https://duckduckgo.com/?q=%s');
+});
+
+test('accepts valid custom search template', () => {
+  const s = sanitizeSettings({ searchEngine: 'custom', customSearchTemplate: 'https://example.com/?q=%s' });
+  assert.equal(searchTemplateFor(s), 'https://example.com/?q=%s');
+});
+
+test('maximum profile enables key hardening defaults', () => {
+  const p = profileDefaults('maximum');
+  assert.equal(p.letterbox, true);
+  assert.equal(p.blockThirdPartyCookies, true);
+  assert.equal(p.disableServiceWorkers, true);
+});
+
+
+test('permission sanitizer accepts ask but rejects persistent global allow', () => {
+  const s = sanitizeSettings({ permissionDefaults: { camera: 'ask', microphone: 'allow', geolocation: 'ask' } });
+  assert.equal(s.permissionDefaults.camera, 'ask');
+  assert.equal(s.permissionDefaults.microphone, 'block');
+  assert.equal(s.permissionDefaults.geolocation, 'ask');
+});
+
+
+test('new installs use macOS system proxy routing by default', () => {
+  assert.equal(sanitizeSettings({}).proxy.mode, 'system');
+});
+
+test('migrates untouched v0.3 direct proxy default to system routing', () => {
+  assert.equal(sanitizeSettings({ schemaVersion: 2, proxy: { mode: 'direct', server: '', bypassLocal: true } }).proxy.mode, 'system');
+});
+
+test('preserves an explicit direct proxy choice in schema v3', () => {
+  assert.equal(sanitizeSettings({ schemaVersion: 3, proxy: { mode: 'direct', server: '', bypassLocal: true } }).proxy.mode, 'direct');
+});
+
+test('strict profile keeps service workers available for site compatibility', () => {
+  assert.equal(profileDefaults('strict').disableServiceWorkers, false);
+});

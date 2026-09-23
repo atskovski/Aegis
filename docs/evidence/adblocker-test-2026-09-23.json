@@ -1,0 +1,65 @@
+{
+  "timestamp": "2026-09-23T01:50:39.425Z",
+  "overallScore": 66,
+  "weightedScore": 68,
+  "totalNetworks": 79,
+  "blockedNetworks": 52,
+  "categoryResults": [
+    {
+      "category": "audio",
+      "label": "Audio Ads",
+      "blocked": 6,
+      "total": 7,
+      "percentage": 86
+    },
+    {
+      "category": "video",
+      "label": "Video Ads",
+      "blocked": 6,
+      "total": 9,
+      "percentage": 67
+    },
+    {
+      "category": "display",
+      "label": "Display Ads",
+      "blocked": 7,
+      "total": 11,
+      "percentage": 64
+    },
+    {
+      "category": "programmatic",
+      "label": "Programmatic",
+      "blocked": 5,
+      "total": 10,
+      "percentage": 50
+    },
+    {
+      "category": "mobile",
+      "label": "Mobile Ads",
+      "blocked": 3,
+      "total": 10,
+      "percentage": 30
+    },
+    {
+      "category": "analytics",
+      "label": "Analytics",
+      "blocked": 10,
+      "total": 11,
+      "percentage": 91
+    },
+    {
+      "category": "social",
+      "label": "Social Tracking",
+      "blocked": 6,
+      "total": 10,
+      "percentage": 60
+    },
+    {
+      "category": "tracking",
+      "label": "Cross-Site Tracking",
+      "blocked": 9,
+      "total": 11,
+      "percentage": 82
+    }
+  ]
+}

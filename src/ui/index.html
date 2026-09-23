@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Aegis</title>
+  <link rel="stylesheet" href="aegis://app/styles.css">
+</head>
+<body data-theme="nebula" data-density="comfortable">
+  <header class="chrome">
+    <div class="tab-row">
+      <div class="brand" title="Aegis Privacy Browser"><span class="brand-mark">A</span></div>
+      <div class="tabbar" id="tabs"></div>
+      <button class="icon-btn tab-add" id="newTab" title="New isolated tab (⌘T)" aria-label="New tab">+</button>
+    </div>
+    <div class="toolbar">
+      <div class="nav-group">
+        <button class="icon-btn navbtn" id="back" aria-label="Back">‹</button>
+        <button class="icon-btn navbtn" id="forward" aria-label="Forward">›</button>
+        <button class="icon-btn navbtn" id="reload" aria-label="Reload">↻</button>
+        <button class="icon-btn navbtn" id="home" aria-label="Home">⌂</button>
+      </div>
+      <form id="addressForm" class="address-wrap">
+        <span id="securityIcon" class="security-icon" title="Connection status">◆</span>
+        <input id="address" autocomplete="off" spellcheck="false" aria-label="Address and search" placeholder="Search privately or enter an address">
+        <button type="button" id="bookmarkBtn" class="address-action" title="Bookmark this page (⌘D)" aria-label="Bookmark this page">☆</button>
+        <button type="button" id="shield" class="shield-pill" title="Privacy report"><span class="shield-glyph">◈</span><span id="blockedCount">0</span></button>
+      </form>
+      <button class="identity" id="identity" title="Destroy all sessions and rotate identity"><span>↻</span> New Identity</button>
+      <button class="icon-btn library-btn" id="libraryBtn" title="Bookmarks & downloads">▤</button>
+      <button class="icon-btn command-btn" id="commandBtn" title="Command palette (⌘K)">⌘</button>
+      <button class="privacy-beacon" id="privacyBeacon" title="Site privacy & security inspector" aria-label="Site privacy and security inspector"><span class="beacon-icon">◈</span><span class="beacon-score" id="beaconScore">100</span><span class="beacon-count" id="beaconCount">0</span></button>
+      <button class="icon-btn settings-btn" id="settingsBtn" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <aside id="privacyPanel" class="floating-panel privacy-panel hidden" aria-hidden="true">
+    <div class="panel-head">
+      <div><div class="eyebrow">AEGIS SENTINEL</div><h2>Site Privacy Inspector</h2><p id="siteLabel" class="panel-subtitle">Private tab</p></div>
+      <button class="icon-btn close" data-close="privacyPanel">×</button>
+    </div>
+
+    <div class="score-card">
+      <div class="score-ring"><strong id="scoreValue">100</strong><span>/100</span></div>
+      <div><b id="scoreLabel">Hardened</b><small>Current tab protection posture</small></div>
+    </div>
+
+    <div class="metric-grid">
+      <div><strong id="mTrackers">0</strong><span>trackers blocked</span></div>
+      <div><strong id="mCookies">0</strong><span>3rd-party cookies</span></div>
+      <div><strong id="mPerms">0</strong><span>permissions denied</span></div>
+      <div><strong id="mClean">0</strong><span>tracking links cleaned</span></div>
+      <div><strong id="mThirdParty">0</strong><span>3rd-party requests seen</span></div>
+      <div><strong id="mFingerprint">0</strong><span>fingerprint surfaces used</span></div>
+    </div>
+
+    <div class="posture-strip">
+      <div><span class="posture-dot secure"></span><span>Security</span><b id="securityScore">100</b></div>
+      <div><span class="posture-dot private"></span><span>Privacy</span><b id="privacyPosture">100</b></div>
+      <div><span class="posture-dot activity"></span><span>Protections</span><b id="protectionCount">0</b></div>
+    </div>
+
+    <div class="panel-section intelligence-section">
+      <div class="section-title-row"><div><div class="eyebrow">LIVE PAGE INTELLIGENCE</div><h3>What this page is seeking</h3></div><span id="signalCount" class="count-badge">0</span></div>
+      <p class="intelligence-help">Observed locally inside this tab. Nothing in this activity ledger is uploaded by Aegis.</p>
+      <div id="dataAccessList" class="signal-list"><div class="signal-empty"><b>No sensitive access observed</b><span>Aegis will show permission requests, storage access, and fingerprint surfaces as the page uses them.</span></div></div>
+    </div>
+
+    <div class="panel-section network-intelligence-section">
+      <div class="section-title-row"><div><div class="eyebrow">NETWORK PRIVACY</div><h3>Third-party connections</h3></div><span id="thirdPartyUnique" class="count-badge">0</span></div>
+      <p class="intelligence-help">Hostnames only. Aegis does not store full third-party request URLs in this inspector.</p>
+      <div class="network-mini-stats"><span><b id="thirdPartyBlockedUnique">0</b> blocked domains</span><span><b id="thirdPartyAllowedUnique">0</b> contacted domains</span></div>
+      <div id="thirdPartyList" class="third-party-list"><div class="signal-empty"><b>No third-party connections yet</b><span>Domains contacted by this page will appear here.</span></div></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title-row"><div><div class="eyebrow">IDENTITY SHIELD</div><h3>What Aegis is exposing</h3></div><span id="exposureScore" class="count-badge">100</span></div>
+      <p class="intelligence-help">A local explanation of identity surfaces visible to the current page. “Protected” means reduced or standardized, not invisible.</p>
+      <div id="identitySurfaceList" class="identity-surface-list"></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title-row"><div><div class="eyebrow">LOCAL ACTIVITY LEDGER</div><h3>Recent privacy events</h3></div><span class="count-badge" id="timelineCount">0</span></div>
+      <div id="privacyTimeline" class="privacy-timeline"><div class="signal-empty"><b>No privacy events yet</b><span>Recent sensitive API and network events will appear here.</span></div></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="eyebrow">ACTIVE PROTECTION LAYERS</div>
+      <div id="protectionLayers" class="protection-layers"></div>
+    </div>
+
+    <div class="panel-section compact">
+      <div class="control-row"><div><b>Tracker shield</b><small>Known and heuristic tracker blocking for this tab.</small></div><label class="switch"><input id="shieldToggle" type="checkbox"><span></span></label></div>
+      <div class="control-row"><div><b>JavaScript</b><small>Turn off scripts for a powerful compatibility-breaking privacy mode.</small></div><label class="switch"><input id="jsToggle" type="checkbox"><span></span></label></div>
+      <div class="control-row"><div><b>Allow HTTP</b><small>Off keeps HTTPS-first navigation enabled.</small></div><label class="switch"><input id="httpToggle" type="checkbox"><span></span></label></div>
+      <div class="control-row"><div><b>Compatibility mode</b><small>Relaxes breakage-prone cookie and heuristic tracker filtering for this tab while keeping sandbox, TLS, permissions and isolation.</small></div><label class="switch"><input id="compatibilityToggle" type="checkbox"><span></span></label></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title-row"><div><div class="eyebrow">SITE CONTROLS</div><h3>Permissions</h3></div><button id="resetSitePermissions" class="text-btn">Reset</button></div>
+      <div id="sitePermissionGrid" class="permission-grid">
+        <label>Camera<select data-site-permission="camera"><option value="default">Use global</option><option value="block">Block</option><option value="allow">Allow</option></select></label>
+        <label>Microphone<select data-site-permission="microphone"><option value="default">Use global</option><option value="block">Block</option><option value="allow">Allow</option></select></label>
+        <label>Location<select data-site-permission="geolocation"><option value="default">Use global</option><option value="block">Block</option><option value="allow">Allow</option></select></label>
+        <label>Notifications<select data-site-permission="notifications"><option value="default">Use global</option><option value="block">Block</option><option value="allow">Allow</option></select></label>
+      </div>
+      <p id="sitePermissionHint" class="help">Permissions remain blocked unless you explicitly allow them for this origin.</p>
+    </div>
+
+    <div class="facts">
+      <p><span>Connection</span><b id="connectionState">—</b></p>
+      <p><span>Route</span><b id="routeState">System</b></p>
+      <p><span>Storage</span><b>Ephemeral per tab</b></p>
+      <p><span>WebRTC</span><b>Non-proxied UDP blocked</b></p>
+      <p><span>Fingerprint profile</span><b id="fpMode">Strict</b></p><p><span>Safety</span><b id="safetyMode">No warnings</b></p>
+      <p><span>TLS minimum</span><b>TLS 1.2</b></p>
+    </div>
+
+    <div class="blocked-list"><div class="eyebrow">RECENTLY BLOCKED</div><div id="recentBlocked" class="chips"><span class="muted">Nothing blocked yet</span></div></div>
+    <div class="privacy-actions"><button id="hardenSite" class="primary compact-btn">Harden this site</button><button id="clearTabData" class="secondary">Clear tab data</button><button id="openFullSettings" class="secondary">Full settings</button></div>
+    <div class="panel-note">Aegis reduces linkability and tracking surface. No browser can guarantee anonymity or a zero fingerprint.</div>
+  </aside>
+
+  <aside id="libraryPanel" class="floating-panel library-panel hidden" aria-hidden="true">
+    <div class="panel-head"><div><div class="eyebrow">LOCAL LIBRARY</div><h2>Bookmarks & downloads</h2><p class="panel-subtitle">Stored locally. Browsing history remains disabled.</p></div><button class="icon-btn close" data-close="libraryPanel">×</button></div>
+    <div class="library-section"><div class="section-title-row"><div><div class="eyebrow">BOOKMARKS</div><h3>Saved pages</h3></div><span id="bookmarkCount" class="count-badge">0</span></div><div id="bookmarkList" class="library-list"></div></div>
+    <div class="library-section"><div class="section-title-row"><div><div class="eyebrow">DOWNLOADS</div><h3>Recent downloads</h3></div><button id="clearDownloads" class="text-btn">Clear list</button></div><div id="downloadList" class="library-list"></div></div>
+    <div class="panel-note">Aegis does not maintain a browsing-history database. Bookmark metadata is stored locally with owner-only permissions.</div>
+  </aside>
+
+  <aside id="settingsPanel" class="settings-shell hidden" aria-hidden="true">
+    <div class="settings-topbar">
+      <div class="settings-heading"><div class="eyebrow">AEGIS CONTROL CENTER</div><h2>Settings</h2></div>
+      <div class="settings-search-wrap">
+        <label class="settings-search" for="settingsSearch"><span>⌕</span><input id="settingsSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Search settings"></label>
+        <div id="settingsSearchResults" class="settings-search-results hidden" aria-live="polite"></div>
+      </div>
+      <div class="settings-actions"><span class="save-state" id="saveState">Saved locally</span><button class="icon-btn close" data-close="settingsPanel" aria-label="Close settings">×</button></div>
+    </div>
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="Settings categories">
+        <button class="settings-nav-item active" data-settings-target="privacy"><span>◈</span>Privacy</button>
+        <button class="settings-nav-item" data-settings-target="security"><span>⌾</span>Security</button>
+        <button class="settings-nav-item" data-settings-target="permissions"><span>◎</span>Permissions</button>
+        <button class="settings-nav-item" data-settings-target="network"><span>⇄</span>Network</button>
+        <button class="settings-nav-item" data-settings-target="search"><span>⌕</span>Search</button>
+        <button class="settings-nav-item" data-settings-target="appearance"><span>✦</span>Appearance</button>
+        <button class="settings-nav-item" data-settings-target="diagnostics"><span>⌁</span>Diagnostics</button>
+        <button class="settings-nav-item" data-settings-target="about"><span>i</span>About</button>
+      </nav>
+
+      <main class="settings-content">
+        <section class="settings-page active" data-settings-page="privacy">
+          <div class="page-title"><h3>Privacy protections</h3><p>Choose a baseline, then tune individual controls. Strict is the recommended default.</p></div>
+          <div class="profile-grid">
+            <button class="profile-card" data-profile="standard"><span class="profile-icon">S</span><b>Standard</b><small>Strong tracking protection with fewer compatibility changes.</small><em>Compatibility first</em></button>
+            <button class="profile-card" data-profile="strict"><span class="profile-icon">A</span><b>Strict</b><small>Anti-fingerprinting, letterboxing, tracker blocking and ephemeral isolation.</small><em>Recommended</em></button>
+            <button class="profile-card" data-profile="maximum"><span class="profile-icon">M</span><b>Maximum</b><small>Most aggressive fingerprint defenses. Some complex sites may break.</small><em>Hardest mode</em></button>
+          </div>
+
+          <div class="settings-card grouped-card">
+            <div class="settings-group-head"><span class="settings-group-icon">◈</span><div><b>Blocking & tracking</b><small>Stop common advertising, analytics, social and behavioral tracking before it reaches the page.</small></div></div>
+            <div class="setting-row"><div><b>Block trackers</b><small>High-confidence analytics, telemetry, attribution and tracking endpoints.</small></div><label class="switch"><input id="blockTrackers" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Block ads</b><small>Native network-level ad request blocking inspired by uBlock-style filtering.</small></div><label class="switch"><input id="blockAds" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Block social trackers</b><small>Blocks third-party social pixels and embedded tracking infrastructure.</small></div><label class="switch"><input id="blockSocialTrackers" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Behavioral tracker learning</b><small>Memory-only learning flags third parties repeatedly seen across unrelated sites. Resets with New Identity.</small></div><label class="switch"><input id="heuristicTrackingProtection" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Site Privacy Intelligence</b><small>Locally observes sensitive API use, permission attempts, storage access, and fingerprint surfaces so the Site Privacy Inspector can explain what each page is trying to access. No telemetry is uploaded.</small></div><label class="switch"><input id="siteIntelligence" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Fingerprinting-script defense</b><small>Blocks high-confidence third-party fingerprinting endpoints before they load.</small></div><label class="switch"><input id="blockFingerprintingScripts" type="checkbox"><span></span></label></div>
+          </div>
+
+          <div class="settings-card grouped-card">
+            <div class="settings-group-head"><span class="settings-group-icon">◎</span><div><b>Cross-site data controls</b><small>Reduce correlation across domains and remove common URL and cache identifiers.</small></div></div>
+            <div class="setting-row"><div><b>Block third-party cookies</b><small>Removes cross-site Cookie and Set-Cookie headers before they are sent or stored.</small></div><label class="switch"><input id="blockThirdPartyCookies" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Clean tracking parameters</b><small>ClearURLs-style removal of known click IDs and campaign parameters.</small></div><label class="switch"><input id="stripTrackingParams" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Unwrap tracking redirects</b><small>Skips known redirect wrappers from Google, Facebook, YouTube and Outlook Safe Links.</small></div><label class="switch"><input id="unwrapTrackingLinks" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>ETag tracking defense</b><small>Removes validator headers on known third-party trackers to reduce cache-based identifiers.</small></div><label class="switch"><input id="etagProtection" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Public CDN isolation</b><small>Strips cookies and cross-site referrers from common public CDN requests.</small></div><label class="switch"><input id="publicCdnIsolation" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Strip cross-site referrers</b><small>Prevents unrelated sites from receiving the page URL that sent you.</small></div><label class="switch"><input id="stripCrossSiteReferrers" type="checkbox"><span></span></label></div>
+          </div>
+
+          <div class="settings-card grouped-card">
+            <div class="settings-group-head"><span class="settings-group-icon">◇</span><div><b>Fingerprint resistance</b><small>Normalize or reduce high-value browser characteristics without making every request randomly unique.</small></div></div>
+            <div class="setting-row"><div><b>Viewport letterboxing</b><small>Quantizes content dimensions to reduce screen-size fingerprint uniqueness.</small></div><label class="switch"><input id="letterboxToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Disable service-worker registration</b><small>Maximum-mode control that reduces persistent background state. Strict keeps service workers available for modern site compatibility.</small></div><label class="switch"><input id="disableServiceWorkers" type="checkbox"><span></span></label></div>
+          </div>
+
+          <div class="settings-card grouped-card">
+            <div class="settings-group-head"><span class="settings-group-icon">⇢</span><div><b>Privacy signals</b><small>Send standardized preference signals to sites that choose to honor them.</small></div></div>
+            <div class="setting-row"><div><b>Global Privacy Control</b><small>Sends Sec-GPC: 1 when supported by the destination.</small></div><label class="switch"><input id="gpcToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Do Not Track</b><small>Sends the legacy DNT: 1 signal in addition to GPC.</small></div><label class="switch"><input id="dntToggle" type="checkbox"><span></span></label></div>
+          </div>
+        </section>
+
+        <section class="settings-page" data-settings-page="security">
+          <div class="page-title"><h3>Security & cleanup</h3><p>Reduce attack surface and aggressively discard state after use.</p></div>
+          <div class="settings-card">
+            <div class="setting-row"><div><b>Block high-risk downloads</b><small>Blocks executable/script packages such as DMG, PKG, EXE, shell scripts and APKs.</small></div><label class="switch"><input id="downloadToggle" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>JavaScript enabled by default</b><small>Disable this only if you want every new tab to begin in scriptless mode.</small></div><label class="switch"><input id="javascriptDefault" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Clear clipboard on New Identity</b><small>Optionally removes clipboard contents when all browsing identities are rotated.</small></div><label class="switch"><input id="clearClipboardIdentity" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Compatibility assistance</b><small>When a secure connection fails, Aegis can offer explicit recovery choices without silently weakening protections.</small></div><label class="switch"><input id="compatibilityAssistance" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Threat & lookalike warnings</b><small>Warns on punycode, raw-IP, embedded-credential and brand-lookalike destinations using local heuristics.</small></div><label class="switch"><input id="threatProtection" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Cookie AutoDelete</b><small>Clears site data after leaving a site within the same isolated tab, unless the site is fireproofed.</small></div><label class="switch"><input id="cookieAutoDelete" type="checkbox"><span></span></label></div>
+            <label class="select-row"><span><b>Auto-delete delay</b><small>Seconds before cleaning a site you left.</small></span><select id="cookieAutoDeleteDelay"><option value="0">Immediately</option><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option></select></label>
+            <div class="setting-row"><div><b>Sponsor skipping</b><small>Optional SponsorBlock integration using a 4-character SHA-256 prefix query for improved query privacy.</small></div><label class="switch"><input id="sponsorBlockEnabled" type="checkbox"><span></span></label></div>
+            <div class="setting-stack"><div><b>Sponsor categories</b><small>Choose which submitted YouTube segment types Aegis may skip when SponsorBlock is enabled.</small></div><div class="check-grid"><label><input type="checkbox" data-sponsor-category="sponsor"> Sponsors</label><label><input type="checkbox" data-sponsor-category="selfpromo"> Self-promotion</label><label><input type="checkbox" data-sponsor-category="interaction"> Interaction reminders</label><label><input type="checkbox" data-sponsor-category="intro"> Intros</label><label><input type="checkbox" data-sponsor-category="outro"> Outros</label><label><input type="checkbox" data-sponsor-category="preview"> Previews</label></div></div>
+            <label class="text-area-row"><span><b>Fireproof sites</b><small>One hostname per line. Cookie AutoDelete preserves these sites until the tab or identity is destroyed.</small></span><textarea id="fireproofSites" rows="4" placeholder="example.com&#10;accounts.example.org"></textarea></label>
+          </div>
+          <div class="action-card">
+            <div><b>Session destruction</b><p>Normal browsing tabs are memory-only. You can also destroy all active storage, caches and connections immediately.</p></div>
+            <div class="action-buttons"><button id="settingsClearAll" class="secondary">Clear all active data</button><button id="settingsNewIdentity" class="danger-btn">New Identity</button></div>
+          </div>
+          <div class="info-callout"><b>Always enforced</b><span>Renderer sandbox, site isolation, context isolation, Node disabled in web content, WebGPU disabled, non-proxied WebRTC UDP disabled, external protocols blocked, DevTools disabled for remote content, TLS 1.2 minimum.</span></div>
+        </section>
+
+        <section class="settings-page" data-settings-page="permissions">
+          <div class="page-title"><h3>Permission defaults</h3><p>Aegis blocks powerful APIs by default. Use Ask only when needed; trusted-site exceptions are safer than weakening global defaults.</p></div>
+          <div class="settings-card permission-defaults">
+            <label class="select-row"><span><b>Camera</b><small>Video capture</small></span><select data-permission-default="camera"><option value="block">Block</option><option value="ask">Ask each time</option></select></label>
+            <label class="select-row"><span><b>Microphone</b><small>Audio capture</small></span><select data-permission-default="microphone"><option value="block">Block</option><option value="ask">Ask each time</option></select></label>
+            <label class="select-row"><span><b>Location</b><small>Precise geolocation</small></span><select data-permission-default="geolocation"><option value="block">Block</option><option value="ask">Ask each time</option></select></label>
+            <label class="select-row"><span><b>Notifications</b><small>Background notification permission</small></span><select data-permission-default="notifications"><option value="block">Block</option><option value="ask">Ask each time</option></select></label>
+            <label class="select-row"><span><b>Clipboard read</b><small>Read clipboard contents</small></span><select data-permission-default="clipboardRead"><option value="block">Block</option><option value="ask">Ask each time</option></select></label>
+            <label class="select-row"><span><b>Screen capture</b><small>Display/window/tab capture</small></span><select data-permission-default="displayCapture"><option value="block">Block</option><option value="ask">Ask each time</option></select></label>
+            <label class="select-row"><span><b>USB devices</b><small>WebUSB</small></span><select data-permission-default="usb" disabled><option value="block">Always block</option></select></label>
+            <label class="select-row"><span><b>Serial devices</b><small>Web Serial</small></span><select data-permission-default="serial" disabled><option value="block">Always block</option></select></label>
+            <label class="select-row"><span><b>HID devices</b><small>Human-interface devices</small></span><select data-permission-default="hid" disabled><option value="block">Always block</option></select></label>
+            <label class="select-row"><span><b>MIDI</b><small>Web MIDI access</small></span><select data-permission-default="midi"><option value="block">Block</option><option value="ask">Ask each time</option></select></label>
+          </div>
+          <div class="info-callout warning"><b>Safer workflow</b><span>Keep global defaults blocked. Open the shield panel on a trusted site and allow only the capability that site needs.</span></div>
+        </section>
+
+        <section class="settings-page" data-settings-page="network">
+          <div class="page-title"><h3>Network routing</h3><p>Route each isolated tab session directly or through a proxy. Aegis never silently starts a proxy service.</p></div>
+          <div class="settings-card form-card">
+            <label>Proxy mode<select id="proxyMode"><option value="system">Use macOS system settings</option><option value="direct">Direct connection</option><option value="socks5">SOCKS5</option><option value="http">HTTP proxy</option><option value="https">HTTPS proxy</option></select></label>
+            <label>Proxy server<input id="proxyServer" placeholder="127.0.0.1:9050" autocomplete="off" spellcheck="false"></label>
+            <label class="check-row"><input id="proxyBypassLocal" type="checkbox"><span><b>Bypass proxy for localhost</b><small>Keep local development services reachable without the proxy.</small></span></label>
+            <label class="check-row"><input id="proxyFailClosed" type="checkbox"><span><b>Fail closed for fixed proxies</b><small>Never fall back to direct/system routing if a configured SOCKS/HTTP/HTTPS proxy cannot be applied.</small></span></label>
+            <div class="preset-row"><button id="torPreset" class="secondary">Use Tor SOCKS preset</button><span>Sets SOCKS5 to 127.0.0.1:9050. A local Tor service must already be running.</span></div>
+          </div>
+          <div class="info-callout"><b>Leak resistance</b><span>Aegis forces Chromium’s WebRTC IP handling policy to disable non-proxied UDP. Proxy changes close existing session connections before subsequent requests.</span></div>
+          <div class="action-card"><div><b>Connection test</b><p>Test a disposable Chromium session with the same routing settings, so a broken tab cannot break Diagnostics.</p></div><button id="networkTestFromNetwork" class="secondary">Run test</button></div>
+        </section>
+
+        <section class="settings-page" data-settings-page="search">
+          <div class="page-title"><h3>Private search</h3><p>Choose the engine used when text in the address bar is not a URL.</p></div>
+          <div class="settings-card form-card">
+            <label>Home page<input id="homePage" placeholder="https://duckduckgo.com/" autocomplete="off" spellcheck="false"></label>
+            <label>Search engine<select id="searchEngine"><option value="duckduckgo">DuckDuckGo</option><option value="brave">Brave Search</option><option value="startpage">Startpage</option><option value="mojeek">Mojeek</option><option value="custom">Custom template</option></select></label>
+            <label>Custom template<input id="customSearchTemplate" placeholder="https://example.com/search?q=%s" autocomplete="off" spellcheck="false"></label>
+            <p class="help">Custom templates must contain <code>%s</code>, which Aegis replaces with the encoded search query.</p>
+          </div>
+          <div class="settings-card form-card"><label>Local filter rules<textarea id="customFilterRules" rows="7" spellcheck="false" placeholder="||tracker.example^&#10;@@||trusted.example^"></textarea></label><p class="help">Local-only hostname rules. Use <code>||domain.example^</code> to block and <code>@@||domain.example^</code> to allow.</p></div>
+          <div class="info-callout"><b>No suggestion leakage</b><span>Aegis does not send address-bar keystrokes to a remote suggestion service. Searches are sent only after you submit them.</span></div>
+        </section>
+
+        <section class="settings-page" data-settings-page="appearance">
+          <div class="page-title"><h3>Appearance</h3><p>A modern browser shell without turning the UI into another fingerprinting surface for websites.</p></div>
+          <div class="settings-card form-card">
+            <label>Color theme<select id="themeSelect"><option value="nebula">Nebula Glass</option><option value="graphite">Graphite</option><option value="light">Arctic Light</option></select></label>
+            <label>Interface density<select id="densitySelect"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
+            <label>Accent<select id="accentSelect"><option value="cyan">Electric cyan</option><option value="violet">Ultraviolet</option><option value="emerald">Emerald</option></select></label>
+            <label class="check-row"><input id="showScoreToggle" type="checkbox"><span><b>Show privacy score</b><small>Displays the local posture score in the site privacy panel.</small></span></label>
+            <label class="check-row"><input id="reduceMotionToggle" type="checkbox"><span><b>Reduce UI motion</b><small>Minimizes nonessential browser-shell transitions.</small></span></label>
+          </div>
+        </section>
+
+        <section class="settings-page" data-settings-page="diagnostics">
+          <div class="page-title"><h3>Security Suite & Diagnostics</h3><p>Verify what is actually working. Aegis separates configured policy from behavioral tests and external proof so a green status is backed by evidence.</p></div>
+
+          <div class="suite-hero">
+            <div class="suite-hero-copy"><div class="eyebrow">FULL PROTECTION VERIFICATION</div><h4 id="suiteSummary">No verification run yet</h4><p>Tests renderer hardening, permission enforcement, ephemeral-session isolation, HTTPS/DNS connectivity, routed public IP, WebRTC leak policy, tracker controls, and HTTPS-first posture.</p><small>Last run: <span id="suiteTestedAt">—</span></small></div>
+            <button id="runSecuritySuite" class="primary">Run full verification</button>
+          </div>
+
+          <div class="ip-proof-card">
+            <div class="ip-proof-icon">IP</div>
+            <div><span class="eyebrow">WHAT'S MY IP — ROUTED PROOF</span><strong id="publicIpValue">Not tested</strong><small id="publicIpProvider">Runs only when you request verification</small></div>
+          </div>
+
+          <div id="securitySuiteResults" class="suite-results" aria-live="polite">
+            <div class="suite-empty"><b>Verification has not been run</b><span>Run the Security Suite to collect current protection evidence.</span></div>
+          </div>
+
+          <div class="diagnostic-divider"><span>Connectivity-only test</span></div>
+          <div class="diagnostic-hero">
+            <div class="diagnostic-orb" id="networkOrb">●</div>
+            <div><b id="networkStatusTitle">Not tested</b><p id="networkStatusText">Run a connectivity test to verify system proxy routing, DNS and HTTPS without running the full suite.</p></div>
+            <button id="runNetworkTest" class="secondary">Run connectivity test</button>
+          </div>
+          <div class="facts engine-facts">
+            <p><span>Proxy routing</span><b id="diagProxy">—</b></p>
+            <p><span>DNS</span><b id="diagDns">—</b></p>
+            <p><span>HTTPS</span><b id="diagHttps">—</b></p>
+            <p><span>Tab renderer</span><b id="diagRenderer">—</b></p>
+            <p><span>Elapsed</span><b id="diagElapsed">—</b></p>
+          </div>
+          <div class="info-callout"><b>Evidence model</b><span><b>Runtime policy</b> confirms the active browser configuration, <b>behavioral tests</b> exercise an isolated disposable session, and <b>external proof</b> verifies the public IP observed through Aegis's configured route. External proof runs only when you click verification and necessarily makes a one-purpose request to the listed IP-check provider; the result stays in browser memory and is not written to browsing history.</span></div>
+          <div class="info-callout"><b>Website recovery</b><span>If a page fails, Aegis shows a private local error page instead of silently weakening protection. Compatibility mode remains per-tab and does not disable the renderer sandbox, TLS minimum, permission firewall, or session isolation.</span></div>
+        </section>
+
+        <section class="settings-page" data-settings-page="about">
+          <div class="page-title"><h3>About Aegis</h3><p>Local-first hardened browser prototype. No browser telemetry, account system or browsing-history service.</p></div>
+          <div class="about-hero"><div class="about-mark">A</div><div><h4>Aegis Privacy Browser <span id="appVersion">v0.9.0</span></h4><p>Ephemeral sessions. Reduced fingerprint surface. Explicit permissions.</p></div></div>
+          <div class="facts engine-facts">
+            <p><span>Electron</span><b id="electronVersion">—</b></p>
+            <p><span>Chromium</span><b id="chromiumVersion">—</b></p>
+            <p><span>Runtime</span><b id="runtimeVersion">—</b></p>
+            <p><span>Architecture</span><b id="archVersion">—</b></p>
+          </div>
+          <div class="hardening-grid">
+            <div><b>Ephemeral sessions</b><span>Every normal tab uses a unique non-persistent Chromium partition.</span></div>
+            <div><b>Permission firewall</b><span>Both Electron permission request and permission check paths are enforced.</span></div>
+            <div><b>Fingerprint defense</b><span>Reduced client hints, WebGL normalization, canvas/audio controls and optional letterboxing.</span></div>
+            <div><b>Network hygiene</b><span>HTTPS-first upgrades, tracking-link cleanup, referrer suppression and proxy support.</span></div>
+          </div>
+          <button id="resetSettings" class="secondary reset-btn">Restore hardened defaults</button>
+        </section>
+
+        <div class="settings-footer">
+          <div class="settings-footer-actions"><button id="saveSettings" class="primary">Save changes</button><button id="cancelSettings" class="secondary">Cancel</button></div>
+          <span>Settings are stored locally with owner-only file permissions.</span>
+        </div>
+      </main>
+    </div>
+  </aside>
+
+  <div id="permissionPrompt" class="permission-overlay hidden" aria-hidden="true">
+    <div class="permission-dialog">
+      <div class="permission-badge">◎</div>
+      <div class="eyebrow">PERMISSION REQUEST</div>
+      <h3 id="permissionTitle">Site permission</h3>
+      <p id="permissionMessage">A site is requesting access.</p>
+      <div id="permissionRiskList" class="permission-risk-list"></div>
+      <div class="permission-dialog-actions permission-dialog-actions-five">
+        <button id="permissionBlock" class="secondary">Block once</button>
+        <button id="permissionBlockAlways" class="secondary">Always block</button>
+        <button id="permissionAllowOnce" class="secondary">Allow once</button>
+        <button id="permissionAllow10m" class="primary">Allow 10 minutes</button>
+        <button id="permissionAllowAlways" class="primary permission-wide">Always allow</button>
+      </div>
+      <small>Requests time out automatically after 20 seconds. Temporary grants stay in memory only and disappear on expiry or New Identity. USB, Serial and HID remain blocked.</small>
+    </div>
+  </div>
+
+  <div id="commandPalette" class="command-overlay hidden" aria-hidden="true">
+    <div class="command-box">
+      <div class="command-input-row"><span>⌘</span><input id="commandInput" placeholder="Type a command…" autocomplete="off"></div>
+      <div id="commandList" class="command-list"></div>
+      <div class="command-foot"><span>↑↓ Navigate</span><span>Enter Run</span><span>Esc Close</span></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="aegis://app/app.js"></script>
+</body>
+</html>

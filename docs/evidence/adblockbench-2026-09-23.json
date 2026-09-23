@@ -1,0 +1,1595 @@
+{
+  "engineVersion": "2.0.0",
+  "runIndex": 1,
+  "timestamp": "2026-09-23T01:53:03.057Z",
+  "controlHealthy": true,
+  "overallScore": 39,
+  "signalScores": [
+    {
+      "kind": "network",
+      "score": 79,
+      "blockedWeight": 18.5,
+      "allowedWeight": 5,
+      "inconclusiveCount": 0,
+      "notApplicableCount": 0
+    },
+    {
+      "kind": "cosmetic",
+      "score": 10,
+      "blockedWeight": 1.25,
+      "allowedWeight": 11.5,
+      "inconclusiveCount": 0,
+      "notApplicableCount": 0
+    },
+    {
+      "kind": "scriptlet",
+      "score": 0,
+      "blockedWeight": 0,
+      "allowedWeight": 1,
+      "inconclusiveCount": 0,
+      "notApplicableCount": 0
+    },
+    {
+      "kind": "api",
+      "score": 0,
+      "blockedWeight": 0,
+      "allowedWeight": 8.25,
+      "inconclusiveCount": 0,
+      "notApplicableCount": 0
+    }
+  ],
+  "categoryScores": [
+    {
+      "category": "display",
+      "score": 50,
+      "blocked": 3,
+      "allowed": 3,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 6
+    },
+    {
+      "category": "video",
+      "score": 0,
+      "blocked": 0,
+      "allowed": 2,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 2
+    },
+    {
+      "category": "overlay",
+      "score": 100,
+      "blocked": 2,
+      "allowed": 0,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 2
+    },
+    {
+      "category": "social",
+      "score": 50,
+      "blocked": 1,
+      "allowed": 1,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 2
+    },
+    {
+      "category": "mobile",
+      "score": 50,
+      "blocked": 1,
+      "allowed": 1,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 2
+    },
+    {
+      "category": "richmedia",
+      "score": 50,
+      "blocked": 1,
+      "allowed": 1,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 2
+    },
+    {
+      "category": "sticky",
+      "score": 50,
+      "blocked": 1,
+      "allowed": 1,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 2
+    },
+    {
+      "category": "native",
+      "score": 50,
+      "blocked": 1,
+      "allowed": 1,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 2
+    },
+    {
+      "category": "text",
+      "score": 50,
+      "blocked": 1,
+      "allowed": 1,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 2
+    },
+    {
+      "category": "cosmetic",
+      "score": 0,
+      "blocked": 0,
+      "allowed": 1,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 1
+    },
+    {
+      "category": "tracking",
+      "score": 71,
+      "blocked": 5,
+      "allowed": 3,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 8
+    },
+    {
+      "category": "fingerprinting",
+      "score": 21,
+      "blocked": 1,
+      "allowed": 6,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 7
+    },
+    {
+      "category": "privacy-api",
+      "score": 0,
+      "blocked": 0,
+      "allowed": 3,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 3
+    },
+    {
+      "category": "advanced",
+      "score": 38,
+      "blocked": 2,
+      "allowed": 3,
+      "inconclusive": 0,
+      "notApplicable": 0,
+      "total": 5
+    }
+  ],
+  "outcomes": [
+    {
+      "specId": "display-leaderboard",
+      "name": "Leaderboard Banner",
+      "category": "display",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 2 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "adsense-tag",
+              "label": "AdSense loader script",
+              "url": "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 11,
+              "error": "script-error"
+            },
+            {
+              "probeId": "gpt-tag",
+              "label": "Google Publisher Tag",
+              "url": "https://securepubads.g.doubleclick.net/tag/js/gpt.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 11,
+              "error": "script-error"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 728,
+            "height": 90,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 379
+    },
+    {
+      "specId": "display-mrec",
+      "name": "Medium Rectangle",
+      "category": "display",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "gampad",
+              "label": "DoubleClick ad request",
+              "url": "https://securepubads.g.doubleclick.net/gampad/ads?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 9,
+              "error": "Failed to fetch"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 300,
+            "height": 250,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 381
+    },
+    {
+      "specId": "display-skyscraper",
+      "name": "Skyscraper",
+      "category": "display",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "adnxs",
+              "label": "AppNexus ad call",
+              "url": "https://ib.adnxs.com/ttj?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 9,
+              "error": "Failed to fetch"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 160,
+            "height": 600,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 380
+    },
+    {
+      "specId": "video-preroll",
+      "name": "Video Pre-roll",
+      "category": "video",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "allowed",
+          "detail": "Only 1 of 2 request(s) were blocked; the rest got through.",
+          "probes": [
+            {
+              "probeId": "ima-sdk",
+              "label": "Google IMA SDK",
+              "url": "https://imasdk.googleapis.com/js/sdkloader/ima3.js?_abb=167543ecfjefn",
+              "rejected": false,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 157700,
+              "durationMs": 189
+            },
+            {
+              "probeId": "vast",
+              "label": "VAST video ad request",
+              "url": "https://googleads.g.doubleclick.net/pagead/ads?ad_type=video&_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 8,
+              "error": "Failed to fetch"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 640,
+            "height": 360,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 554
+    },
+    {
+      "specId": "overlay-interstitial",
+      "name": "Interstitial Overlay",
+      "category": "overlay",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "vignette",
+              "label": "Interstitial conversion endpoint",
+              "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 5,
+              "error": "Failed to fetch"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "blocked",
+          "detail": "Clipped away entirely within the harness.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 1492,
+            "height": 1000,
+            "intersectionRatio": 0,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 373
+    },
+    {
+      "specId": "social-feed",
+      "name": "Social Feed Ad",
+      "category": "social",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "meta-pixel",
+              "label": "Meta Pixel script",
+              "url": "https://connect.facebook.net/en_US/fbevents.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 6,
+              "error": "script-error"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 500,
+            "height": 300,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 374
+    },
+    {
+      "specId": "mobile-banner",
+      "name": "Mobile Banner",
+      "category": "mobile",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "admob",
+              "label": "AdMob ad request",
+              "url": "https://googleads.g.doubleclick.net/mads/gma?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 4,
+              "error": "Failed to fetch"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 320,
+            "height": 50,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 375
+    },
+    {
+      "specId": "richmedia-expandable",
+      "name": "Rich Media Expandable",
+      "category": "richmedia",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "taboola",
+              "label": "Taboola loader",
+              "url": "https://cdn.taboola.com/libtrc/unip/0/tfa.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 5,
+              "error": "script-error"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 300,
+            "height": 250,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 374
+    },
+    {
+      "specId": "sticky-anchor",
+      "name": "Sticky Anchor Banner",
+      "category": "sticky",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "adsense-anchor",
+              "label": "AdSense anchor loader",
+              "url": "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 8,
+              "error": "script-error"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 320,
+            "height": 100,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 375
+    },
+    {
+      "specId": "native-content",
+      "name": "Native Content Ad",
+      "category": "native",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "outbrain",
+              "label": "Outbrain widget script",
+              "url": "https://widgets.outbrain.com/outbrain.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 2,
+              "error": "script-error"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 600,
+            "height": 250,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 367
+    },
+    {
+      "specId": "text-ad",
+      "name": "Text Ad Block",
+      "category": "text",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "adsense-text",
+              "label": "AdSense text ad loader",
+              "url": "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 13,
+              "error": "script-error"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 468,
+            "height": 120,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 383
+    },
+    {
+      "specId": "cosmetic-generic-bait",
+      "name": "Generic Cosmetic Bait",
+      "category": "cosmetic",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 300,
+            "height": 100,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 366
+    },
+    {
+      "specId": "tracking-analytics-pixel",
+      "name": "Analytics Pixel",
+      "category": "tracking",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 3 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "ga-collect",
+              "label": "Universal Analytics collect",
+              "url": "https://www.google-analytics.com/collect?v=1&tid=UA-000000-1&cid=1&t=pageview&_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 16,
+              "error": "image-error"
+            },
+            {
+              "probeId": "ga4-collect",
+              "label": "GA4 collect",
+              "url": "https://region1.google-analytics.com/g/collect?v=2&tid=G-0000000000&_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 9,
+              "error": "Failed to fetch"
+            },
+            {
+              "probeId": "gtag",
+              "label": "Google Tag Manager loader",
+              "url": "https://www.googletagmanager.com/gtag/js?id=G-0000000000&_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 16,
+              "error": "script-error"
+            }
+          ]
+        }
+      ],
+      "durationMs": 16
+    },
+    {
+      "specId": "tracking-affiliate",
+      "name": "Affiliate Link Tracker",
+      "category": "tracking",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 2 request(s) were stopped (1 answered with an empty response).",
+          "probes": [
+            {
+              "probeId": "meta-tr",
+              "label": "Meta conversion beacon",
+              "url": "https://www.facebook.com/tr/?id=0&ev=PageView&_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 104,
+              "error": "image-error"
+            },
+            {
+              "probeId": "amazon-adsystem",
+              "label": "Amazon APS tag",
+              "url": "https://c.amazon-adsystem.com/aax2/apstag.js?_abb=167543ecfjefn",
+              "rejected": false,
+              "neutralized": true,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 206,
+              "error": "loaded but apstag was not defined by the script"
+            }
+          ]
+        },
+        {
+          "kind": "cosmetic",
+          "verdict": "allowed",
+          "detail": "Element rendered and visible.",
+          "visibility": {
+            "attached": true,
+            "display": "block",
+            "visibility": "visible",
+            "opacity": "1",
+            "width": 400,
+            "height": 90,
+            "intersectionRatio": 1,
+            "ancestorHidden": false,
+            "baselineVisible": true
+          }
+        }
+      ],
+      "durationMs": 566
+    },
+    {
+      "specId": "tracking-fingerprinting",
+      "name": "Fingerprinting Scripts",
+      "category": "fingerprinting",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 2 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "fingerprintjs",
+              "label": "FingerprintJS (v5)",
+              "url": "https://openfpcdn.io/fingerprintjs/v5/iife.min.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 6,
+              "error": "script-error"
+            },
+            {
+              "probeId": "fpjs-openfpcdn",
+              "label": "FingerprintJS CDN (v4)",
+              "url": "https://openfpcdn.io/fingerprintjs/v4/iife.min.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 6,
+              "error": "script-error"
+            }
+          ]
+        }
+      ],
+      "durationMs": 6
+    },
+    {
+      "specId": "tracking-session-replay",
+      "name": "Session Replay",
+      "category": "tracking",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 2 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "hotjar",
+              "label": "Hotjar recorder",
+              "url": "https://static.hotjar.com/c/hotjar-0.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 11,
+              "error": "script-error"
+            },
+            {
+              "probeId": "clarity",
+              "label": "Microsoft Clarity",
+              "url": "https://www.clarity.ms/tag/0000000000?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 11,
+              "error": "script-error"
+            }
+          ]
+        }
+      ],
+      "durationMs": 11
+    },
+    {
+      "specId": "tracking-beacon-transport",
+      "name": "Beacon Transport",
+      "category": "tracking",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "allowed",
+          "detail": "All 1 request(s) completed.",
+          "probes": [
+            {
+              "probeId": "beacon-ga",
+              "label": "sendBeacon to analytics endpoint",
+              "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-0000000000&_abb=167543ecfjefn",
+              "rejected": false,
+              "neutralized": false,
+              "hadTimingEntry": false,
+              "transferSize": null,
+              "durationMs": 0
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "tracking-first-party-analytics",
+      "name": "This Site's Own Analytics",
+      "category": "tracking",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "allowed",
+          "detail": "All 1 request(s) completed.",
+          "probes": [
+            {
+              "probeId": "matomo",
+              "label": "Matomo tracker script",
+              "url": "https://dev.siliconsquire.com/matomo.js?_abb=167543ecfjefn",
+              "rejected": false,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 794
+            }
+          ]
+        }
+      ],
+      "durationMs": 795
+    },
+    {
+      "specId": "tracking-retargeting",
+      "name": "Retargeting Pixels",
+      "category": "tracking",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 4 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "criteo",
+              "label": "Criteo retargeting",
+              "url": "https://static.criteo.net/js/ld/publishertag.prebid.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 6,
+              "error": "script-error"
+            },
+            {
+              "probeId": "quantcast",
+              "label": "Quantcast audience pixel",
+              "url": "https://pixel.quantserve.com/pixel?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 6,
+              "error": "image-error"
+            },
+            {
+              "probeId": "comscore",
+              "label": "Comscore audience measurement",
+              "url": "https://sb.scorecardresearch.com/beacon.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 7,
+              "error": "script-error"
+            },
+            {
+              "probeId": "linkedin-insight",
+              "label": "LinkedIn Insight tag",
+              "url": "https://snap.licdn.com/li.lms-analytics/insight.min.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 7,
+              "error": "script-error"
+            }
+          ]
+        }
+      ],
+      "durationMs": 7
+    },
+    {
+      "specId": "tracking-social-pixels",
+      "name": "Social Platform Pixels",
+      "category": "tracking",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 4 request(s) were stopped (1 answered with an empty response).",
+          "probes": [
+            {
+              "probeId": "pinterest-tag",
+              "label": "Pinterest conversion tag",
+              "url": "https://s.pinimg.com/ct/core.js?_abb=167543ecfjefn",
+              "rejected": false,
+              "neutralized": true,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 45,
+              "error": "loaded but pintrk was not defined by the script"
+            },
+            {
+              "probeId": "tiktok-pixel",
+              "label": "TikTok pixel",
+              "url": "https://analytics.tiktok.com/i18n/pixel/events.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 8,
+              "error": "script-error"
+            },
+            {
+              "probeId": "reddit-pixel",
+              "label": "Reddit ads pixel",
+              "url": "https://www.redditstatic.com/ads/pixel.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 8,
+              "error": "script-error"
+            },
+            {
+              "probeId": "x-pixel",
+              "label": "X/Twitter universal website tag",
+              "url": "https://static.ads-twitter.com/uwt.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 8,
+              "error": "script-error"
+            }
+          ]
+        }
+      ],
+      "durationMs": 45
+    },
+    {
+      "specId": "privacy-sandbox",
+      "name": "Privacy Sandbox APIs",
+      "category": "privacy-api",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "3 of 5 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "topics",
+              "label": "Topics API (document.browsingTopics)",
+              "verdict": "blocked",
+              "present": false
+            },
+            {
+              "id": "protected-audience-join",
+              "label": "Protected Audience (joinAdInterestGroup)",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "protected-audience-auction",
+              "label": "Protected Audience (runAdAuction)",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "attribution-reporting",
+              "label": "Attribution Reporting (attributionSrc)",
+              "verdict": "blocked",
+              "present": false
+            },
+            {
+              "id": "private-state-tokens",
+              "label": "Private State Tokens (hasPrivateToken)",
+              "verdict": "allowed",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "durationMs": 1
+    },
+    {
+      "specId": "privacy-storage-access",
+      "name": "Storage Access API",
+      "category": "privacy-api",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "2 of 2 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "request-storage-access",
+              "label": "document.requestStorageAccess",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "has-storage-access",
+              "label": "document.hasStorageAccess",
+              "verdict": "allowed",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "privacy-opt-out-signals",
+      "name": "Opt-out Signals",
+      "category": "privacy-api",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "1 of 1 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "gpc",
+              "label": "Global Privacy Control (navigator.globalPrivacyControl)",
+              "verdict": "allowed",
+              "present": false
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "mv3-late-injection",
+      "name": "MV3 Late Injection",
+      "category": "advanced",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "allowed",
+          "detail": "Only 2 of 3 request(s) were blocked; the rest got through.",
+          "probes": [
+            {
+              "probeId": "late-adsense",
+              "label": "AdSense loader (delayed 2s)",
+              "url": "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 10,
+              "error": "script-error"
+            },
+            {
+              "probeId": "late-doubleclick",
+              "label": "GPT loader (delayed 2s)",
+              "url": "https://securepubads.g.doubleclick.net/tag/js/gpt.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 10,
+              "error": "script-error"
+            },
+            {
+              "probeId": "late-ima",
+              "label": "IMA SDK (delayed 2s)",
+              "url": "https://imasdk.googleapis.com/js/sdkloader/ima3.js?_abb=167543ecfjefn",
+              "rejected": false,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 157700,
+              "durationMs": 7
+            }
+          ]
+        }
+      ],
+      "durationMs": 2011
+    },
+    {
+      "specId": "advanced-ping-transport",
+      "name": "Background Beacon Tracking",
+      "category": "advanced",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "allowed",
+          "detail": "All 2 request(s) completed.",
+          "probes": [
+            {
+              "probeId": "ping-doubleclick",
+              "label": "DoubleClick beacon",
+              "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/?_abb=167543ecfjefn",
+              "rejected": false,
+              "neutralized": false,
+              "hadTimingEntry": false,
+              "transferSize": null,
+              "durationMs": 0
+            },
+            {
+              "probeId": "ping-meta",
+              "label": "Meta pixel beacon",
+              "url": "https://www.facebook.com/tr/?id=0&ev=PageView&_abb=167543ecfjefn",
+              "rejected": false,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 0
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "advanced-worker-fetch",
+      "name": "Worker Context Requests",
+      "category": "advanced",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 1 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "worker-analytics",
+              "label": "GA analytics worker",
+              "url": "https://www.google-analytics.com/analytics.js?_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": false,
+              "transferSize": null,
+              "durationMs": 9,
+              "error": "worker-fetch-failed"
+            }
+          ]
+        }
+      ],
+      "durationMs": 9
+    },
+    {
+      "specId": "advanced-regex-rules",
+      "name": "Query-Param Tracking",
+      "category": "advanced",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "network",
+          "verdict": "blocked",
+          "detail": "All 2 request(s) were blocked.",
+          "probes": [
+            {
+              "probeId": "regex-track",
+              "label": "GA4 collect with tracking params",
+              "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-TEST&en=page_view&_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 4,
+              "error": "Failed to fetch"
+            },
+            {
+              "probeId": "regex-pixel",
+              "label": "Meta pixel with tracking params",
+              "url": "https://www.facebook.com/tr/?id=0&ev=PageView&dl=test&_abb=167543ecfjefn",
+              "rejected": true,
+              "neutralized": false,
+              "hadTimingEntry": true,
+              "transferSize": 0,
+              "durationMs": 28,
+              "error": "image-error"
+            }
+          ]
+        }
+      ],
+      "durationMs": 28
+    },
+    {
+      "specId": "advanced-scriptlet-eval",
+      "name": "Eval Suppression",
+      "category": "advanced",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "scriptlet",
+          "verdict": "allowed",
+          "detail": "No scriptlet overrides detected in 1 check(s).",
+          "scriptletResults": [
+            {
+              "id": "eval-suppressed",
+              "label": "window.eval still executes code",
+              "verdict": "allowed",
+              "detected": false
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "fingerprinting-canvas",
+      "name": "Canvas Fingerprinting",
+      "category": "fingerprinting",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "3 of 3 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "canvas-toDataURL",
+              "label": "HTMLCanvasElement.toDataURL",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "canvas-getImageData",
+              "label": "CanvasRenderingContext2D.getImageData",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "OffscreenCanvas",
+              "label": "OffscreenCanvas",
+              "verdict": "allowed",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "fingerprinting-webgl",
+      "name": "WebGL Fingerprinting",
+      "category": "fingerprinting",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "2 of 2 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "webgl-getParameter",
+              "label": "WebGLRenderingContext.getParameter",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "webgl-context",
+              "label": "WebGLRenderingContext constructor",
+              "verdict": "allowed",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "fingerprinting-hardware",
+      "name": "Hardware Fingerprinting",
+      "category": "fingerprinting",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "2 of 3 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "hardware-concurrency",
+              "label": "navigator.hardwareConcurrency",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "device-memory",
+              "label": "navigator.deviceMemory",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "battery-api",
+              "label": "navigator.getBattery",
+              "verdict": "blocked",
+              "present": false
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "fingerprinting-audio",
+      "name": "Audio Fingerprinting",
+      "category": "fingerprinting",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "3 of 3 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "offline-audio-context",
+              "label": "OfflineAudioContext",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "audio-oscillator",
+              "label": "AudioContext.createOscillator",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "audio-compressor",
+              "label": "AudioContext.createDynamicsCompressor",
+              "verdict": "allowed",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "fingerprinting-fonts",
+      "name": "Font Enumeration",
+      "category": "fingerprinting",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "2 of 2 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "local-font-access",
+              "label": "window.queryLocalFonts",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "canvas-measure-text",
+              "label": "CanvasRenderingContext2D.measureText",
+              "verdict": "allowed",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    },
+    {
+      "specId": "fingerprinting-screen",
+      "name": "Screen Metrics Fingerprinting",
+      "category": "fingerprinting",
+      "status": "done",
+      "signals": [
+        {
+          "kind": "api",
+          "verdict": "allowed",
+          "detail": "4 of 4 applicable API(s) are exposed.",
+          "apiResults": [
+            {
+              "id": "screen-width",
+              "label": "screen.width",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "screen-height",
+              "label": "screen.height",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "screen-color-depth",
+              "label": "screen.colorDepth",
+              "verdict": "allowed",
+              "present": true
+            },
+            {
+              "id": "device-pixel-ratio",
+              "label": "window.devicePixelRatio",
+              "verdict": "allowed",
+              "present": true
+            }
+          ]
+        }
+      ],
+      "durationMs": 0
+    }
+  ],
+  "blockerClass": {
+    "class": "extension",
+    "confidence": 0.8390625,
+    "detail": "31 of 32 blocked probe(s) failed fast with no Resource Timing entry. Consistent with a browser extension using declarativeNetRequest or webRequest.",
+    "detailKey": "classify.extension",
+    "detailParams": {
+      "blocked": 31,
+      "total": 32
+    }
+  },
+  "environment": {
+    "engine": "chromium",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+  },
+  "serverReconciliation": [
+    {
+      "probeId": "ads-banner",
+      "clientVerdict": "allowed",
+      "serverArrived": true,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "ads-doubleclick",
+      "clientVerdict": "allowed",
+      "serverArrived": true,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "ads-adsense",
+      "clientVerdict": "allowed",
+      "serverArrived": true,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "track-ga",
+      "clientVerdict": "blocked",
+      "serverArrived": false,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "track-fb-pixel",
+      "clientVerdict": "blocked",
+      "serverArrived": false,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "track-scorecard",
+      "clientVerdict": "blocked",
+      "serverArrived": false,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "subdomain-ads",
+      "clientVerdict": "blocked",
+      "serverArrived": false,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "subdomain-track",
+      "clientVerdict": "blocked",
+      "serverArrived": false,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "subdomain-pixel",
+      "clientVerdict": "blocked",
+      "serverArrived": false,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "decoy-gpt",
+      "clientVerdict": "allowed",
+      "serverArrived": true,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "decoy-analytics",
+      "clientVerdict": "blocked",
+      "serverArrived": false,
+      "agreement": "agree"
+    },
+    {
+      "probeId": "decoy-collect",
+      "clientVerdict": "blocked",
+      "serverArrived": false,
+      "agreement": "agree"
+    }
+  ],
+  "serverDisagreements": 0
+}
