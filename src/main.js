@@ -642,6 +642,7 @@ function createTabView(tab) {
     webPreferences: {
       ...REMOTE_RENDERER_POLICY,
       preload: path.join(__dirname, 'extension-bridge-preload.js'),
+      additionalArguments: extensionRuntime ? extensionRuntime.bridgeArguments() : [],
       session: tab.privateSession,
       javascript: Boolean(tab.javascriptEnabled)
     }
@@ -1097,17 +1098,17 @@ function wireIpc() {
       const answer = await dialog.showMessageBox(mainWindow, { type:'warning', buttons:['Cancel','Install'], defaultId:0, cancelId:0, title:'Review extension permissions', message:summary.name + ' ' + summary.version, detail:'Aegis compatibility: ' + summary.compatibility.score + '%\nHigh-risk permissions: ' + risky + '\nUnsupported APIs: ' + unsupported + '\n\nAegis runs content scripts in an isolated world and does not grant Node.js access.' });
       if (answer.response !== 1) return { ok:false, canceled:true, summary };
       const installed = await extensionRuntime.install(pick.filePaths[0]);
-      for (const tab of tabs.values()) { try { tab.view.webContents.reload(); } catch {} }
+      await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
       emitState(); return { ok:true, extension:installed };
     } catch (err) { return { ok:false, error:err.message }; }
   });
   ipcMain.handle('extensions:set-enabled', (event, payload) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
-    try { const extension=extensionRuntime.setEnabled(String(payload?.id||''), Boolean(payload?.enabled)); for (const tab of tabs.values()) try { tab.view.webContents.reload(); } catch {} emitState(); return { ok:true, extension }; } catch (err) { return { ok:false, error:err.message }; }
+    try { const extension=extensionRuntime.setEnabled(String(payload?.id||''), Boolean(payload?.enabled)); Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))).then(emitState); return { ok:true, extension }; } catch (err) { return { ok:false, error:err.message }; }
   });
   ipcMain.handle('extensions:remove', (event, id) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
-    const ok=extensionRuntime.remove(String(id||'')); for (const tab of tabs.values()) try { tab.view.webContents.reload(); } catch {} emitState(); return { ok };
+    const ok=extensionRuntime.remove(String(id||'')); Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))).then(emitState); return { ok };
   });
   ipcMain.handle('extension:call', (event, payload) => extensionRuntime ? extensionRuntime.call(event.sender, payload) : Promise.reject(new Error('Extension runtime unavailable.')));
 
