@@ -327,6 +327,7 @@
 
         <section class="settings-page" data-settings-page="enterprise">
           <div class="page-title"><h3>Enterprise security</h3><p>Managed policy controls for high-assurance deployments. Enterprise policy is enforced in the browser process, not only in the settings UI.</p></div>
+          <div class="settings-card"><div class="setting-row"><div><b>Signed managed policy</b><small id="managedPolicyStatus">No administrator policy loaded. Set AEGIS_POLICY_PUBLIC_KEY before importing a signed policy.</small></div><button id="importManagedPolicy" class="secondary">Import signed policy</button></div></div>
           <div class="settings-card grouped-card">
             <div class="setting-row"><div><b>Enterprise policy mode</b><small>Enable centrally defined browsing, extension and data-loss restrictions.</small></div><label class="switch"><input id="enterpriseMode" type="checkbox"><span></span></label></div>
             <div class="setting-row"><div><b>Block extensions not explicitly allowed</b><small>Only extension IDs listed below can be installed when enterprise mode is active.</small></div><label class="switch"><input id="enterpriseBlockExtensions" type="checkbox"><span></span></label></div>
