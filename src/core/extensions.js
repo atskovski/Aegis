@@ -520,6 +520,9 @@ class AegisExtensionRuntime{
   }
   async call(sender,p={}){
     const e=this.extensionFor(p.extensionId),m=String(p.method||''),a=Array.isArray(p.args)?p.args:[],tabs=this.getTabs(),source=tabs.find((t)=>t.view?.webContents===sender);
+    const background=this.backgroundHosts.get(e.id),pageAuthorized=[...this.pageWindows].some((win)=>win.__aegisExtensionId===e.id&&!win.isDestroyed()&&win.webContents===sender);
+    const senderAuthorized=Boolean((source&&extensionVisibleTab(source))||(background&&!background.isDestroyed()&&background.webContents===sender)||pageAuthorized);
+    if(!senderAuthorized)throw new Error('Extension IPC sender is not authorized for '+e.id);
     const declared=new Set(permissions(e.manifest)),hasTabs=declared.has('tabs')||declared.has('activeTab'),requireTabs=()=>{if(!hasTabs)throw new Error('Extension lacks tabs/activeTab permission.')};
     const tabArg=(value,allowSource=true)=>{const id=Number(value);return Number.isFinite(id)?this.tabById(id):(allowSource?source:null)};
     if(m==='runtime.getManifest')return e.manifest;
