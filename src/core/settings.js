@@ -9,7 +9,7 @@ const SEARCH_ENGINES = Object.freeze({
 });
 
 const DEFAULT_SETTINGS = Object.freeze({
-  schemaVersion: 7,
+  schemaVersion: 8,
   privacyLevel: 'strict',
   homePage: 'https://duckduckgo.com/',
   searchEngine: 'duckduckgo',
@@ -46,6 +46,13 @@ const DEFAULT_SETTINGS = Object.freeze({
   sponsorBlock: {
     enabled: false,
     categories: ['sponsor','selfpromo']
+  },
+  anonymity: {
+    torProxy: '127.0.0.1:9050',
+    requireTorVerification: true,
+    blockPrivateNetwork: true,
+    disableDownloads: true,
+    disableExtensions: true
   },
   proxy: {
     mode: 'system',
@@ -103,6 +110,18 @@ function sanitizeSponsor(raw) {
   return { enabled: bool(raw?.enabled, DEFAULT_SETTINGS.sponsorBlock.enabled), categories: cats.length ? cats : [...DEFAULT_SETTINGS.sponsorBlock.categories] };
 }
 
+function sanitizeAnonymity(raw) {
+  const d = DEFAULT_SETTINGS.anonymity;
+  const torProxy = clampText(raw?.torProxy, 180) || d.torProxy;
+  return {
+    torProxy,
+    requireTorVerification: bool(raw?.requireTorVerification, d.requireTorVerification),
+    blockPrivateNetwork: bool(raw?.blockPrivateNetwork, d.blockPrivateNetwork),
+    disableDownloads: bool(raw?.disableDownloads, d.disableDownloads),
+    disableExtensions: bool(raw?.disableExtensions, d.disableExtensions)
+  };
+}
+
 function sanitizeSettings(raw = {}) {
   const d = cloneDefaults();
   const migratedLevel = raw.privacyLevel === 'compatible' ? 'standard' : raw.privacyLevel;
@@ -112,7 +131,7 @@ function sanitizeSettings(raw = {}) {
   const proxyMode = legacyDefaultDirect ? 'system' : choice(raw.proxy?.mode, ['system','direct','socks5','http','https'], d.proxy.mode);
   const migratedTheme = ['midnight','aurora'].includes(raw.appearance?.theme) ? 'nebula' : raw.appearance?.theme;
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     privacyLevel: choice(migratedLevel, ['standard','strict','maximum'], d.privacyLevel),
     homePage: sanitizeHomePage(raw.homePage),
     searchEngine,
@@ -147,6 +166,7 @@ function sanitizeSettings(raw = {}) {
     threatProtection: bool(raw.threatProtection, d.threatProtection),
     siteIntelligence: bool(raw.siteIntelligence, d.siteIntelligence),
     sponsorBlock: sanitizeSponsor(raw.sponsorBlock),
+    anonymity: sanitizeAnonymity(raw.anonymity),
     proxy: { mode: proxyMode, server: clampText(raw.proxy?.server, 180), bypassLocal: bool(raw.proxy?.bypassLocal, d.proxy.bypassLocal), failClosedFixedProxy: bool(raw.proxy?.failClosedFixedProxy, d.proxy.failClosedFixedProxy) },
     permissionDefaults: sanitizePermissionDefaults(raw.permissionDefaults),
     sitePermissions: sanitizeSitePermissions(raw.sitePermissions),
