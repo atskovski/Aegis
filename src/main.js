@@ -1151,15 +1151,16 @@ function wireIpc() {
       emitState(); return { ok:true, extension:installed };
     } catch (err) { return { ok:false, error:err.message }; }
   });
-  ipcMain.handle('extensions:set-enabled', (event, payload) => {
+  ipcMain.handle('extensions:set-enabled', async (event, payload) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
-    try { const extension=extensionRuntime.setEnabled(String(payload?.id||''), Boolean(payload?.enabled)); Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))).then(emitState); return { ok:true, extension }; } catch (err) { return { ok:false, error:err.message }; }
+    try { const extension=await extensionRuntime.setEnabled(String(payload?.id||''), Boolean(payload?.enabled)); await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))); emitState(); return { ok:true, extension }; } catch (err) { return { ok:false, error:err.message }; }
   });
   ipcMain.handle('extensions:remove', (event, id) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
     const ok=extensionRuntime.remove(String(id||'')); Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))).then(emitState); return { ok };
   });
   ipcMain.handle('extension:call', (event, payload) => extensionRuntime ? extensionRuntime.call(event.sender, payload) : Promise.reject(new Error('Extension runtime unavailable.')));
+  ipcMain.on('extension:message-response', (event, payload) => { if (extensionRuntime) extensionRuntime.handleBackgroundResponse(event.sender, payload); });
 
   ipcMain.on('nav', (event, value) => { if (assertUiSender(event)) navigateTab(activeTab(), value); });
   ipcMain.on('tab:new', (event, value) => { if (assertUiSender(event)) createTab(value || settings.homePage || 'https://duckduckgo.com/'); });
@@ -1423,6 +1424,10 @@ app.whenReady().then(async () => {
   extensionRuntime = new AegisExtensionRuntime({
     rootDir: app.getPath('userData'),
     getTabs: () => [...tabs.values()],
+    getActiveId: () => activeId,
+    BrowserWindow,
+    electronSession,
+    registerProtocols: registerInternalProtocol,
     createTab,
     updateTab: async (id, props = {}) => { const tab=tabs.get(Number(id)); if(!tab) throw new Error('Tab not found'); if(props.url) await navigateTab(tab, props.url); if(props.active) activateTab(tab.id); return serializeTab(tab); },
     removeTab: (id) => closeTab(id)
@@ -1431,6 +1436,7 @@ app.whenReady().then(async () => {
   registerInternalProtocol(protocol, 'default UI session');
 
   wireIpc();
+  await extensionRuntime.startAll();
   await createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -1460,6 +1466,7 @@ app.on('second-instance', () => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => {
+  try { extensionRuntime?.stopAll(); } catch {}
   for (const [id, pending] of pendingPermissions) {
     clearTimeout(pending.timer);
     try { pending.complete(false); } catch {}
