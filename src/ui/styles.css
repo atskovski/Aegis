@@ -244,6 +244,7 @@ body[data-text-scale="xlarge"]{font-size:17px}
 .addon-score.compat-excellent,.addon-score.compat-good{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--line))}
 .addon-score.compat-partial{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
 .addon-score.compat-limited{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
+.addon-score.install-complete{min-width:108px;color:var(--good);border-color:color-mix(in srgb,var(--good) 48%,var(--line));background:color-mix(in srgb,var(--good) 8%,var(--surface3));font-size:11px;letter-spacing:.04em}
 .addon-boundary-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:14px 0 20px}
 .addon-boundary-grid .info-callout{margin:0}
 .addon-section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding-top:4px}
