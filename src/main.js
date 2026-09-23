@@ -16,7 +16,7 @@ const { TrackerLearner } = require('./core/tracker-learning');
 const { analyzeUrl } = require('./core/safety');
 const { youtubeVideoId, fetchSponsorSegments, sponsorSkipScript } = require('./core/sponsor');
 const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNetworkEvent, publicSiteIntelligence, buildSiteAuditScript } = require('./core/site-intelligence');
-const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, compareFingerprintCohort, testNetworkIdentity, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
+const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, compareFingerprintCohort, testNetworkIdentity, testStorageResurrection, testProcessIsolation, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
 const { AegisExtensionRuntime } = require('./core/extensions');
 const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
@@ -329,6 +329,8 @@ async function runSecuritySuite() {
       rendererOk
         ? 'Active web renderer is sandboxed with context isolation, Node disabled, webSecurity enabled, and DevTools disabled.'
         : 'One or more required renderer-isolation controls are not active.', 'runtime-policy'));
+    const processIsolation = await testProcessIsolation((source)=>tab.view.webContents.executeJavaScript(source,true), policy);
+    checks.push(makeCheck('process-isolation-behavior', 'Process / Node isolation behavior', processIsolation.status, processIsolation.evidence, 'behavioral-test'));
     checks.push(makeCheck('permission-firewall', 'Permission firewall', tab.permissionFirewallReady ? 'pass' : 'fail',
       tab.permissionFirewallReady ? 'Permission request and permission check handlers are installed for this private tab session.' : 'Permission handlers are not confirmed for the active tab.', 'runtime-policy'));
     const fpNeeded = effective.privacyLevel !== 'standard';
@@ -497,6 +499,9 @@ async function runSecuritySuite() {
       onPermissionBlocked:()=>{}, onPermissionPrompt:({ complete })=>complete(false),
       onSensitiveAccess:()=>{}, onNetworkAccess:()=>{}, trackerLearner:null, getFilterRules:()=>null, isTemporarilyAllowed:()=>false
     });
+    const storageProbe = await testStorageResurrection(ses);
+    checks.push(makeCheck('storage-resurrection', 'Storage resurrection cleanup', storageProbe.status, storageProbe.evidence, 'behavioral-test'));
+
     const networkIdentity = await testNetworkIdentity(ses, {
       ua: expectedNetworkUa, doNotTrack: effective.doNotTrack, globalPrivacyControl: effective.globalPrivacyControl
     });
