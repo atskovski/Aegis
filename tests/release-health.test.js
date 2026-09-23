@@ -10,6 +10,8 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 const main = read('src/main.js');
 const ui = read('src/ui/app.js');
 const preload = read('src/preload.js');
+const privacy = read('src/core/privacy.js');
+const suiteCore = read('src/core/security-suite.js');
 const html = read('src/ui/index.html');
 const launcher = read('Run-Aegis.command');
 const pkg = JSON.parse(read('package.json'));
@@ -77,6 +79,23 @@ test('Security Suite uses current runtime factories and engine-neutral view chec
   assert.match(main, /stats:makeTabStats\(\)/);
   assert.doesNotMatch(main, /candidate\?\.view\?\.webContents/);
   assert.match(main, /suite-runtime-integrity/);
+});
+
+test('privacy session uses one deterministic request-header pipeline', () => {
+  const registrations = [...privacy.matchAll(/ses\.webRequest\.onBeforeSendHeaders\(/g)];
+  assert.equal(registrations.length, 1, 'privacy session must install exactly one onBeforeSendHeaders handler');
+  assert.match(privacy, /h\['User-Agent'\] = genericUA/);
+  assert.match(privacy, /onRequestHeaders/);
+  assert.match(suiteCore, /installObserver/);
+  assert.match(main, /onRequestHeaders:observeHeaders/);
+});
+
+test('UI receive channels are permitted and emitted by main', () => {
+  const receives = channels(ui, /window\.aegis\.on\('([^']+)'/g);
+  const allowedReceive = setValues(preload, 'allowedReceive');
+  const mainSends = channels(main, /webContents\.send\('([^']+)'/g);
+  assert.deepEqual(receives.filter((x) => !allowedReceive.includes(x)), []);
+  assert.deepEqual(receives.filter((x) => !mainSends.includes(x)), []);
 });
 
 test('launcher and package release versions stay synchronized', () => {
