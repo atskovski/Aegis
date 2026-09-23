@@ -235,7 +235,9 @@ test('registered content scripts support MV3 dynamic scripting metadata', () => 
     const runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[],createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
     const e={id:'dynamic-test',path:extRoot,enabled:true,manifest,detectedApis:['scripting'],compatibility:compatibility(manifest,['scripting'])};
     runtime.items.set(e.id,e);
-    runtime.registerContentScripts(e,[{id:'dnt_signal',js:['dnt.js'],matches:['<all_urls>'],runAt:'document_start',allFrames:true,world:'MAIN',persistAcrossSessions:false}]);
+    const dnt={id:'dnt_signal',js:['dnt.js'],matches:['<all_urls>'],runAt:'document_start',allFrames:true,world:'MAIN',persistAcrossSessions:false};
+    runtime.registerContentScripts(e,[dnt]);
+    runtime.registerContentScripts(e,[dnt]);
     const rows=runtime.getRegisteredContentScripts(e,{});
     assert.equal(rows.length,1);
     assert.equal(rows[0].id,'dnt_signal');
