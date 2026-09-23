@@ -7,7 +7,6 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
 const execFileAsync = promisify(execFile);
-const CONTENT_WORLD_ID = 1004;
 const SUPPORTED_ROOTS = new Set(['runtime','storage','tabs','permissions','i18n','activeTab']);
 const DENIED_ROOTS = Object.freeze({
   webRequest:'Aegis owns the network firewall; blocking webRequest is not exposed.',
@@ -33,6 +32,10 @@ function normalizeManifest(m){
   return m;
 }
 function permissions(m){ return [...new Set([...(Array.isArray(m.permissions)?m.permissions:[]),...(Array.isArray(m.host_permissions)?m.host_permissions:[])])]; }
+function extensionWorldId(id){
+  const h=crypto.createHash('sha256').update(String(id)).digest();
+  return 1100 + (h.readUInt32BE(0) % 50000);
+}
 function extensionId(m,digest){
   const id=m?.browser_specific_settings?.gecko?.id||m?.applications?.gecko?.id||('xpi-'+digest.slice(0,32));
   return String(id).toLowerCase().replace(/[^a-z0-9@._-]/g,'-').slice(0,120);
@@ -92,7 +95,7 @@ async function inspectXpi(file,tmpRoot){
 }
 function bootstrap(ext){
   const id=JSON.stringify(ext.id), manifest=JSON.stringify(ext.manifest);
-  return "(()=>{'use strict';const ID="+id+",M=Object.freeze("+manifest+"),B=globalThis.__aegisExtensionBridge;if(!B)return;const L=[],call=(m,...a)=>B.call(ID,m,a);globalThis.__aegisReceiveMessage=async(msg)=>{for(const f of [...L]){try{const r=await f(msg,{tab:{url:location.href}},()=>{});if(r!==undefined)return r}catch{}}};B.onMessage(ID,(p)=>globalThis.__aegisReceiveMessage(p.message));const area=(n)=>({get:(k)=>call('storage.'+n+'.get',k),set:(v)=>call('storage.'+n+'.set',v),remove:(k)=>call('storage.'+n+'.remove',k),clear:()=>call('storage.'+n+'.clear')});const runtime={id:ID,getManifest:()=>M,getURL:(p='')=>'aegis-extension://'+encodeURIComponent(ID)+'/'+String(p).replace(/^\\/+/,''),getPlatformInfo:()=>call('runtime.getPlatformInfo'),sendMessage:(...a)=>call('runtime.sendMessage',...a),onMessage:{addListener:(f)=>{if(typeof f==='function'&&!L.includes(f))L.push(f)},removeListener:(f)=>{const i=L.indexOf(f);if(i>=0)L.splice(i,1)},hasListener:(f)=>L.includes(f)}};const api={runtime,extension:{getURL:runtime.getURL},storage:{local:area('local'),session:area('session')},tabs:{query:(q)=>call('tabs.query',q||{}),create:(p)=>call('tabs.create',p||{}),update:(...a)=>call('tabs.update',...a),remove:(ids)=>call('tabs.remove',ids),sendMessage:(id,msg)=>call('tabs.sendMessage',id,msg)},permissions:{contains:(p)=>call('permissions.contains',p||{})},i18n:{getUILanguage:()=> 'en-US'}};Object.defineProperty(globalThis,'browser',{value:api});if(!globalThis.chrome)Object.defineProperty(globalThis,'chrome',{value:api});})();";
+  return "(()=>{'use strict';const ID="+id+",M=Object.freeze("+manifest+"),B=globalThis.__aegisExtensionBridge;if(!B)return;const L=[],call=(m,...a)=>B.call(m,a);globalThis.__aegisReceiveMessage=async(msg)=>{for(const f of [...L]){try{const r=await f(msg,{tab:{url:location.href}},()=>{});if(r!==undefined)return r}catch{}}};B.onMessage(ID,(p)=>globalThis.__aegisReceiveMessage(p.message));const area=(n)=>({get:(k)=>call('storage.'+n+'.get',k),set:(v)=>call('storage.'+n+'.set',v),remove:(k)=>call('storage.'+n+'.remove',k),clear:()=>call('storage.'+n+'.clear')});const runtime={id:ID,getManifest:()=>M,getURL:(p='')=>'aegis-extension://'+encodeURIComponent(ID)+'/'+String(p).replace(/^\\/+/,''),getPlatformInfo:()=>call('runtime.getPlatformInfo'),sendMessage:(...a)=>call('runtime.sendMessage',...a),onMessage:{addListener:(f)=>{if(typeof f==='function'&&!L.includes(f))L.push(f)},removeListener:(f)=>{const i=L.indexOf(f);if(i>=0)L.splice(i,1)},hasListener:(f)=>L.includes(f)}};const api={runtime,extension:{getURL:runtime.getURL},storage:{local:area('local'),session:area('session')},tabs:{query:(q)=>call('tabs.query',q||{}),create:(p)=>call('tabs.create',p||{}),update:(...a)=>call('tabs.update',...a),remove:(ids)=>call('tabs.remove',ids),sendMessage:(id,msg)=>call('tabs.sendMessage',id,msg)},permissions:{contains:(p)=>call('permissions.contains',p||{})},i18n:{getUILanguage:()=> 'en-US'}};Object.defineProperty(globalThis,'browser',{value:api});if(!globalThis.chrome)Object.defineProperty(globalThis,'chrome',{value:api});})();";
 }
 function readStore(file){try{return readJson(file)}catch{return {}}}
 function writeStore(file,v){fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});fs.writeFileSync(file,JSON.stringify(v,null,2),{mode:0o600})}
@@ -107,14 +110,15 @@ class AegisExtensionRuntime{
     this.getTabs=getTabs;this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.items=new Map();this.sessionStores=new Map();
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load();
   }
-  load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,manifest,compatibility:compatibility(manifest)})}catch{}}}
+  load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),manifest,compatibility:compatibility(manifest)})}catch{}}}
   save(){writeStore(this.indexFile,[...this.items.values()].map(({manifest,compatibility,...r})=>r))}
-  list(){return [...this.items.values()].map((e)=>({id:e.id,name:e.manifest.name,version:e.manifest.version,enabled:e.enabled!==false,compatibility:e.compatibility,risk:installRisk(e.manifest)}))}
+  list(){return [...this.items.values()].map((e)=>({id:e.id,name:e.manifest.name,version:e.manifest.version,enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),compatibility:e.compatibility,risk:installRisk(e.manifest)}))}
+  bridgeArguments(){return this.enabled().map((e)=>'--aegis-extension-world='+encodeURIComponent(e.id)+':'+String(e.worldId||extensionWorldId(e.id)))}
   async inspect(file){const x=await inspectXpi(file,path.join(this.rootDir,'extension-staging'));try{return {name:x.manifest.name,version:x.manifest.version,description:String(x.manifest.description||''),compatibility:x.compatibility,risk:x.risk}}finally{try{fs.rmSync(path.dirname(x.root),{recursive:true,force:true})}catch{}}}
   async install(file){
     const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'), x=await inspectXpi(file,path.join(this.rootDir,'extension-staging')), id=extensionId(x.manifest,digest), dest=path.join(this.installDir,id);
     fs.rmSync(dest,{recursive:true,force:true}); fs.renameSync(x.root,dest); try{fs.rmSync(path.dirname(x.root),{recursive:true,force:true})}catch{}
-    const e={id,path:dest,enabled:true,source:'xpi',digest,installedAt:new Date().toISOString(),manifest:x.manifest,compatibility:x.compatibility}; this.items.set(id,e);this.save();return this.list().find((i)=>i.id===id);
+    const e={id,path:dest,worldId:extensionWorldId(id),enabled:true,source:'xpi',digest,installedAt:new Date().toISOString(),manifest:x.manifest,compatibility:x.compatibility}; this.items.set(id,e);this.save();return this.list().find((i)=>i.id===id);
   }
   setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();return this.list().find((i)=>i.id===id)}
   remove(id){const e=this.items.get(id);if(!e)return false;this.items.delete(id);this.sessionStores.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}return true}
@@ -124,7 +128,7 @@ class AegisExtensionRuntime{
     const url=tab.view.webContents.getURL(); if(!/^https?:\/\//.test(url))return []; const done=[];
     for(const e of this.enabled())for(const entry of matchingContentScripts(e.manifest,url)){
       const scripts=[{code:bootstrap(e)}]; for(const rel of Array.isArray(entry.js)?entry.js:[]){const s=safeRel(rel),f=path.resolve(e.path,s);if(s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f))scripts.push({code:fs.readFileSync(f,'utf8')})}
-      if(scripts.length>1)try{await tab.view.webContents.executeJavaScriptInIsolatedWorld(CONTENT_WORLD_ID,scripts,false);done.push(e.id)}catch{}
+      if(scripts.length>1)try{await tab.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),scripts,false);done.push(e.id)}catch{}
       const css=(Array.isArray(entry.css)?entry.css:[]).map((rel)=>{const s=safeRel(rel),f=path.resolve(e.path,s);return s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f)?fs.readFileSync(f,'utf8'):''}).filter(Boolean).join('\n'); if(css)try{await tab.view.webContents.insertCSS(css,{cssOrigin:'author'})}catch{}
     } return [...new Set(done)];
   }
@@ -138,9 +142,9 @@ class AegisExtensionRuntime{
     if(m==='tabs.create')return pub(await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false));
     if(m==='tabs.update')return this.updateTab(typeof a[0]==='number'?a[0]:source?.id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
     if(m==='tabs.remove'){for(const id of (Array.isArray(a[0])?a[0]:[a[0]]))this.removeTab(Number(id));return}
-    if(m==='tabs.sendMessage'){const t=tabs.find((x)=>x.id===Number(a[0]));if(!t)throw new Error('Tab not found');return t.view.webContents.executeJavaScriptInIsolatedWorld(CONTENT_WORLD_ID,[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+'):undefined'}])}
+    if(m==='tabs.sendMessage'){const t=tabs.find((x)=>x.id===Number(a[0]));if(!t)throw new Error('Tab not found');const targetExt=this.items.get(e.id); return t.view.webContents.executeJavaScriptInIsolatedWorld(targetExt.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+'):undefined'}])}
     if(m==='runtime.sendMessage')return undefined;
     throw new Error('Unsupported extension API: '+m);
   }
 }
-module.exports={CONTENT_WORLD_ID,safeRel,normalizeManifest,extensionId,permissions,compatibility,matchPattern,matchingContentScripts,installRisk,bootstrap,AegisExtensionRuntime};
+module.exports={extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,matchPattern,matchingContentScripts,installRisk,bootstrap,AegisExtensionRuntime};
