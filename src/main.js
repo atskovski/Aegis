@@ -828,7 +828,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
     url: '',
     loading: false,
     stats: makeTabStats(),
-    shieldsEnabled: settings.blockTrackers,
+    shieldsEnabled: true,
     allowHttp: false,
     javascriptEnabled: settings.javascriptDefault,
     compatibilityMode: false,
@@ -871,6 +871,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
     isTemporarilyAllowed: (origin, key) => isTemporarilyAllowed(tab.id, origin, key)
   });
   tab.permissionFirewallReady = true;
+  tab.privacySessionReady = true;
   applySessionDownloadPolicy(tab);
   wireTabView(tab, view);
   if (activate) activateTab(id);
@@ -1263,6 +1264,7 @@ function wireIpc() {
 
   ipcMain.on('settings:update', async (event, patch) => {
     if (!assertUiSender(event) || !patch || typeof patch !== 'object') return;
+    const previousSettings = settings;
     const siteIntelligenceWasEnabled = settings.siteIntelligence !== false;
     settings = sanitizeSettings({
       ...settings,
@@ -1278,20 +1280,25 @@ function wireIpc() {
     const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session)));
     const proxyFailures = proxyResults.filter((result) => result.status === 'rejected').length;
     await awaitCosmeticRefresh();
-    if (!siteIntelligenceWasEnabled && settings.siteIntelligence !== false) {
+    const preloadKeys = ['privacyLevel','privacyApiGuard','blockTrackingBeacons','globalPrivacyControl','doNotTrack','disableServiceWorkers','siteIntelligence'];
+    const preloadChanged = preloadKeys.some((key) => previousSettings[key] !== settings[key]);
+    if (preloadChanged) {
+      await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
+    }
+    if (!preloadChanged && !siteIntelligenceWasEnabled && settings.siteIntelligence !== false) {
       await Promise.allSettled([...tabs.values()].map(async (tab) => {
         await installFingerprintDefenses(tab);
         if (tab.auditBinding && tab.url && !String(tab.url).startsWith('aegis://')) {
           try { await tab.view.webContents.executeJavaScript(buildSiteAuditScript({ bindingName: tab.auditBinding }), false); } catch {}
         }
       }));
-    } else if (siteIntelligenceWasEnabled && settings.siteIntelligence === false) {
+    } else if (!preloadChanged && siteIntelligenceWasEnabled && settings.siteIntelligence === false) {
       for (const tab of tabs.values()) resetSiteIntelligence(tab, tab.url, safeOrigin(tab.url));
     }
     emitState();
     toast(proxyFailures
       ? `Settings saved, but ${proxyFailures} tab network session${proxyFailures === 1 ? '' : 's'} could not apply the new routing. Run Diagnostics.`
-      : 'Settings saved. Network controls are live; fingerprint-profile changes fully apply to new tabs.', proxyFailures ? 'warning' : 'success');
+      : (preloadChanged ? 'Settings saved. Privacy preload controls were rebuilt in every active tab.' : 'Settings saved. Privacy and network controls are live.'), proxyFailures ? 'warning' : 'success');
   });
 }
 
