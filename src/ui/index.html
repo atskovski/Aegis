@@ -318,13 +318,13 @@
         </section>
 
         <section class="settings-page addons-page" data-settings-page="addons">
-          <div class="page-title"><h3>Add-ons & WebExtensions</h3><p>Install Chrome and Firefox WebExtensions into the Aegis Extension Runtime. CRX, XPI, ZIP and unpacked extensions are reviewed before activation, run without Node.js, and receive only the APIs and host access Aegis explicitly allows.</p></div>
+          <div class="page-title"><h3>Add-ons & WebExtensions</h3><p>Aegis installs complete Chrome CRX and Firefox XPI/WebExtension packages. Package installation and runtime API compatibility are shown separately so a valid add-on is never mislabeled as “65% installed.”</p></div>
 
           <div class="addon-hero addon-hero-v3">
             <div>
-              <span class="eyebrow">AEGIS EXTENSION RUNTIME 4</span>
-              <h4>Install a Chrome or Firefox extension</h4>
-              <p>Install a downloaded <b>.xpi</b>/<b>.zip</b> or paste a direct HTTPS package URL. Aegis validates the manifest, referenced resources, SHA-256 digest, permissions, host access and API compatibility before activation.</p>
+              <span class="eyebrow">AEGIS EXTENSION RUNTIME 5</span>
+              <h4>Universal Chrome + Firefox package installer</h4>
+              <p>Install a complete <b>.crx</b>, <b>.xpi</b>, <b>.zip</b>, unpacked extension, Chrome Web Store URL, or Chrome extension ID. Aegis verifies the package first, then reports API/runtime coverage separately.</p>
             </div>
             <div class="addon-install-actions">
               <button id="installXpi" class="primary addon-install-btn">Choose CRX / XPI / ZIP</button>
@@ -362,7 +362,7 @@
               <section><b>Host access</b><div id="addonReviewHosts" class="addon-chip-list"></div></section>
               <section><b>Unsupported / limited APIs</b><div id="addonReviewUnsupported" class="addon-review-lines"></div></section>
             </div>
-            <div class="addon-review-integrity"><span>Package ID</span><code id="addonReviewId">—</code><span>SHA-256</span><code id="addonReviewDigest">—</code><span>Mozilla signature metadata</span><code id="addonReviewSignature">—</code></div>
+            <div class="addon-review-integrity"><span>Package ID</span><code id="addonReviewId">—</code><span>SHA-256</span><code id="addonReviewDigest">—</code><span>Package signature</span><code id="addonReviewSignature">—</code></div>
             <div class="addon-review-actions">
               <button id="cancelAddonInstall" class="secondary">Cancel</button>
               <button id="confirmAddonInstall" class="primary">Install add-on</button>
@@ -370,12 +370,12 @@
           </div>
 
           <div class="addon-capability-matrix">
-            <div class="addon-capability-head"><div><span class="eyebrow">COMPATIBILITY LAYER</span><h4>What Aegis implements</h4></div><span>Runtime 4</span></div>
+            <div class="addon-capability-head"><div><span class="eyebrow">INSTALL + COMPATIBILITY LAYER</span><h4>Package install is separate from API coverage</h4></div><span>Runtime 5</span></div>
             <div class="addon-capability-grid">
               <div class="supported"><b>Content & UI</b><span>content_scripts, document_start/end/idle, action/browserAction/pageAction, popups, options pages, extension resources</span></div>
               <div class="supported"><b>Core APIs</b><span>runtime + Ports, storage.local/sync/session/managed, tabs, windows, cookies, permissions, i18n, scripting, alarms, commands, webNavigation</span></div>
               <div class="supported"><b>Browser surfaces</b><span>context menus, notifications, activeTab, tab messaging, zoom, visible-tab capture, isolated extension worlds</span></div>
-              <div class="limited"><b>Intentionally restricted</b><span>blocking webRequest/DNR parity, proxy replacement, nativeMessaging, debugger/devtools, browser history and extension management</span></div>
+              <div class="limited"><b>Engine-limited APIs</b><span>A valid package still installs completely. APIs the current Chromium/Electron engine cannot faithfully provide are called out separately instead of reducing the install percentage.</span></div>
             </div>
           </div>
 
@@ -402,7 +402,7 @@
               <button id="refreshAddons" class="secondary">Refresh</button>
             </div>
           </div>
-          <div id="addonList" class="addon-list"><div class="suite-empty addon-empty"><b>No add-ons installed</b><span>Choose a Firefox WebExtension .xpi/.zip or paste a direct HTTPS package URL to inspect and install it.</span></div></div>
+          <div id="addonList" class="addon-list"><div class="suite-empty addon-empty"><b>No add-ons installed</b><span>Choose a Chrome CRX, Firefox XPI, ZIP, unpacked extension, or paste a Chrome Web Store/package URL to inspect and install it.</span></div></div>
         </section>
 
         <section class="settings-page" data-settings-page="enterprise">
