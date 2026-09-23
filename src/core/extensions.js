@@ -335,11 +335,19 @@ function extensionResourceUrl(ext, rel){
 function resourceGlobMatches(rel,pattern){
   const safe=extensionRel(rel),raw=String(pattern||'').replace(/^\/+/, '');
   if(!safe||!raw)return false;
-  const escaped=raw.split('*').map((part)=>part.replace(/[.+?^$()|[\]{}\\]/g,'\\function extensionResourceUrl(ext, rel){
-  const safe=extensionRel(rel); if(!safe)return '';
-  return 'aegis-extension://'+ext.resourceToken+'/'+safe.split('/').map(encodeURIComponent).join('/');
-}')).join('.*');
-  try{return new RegExp('^'+escaped+'
+  const escape=(value)=>String(value).replace(/[|\\{}()[\]^$+?.-]/g,'\\$&');
+  const source=raw.split('*').map(escape).join('.*');
+  try{return new RegExp('^'+source+'$').test(safe)}catch{return false}
+}
+function webAccessibleResourceAllowed(ext,rel){
+  const entries=Array.isArray(ext?.manifest?.web_accessible_resources)?ext.manifest.web_accessible_resources:[];
+  const patterns=[];
+  for(const item of entries){
+    if(typeof item==='string')patterns.push(item);
+    else if(item&&Array.isArray(item.resources))patterns.push(...item.resources);
+  }
+  return patterns.some((pattern)=>resourceGlobMatches(rel,pattern));
+}
 function rewriteCssUrls(css, ext, cssRel=''){
   const base=path.posix.dirname(String(cssRel||'').replace(/\\/g,'/'));
   return String(css||'').replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi,(whole,_quote,raw)=>{
