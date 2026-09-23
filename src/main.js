@@ -1260,9 +1260,9 @@ async function destroyTab(tab) {
   if (!tab) return;
   clearTimeout(tab.cookieCleanupTimer);
   try {
-    await browserRuntime.sessionOf(tab.view).clearData();
-    await browserRuntime.sessionOf(tab.view).clearCache();
-    await browserRuntime.sessionOf(tab.view).closeAllConnections();
+    await browserRuntime.clearData(browserRuntime.sessionOf(tab.view));
+    await browserRuntime.clearCache(browserRuntime.sessionOf(tab.view));
+    await browserRuntime.closeConnections(browserRuntime.sessionOf(tab.view));
   } catch {}
   browserRuntime.unmount(mainWindow,tab.view);
   if (!browserRuntime.destroyed(tab.view)) browserRuntime.close(tab.view);
@@ -1305,9 +1305,9 @@ async function newIdentity() {
 async function clearTabData(tab, reload = true) {
   if (!tab) return;
   try {
-    await browserRuntime.sessionOf(tab.view).clearData();
-    await browserRuntime.sessionOf(tab.view).clearCache();
-    await browserRuntime.sessionOf(tab.view).closeAllConnections();
+    await browserRuntime.clearData(browserRuntime.sessionOf(tab.view));
+    await browserRuntime.clearCache(browserRuntime.sessionOf(tab.view));
+    await browserRuntime.closeConnections(browserRuntime.sessionOf(tab.view));
     clearTemporaryPermissionsForOrigin(safeOrigin(tab.url), tab.id);
     tab.stats = makeTabStats();
     if (reload && tab.url) browserRuntime.reload(tab.view);
@@ -1911,9 +1911,9 @@ app.on('before-quit', () => {
   }
   for (const tab of tabs.values()) {
     try {
-      browserRuntime.sessionOf(tab.view).clearData();
-      browserRuntime.sessionOf(tab.view).clearCache();
-      browserRuntime.sessionOf(tab.view).closeAllConnections();
+      browserRuntime.clearData(browserRuntime.sessionOf(tab.view));
+      browserRuntime.clearCache(browserRuntime.sessionOf(tab.view));
+      browserRuntime.closeConnections(browserRuntime.sessionOf(tab.view));
     } catch {}
   }
 });
