@@ -2,7 +2,7 @@
 
 ## Engine portability boundary
 
-Aegis now treats Electron as the **current Chromium host adapter**, not as the product architecture. Engine-independent security logic lives under `src/core/`; host-specific creation of renderer views, private sessions, protocol registration and network fetches is exposed through the engine contract in `src/core/engine-contract.js` and implemented by `src/engine/electron-adapter.js`.
+Aegis now treats Electron as the **current Chromium host adapter**, not as the product architecture. Engine-independent security logic lives under `src/core/`; host-specific privileged operations are exposed through the engine contract in `src/core/engine-contract.js`, consumed through the engine-neutral `src/core/browser-runtime.js` facade, and implemented by `src/engine/electron-adapter.js`. This includes renderer/session lifecycle, protocols, networking, permissions, downloads, certificate observation, popup policy, script/isolated-world execution, CSS injection and DevTools-protocol commands.
 
 The target layering is:
 
@@ -20,7 +20,7 @@ Chromium host adapter (Electron today; direct Chromium embedder is a future adap
 
 This migration deliberately preserves Chromium's sandbox, Site Isolation and renderer-process boundaries. Removing Electron is not itself a security objective; reducing privileged framework coupling while retaining Chromium security updates is.
 
-New browser functionality should not import Electron from `src/core/`. Platform APIs belong in an engine or OS adapter. The main orchestration process may still use Electron while the migration is in progress.
+**Dependency rule:** `src/core/` must not import Electron. New privacy, policy, filtering, fingerprint, evidence or compartment logic must target the BrowserRuntime/BrowserEngine boundary. Electron is a host implementation detail. A future direct Chromium embedder can satisfy the same contract without replacing Aegis core logic. Platform APIs belong in an engine or OS adapter. The main orchestration process may still use Electron while the migration is in progress.
 
 ## Trust boundaries
 
