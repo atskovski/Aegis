@@ -285,6 +285,33 @@ test('all_frames content scripts use the sandboxed subframe bridge', async () =>
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
+test('content-script messaging preserves subframe id and inherited origin', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-frame-sender-'));
+  try{
+    const mainFrame={routingId:1,url:'https://example.com/',parent:null};
+    const frame={routingId:9,processId:3,url:'about:blank',parent:{url:'https://embed.example/path',parent:null},isDestroyed:()=>false};
+    let runtime,captured;
+    const contents={mainFrame,isDestroyed:()=>false};
+    const tab={id:5,url:'https://example.com/',title:'Example',securityDomain:'private',disableExtensions:false,view:{webContents:contents}};
+    const background={
+      send:(_channel,payload)=>{
+        captured=payload;
+        setImmediate(()=>runtime.handleBackgroundResponse(background,{extensionId:payload.extensionId,messageId:payload.messageId,response:{ok:true}}));
+      }
+    };
+    const manifest={manifest_version:3,name:'Sender',version:'1',host_permissions:['<all_urls>']};
+    runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[tab],getActiveId:()=>5,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'sender-test',path:root,resourceToken:'sendertoken',enabled:true,manifest,detectedApis:['runtime'],compatibility:compatibility(manifest,['runtime'])};
+    runtime.items.set(e.id,e);runtime.backgroundHosts.set(e.id,{isDestroyed:()=>false,webContents:background});
+    const response=await runtime.call(contents,{extensionId:e.id,method:'runtime.sendMessage',args:[{hello:true}]},frame);
+    assert.deepEqual(response,{ok:true});
+    assert.equal(captured.sender.frameId,9);
+    assert.equal(captured.sender.url,'about:blank');
+    assert.equal(captured.sender.origin,'https://embed.example');
+    assert.equal(captured.sender.tab.id,5);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
 test('tabs.sendMessage can target an injected subframe by frameId', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-frame-message-'));
   try{
