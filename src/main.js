@@ -16,7 +16,7 @@ const { TrackerLearner } = require('./core/tracker-learning');
 const { analyzeUrl } = require('./core/safety');
 const { youtubeVideoId, fetchSponsorSegments, sponsorSkipScript } = require('./core/sponsor');
 const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNetworkEvent, publicSiteIntelligence, buildSiteAuditScript } = require('./core/site-intelligence');
-const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, compareFingerprintCohort, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
+const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, compareFingerprintCohort, testNetworkIdentity, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
 const { AegisExtensionRuntime } = require('./core/extensions');
 const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
@@ -486,6 +486,18 @@ async function runSecuritySuite() {
     if (!route?.ok) throw new Error((route?.warnings || []).join(' | ') || 'Network route could not be applied.');
     const routeStatus = routePrivacyStatus(effective.proxy?.mode || 'system', route);
     checks.push(makeCheck('network-route', 'IP routing posture', routeStatus.status, routeStatus.evidence, 'runtime-policy'));
+
+    const expectedNetworkUa = buildGenericUA(process.versions.chrome);
+    configurePrivacySession({
+      ses, tab: { url:'https://example.com/', topUrl:'https://example.com/', stats:createStats() },
+      getSettings:()=>effective, chromiumVersion:process.versions.chrome, onStats:()=>{},
+      onPermissionBlocked:()=>{}, onPermissionPrompt:({ complete })=>complete(false),
+      onSensitiveAccess:()=>{}, onNetworkAccess:()=>{}, trackerLearner:null, getFilterRules:()=>null, isTemporarilyAllowed:()=>false
+    });
+    const networkIdentity = await testNetworkIdentity(ses, {
+      ua: expectedNetworkUa, doNotTrack: effective.doNotTrack, globalPrivacyControl: effective.globalPrivacyControl
+    });
+    checks.push(makeCheck('network-identity-coherence', 'Network / JavaScript identity coherence', networkIdentity.status, networkIdentity.evidence, 'behavioral-test'));
 
     connectivity = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: effective.proxy?.mode || 'system' });
     checks.push(makeCheck('dns-https', 'DNS + HTTPS reachability', connectivity.ok ? 'pass' : 'fail',
