@@ -44,6 +44,24 @@ function isInternal(url) { return String(url || '').startsWith('aegis://'); }
 function displayUrl(url) { return isInternal(url) ? '' : String(url || ''); }
 function titleCase(value) { return String(value || '').replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
 
+function extensionStoreSource(tab = activeTab()) {
+  const raw=String(tab?.url||'');if(!raw)return '';
+  try{
+    const u=new URL(raw),host=u.hostname.toLowerCase();
+    if((host==='chromewebstore.google.com'||host==='chrome.google.com')&&/\/(?:webstore\/)?detail\//i.test(u.pathname))return raw;
+    if(host==='addons.mozilla.org'&&/\/firefox\/addon\//i.test(u.pathname))return raw;
+  }catch{}
+  return '';
+}
+
+function renderStoreInstallButton(tab = activeTab()) {
+  const button=$('#storeInstall');if(!button)return;
+  const source=extensionStoreSource(tab),firefox=source.includes('addons.mozilla.org');
+  button.classList.toggle('hidden',!source);
+  button.textContent=firefox?'⬡ Install Firefox add-on':'⬡ Install Chrome extension';
+  button.title=firefox?'Download, inspect and install this Firefox add-on in Aegis':'Download, inspect and install this Chrome Web Store extension in Aegis';
+}
+
 function currentSitePermission(key) {
   const tab = activeTab();
   if (!tab?.origin) return 'block';
@@ -438,6 +456,7 @@ async function refreshExtensions() {
     if (Array.isArray(addons)) state.extensions = addons;
   } catch {}
   renderExtensionActions();
+  renderStoreInstallButton(tab);
   renderAddons();
 }
 
@@ -1403,6 +1422,14 @@ $('#shield').addEventListener('click', () => showPanel('privacyPanel'));
 $('#bookmarkBtn').addEventListener('click', () => window.aegis.send('bookmark:toggle'));
 $('#libraryBtn').addEventListener('click', () => showPanel('libraryPanel'));
 $('#settingsBtn').addEventListener('click', () => openSettings());
+$('#storeInstall').addEventListener('click', () => {
+  const source=extensionStoreSource();
+  if(!source)return;
+  openSettings('addons');
+  const input=$('#addonUrlInput');input.value=source;
+  setTimeout(()=>$('#installAddonUrl').click(),0);
+});
+
 $('#commandBtn').addEventListener('click', openCommandPalette);
 $('#privacyBeacon').addEventListener('click', () => showPanel('privacyPanel'));
 $('#sentinelSimple').addEventListener('click', () => applySentinelMode('simple'));
