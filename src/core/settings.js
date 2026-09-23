@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   blockSpeculativeConnections: true,
   mediaClickToPlay: false,
   enterpriseMode: false,
+  managedPolicy: null,
   enterprise: {
     urlAllowlist: [],
     urlBlocklist: [],
@@ -192,6 +193,13 @@ function sanitizeSettings(raw = {}) {
     blockSpeculativeConnections: bool(raw.blockSpeculativeConnections, d.blockSpeculativeConnections),
     mediaClickToPlay: bool(raw.mediaClickToPlay, d.mediaClickToPlay),
     enterpriseMode: bool(raw.enterpriseMode, d.enterpriseMode),
+    managedPolicy: raw.managedPolicy && typeof raw.managedPolicy==='object' ? {
+      id: String(raw.managedPolicy.id||'').slice(0,120),
+      version: String(raw.managedPolicy.version||'').slice(0,80),
+      issuedAt: raw.managedPolicy.issuedAt||null,
+      expiresAt: raw.managedPolicy.expiresAt||null,
+      lockedKeys: listStrings(raw.managedPolicy.lockedKeys,100,80)
+    } : null,
     enterprise: {
       urlAllowlist: clampLines(raw.enterprise?.urlAllowlist, 200, 300),
       urlBlocklist: clampLines(raw.enterprise?.urlBlocklist, 200, 300),
