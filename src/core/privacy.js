@@ -230,6 +230,11 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   });
 
   try {
+    ses.webRequest.onResponseStarted({ urls: ['*://*/*'] }, (details) => {
+      if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onResponseStarted', details); } catch {} }
+    });
+  } catch {}
+  try {
     ses.webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
       if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onCompleted', details); } catch {} }
     });
