@@ -48,7 +48,7 @@ Aegis 1.3 adds first-class Chrome extension installation alongside Firefox-style
 
 Security boundary: Chrome extensions still cannot replace Aegis routing, disable the privacy firewall or Security Kernel, use native messaging, attach privileged debugger/devtools APIs, manage other extensions, or execute inside hardened/anonymous compartments.
 
-Compatibility boundary: installing a Chrome extension is now a first-class workflow, but Aegis does not claim 100% Chrome API parity. Browser-owned APIs that would conflict with Aegis security ownership—especially blocking `webRequest` and full `declarativeNetRequest` parity—remain explicitly reported as unsupported/restricted rather than being silently faked.
+Compatibility boundary: installing a Chrome extension is now a first-class workflow, but Aegis does not claim 100% Chrome API parity. Aegis now supports bounded MV2 `webRequestBlocking` and a broad MV3 `declarativeNetRequest` path while retaining final ownership of browser security policy; remaining differences are reported explicitly rather than silently faked.
 
 ## 1.2 — Add-ons & WebExtensions Runtime 3
 
@@ -63,7 +63,7 @@ Aegis 1.2 rebuilds the Add-ons subsystem around a browser-owned WebExtension com
 - Add **Health check** and **Repair runtime** controls that validate referenced resources, compatibility bootstrap, background-runtime state and recorded runtime errors, then reinject active private tabs when repair is requested.
 - Rebuild the Add-ons manager with search/filtering, health counts, compatibility tiers, capability matrix, file/URL install flows and explicit unsupported/restricted API reporting.
 - Keep browser-security ownership in Aegis: extensions cannot replace routing, use native messaging, manage other extensions, attach the debugger/devtools, access hardened/anonymous tabs, or disable the Aegis Security Kernel.
-- Blocking `webRequest` / full declarativeNetRequest parity is not claimed. Add-ons such as network blockers that depend on those browser-owned interception APIs should use Aegis's native filtering engine instead.
+- MV2 `webRequestBlocking` cancel/redirect and privacy-strengthening header changes are supported through a bounded background-page bridge. MV3 DNR block/allow/redirect/upgrade and privacy-strengthening header removals are supported; extensions cannot use either surface to weaken Aegis security policy.
 - Aegis `storage.sync` is a durable local compatibility area; it does not claim Mozilla Account or cross-device cloud synchronization.
 
 ## 1.1.3 visibility and confirmation UX
@@ -174,7 +174,7 @@ Aegis does not execute arbitrary third-party uBO scriptlets/procedural JavaScrip
 - Dedicated isolated execution worlds for extension content scripts.
 - Permission/host checks for exposed tab data and mutations.
 - Hardened/anonymous tabs are excluded from extension access.
-- Aegis reports unsupported APIs instead of pretending arbitrary Firefox compatibility. Background/service-worker parity, blocking webRequest, native messaging and several privileged Firefox APIs are not claimed.
+- Aegis reports remaining unsupported APIs instead of pretending arbitrary Firefox/Chrome parity. Native messaging, debugger/devtools takeover, proxy replacement and several privileged browser APIs remain outside the extension sandbox.
 
 ### Enterprise Security Center
 - Browser-process URL allowlists and blocklists.
