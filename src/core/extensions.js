@@ -75,12 +75,28 @@ function dnrUrlFilterMatches(raw,filter,matchCase=false){
   const text=String(raw||''),value=String(filter||'');if(!value)return true;
   let url;try{url=new URL(text)}catch{return false}
   if(value.startsWith('||')){const rest=value.slice(2),cut=rest.search(/[\/^]/),host=(cut<0?rest:rest.slice(0,cut)).replace(/\^.*$/,''),tail=cut<0?'':rest.slice(cut);if(host&&!domainMatchesAny(url.hostname,[host]))return false;if(!tail||tail==='^')return true;filter=tail;}
-  const escaped=String(filter).replace(/[.+?${}()|[\]\\]/g,'\\function networkAllowedByManifest(m,url){
-  const patterns=hostPermissions(m);
-  return patterns.some((p)=>matchPattern(url,p));
+  const escape=(v)=>String(v).replace(/[|\\{}()[\]^$+*?.-]/g,'\\$&');
+  let body=String(filter),startAnchor=false,endAnchor=false;if(body.startsWith('|')){startAnchor=true;body=body.slice(1)}if(body.endsWith('|')){endAnchor=true;body=body.slice(0,-1)}
+  let pattern=escape(body).replace(/\\\*/g,'.*').replace(/\\\^/g,'(?:[^a-zA-Z0-9_.%-]|$)');if(startAnchor)pattern='^'+pattern;if(endAnchor)pattern+='$';
+  try{return new RegExp(pattern,matchCase?'':'i').test(text)}catch{return false}
 }
-').replace(/\*/g,'.*').replace(/\^/g,'(?:[^a-zA-Z0-9_.%-]|$)');
-  const pattern=(String(filter).startsWith('|')?'^':'')+escaped.replace(/^\\\|/,'').replace(/\\\|$/,'')+(String(filter).endsWith('|')?'function extensionVisibleTab(tab){
+function dnrRuleMatches(rule,rawUrl,topUrl,resourceType){
+  const cond=rule?.condition||{};let u,top;try{u=new URL(rawUrl)}catch{return false}try{top=new URL(topUrl||rawUrl)}catch{top=u}
+  const rt=DNR_RESOURCE_TYPES[resourceType]||String(resourceType||'other').toLowerCase();
+  if(Array.isArray(cond.resourceTypes)&&cond.resourceTypes.length&&!cond.resourceTypes.includes(rt))return false;
+  if(Array.isArray(cond.excludedResourceTypes)&&cond.excludedResourceTypes.includes(rt))return false;
+  if(Array.isArray(cond.requestDomains)&&cond.requestDomains.length&&!domainMatchesAny(u.hostname,cond.requestDomains))return false;
+  if(domainMatchesAny(u.hostname,cond.excludedRequestDomains))return false;
+  if(Array.isArray(cond.initiatorDomains)&&cond.initiatorDomains.length&&!domainMatchesAny(top.hostname,cond.initiatorDomains))return false;
+  if(domainMatchesAny(top.hostname,cond.excludedInitiatorDomains))return false;
+  const third=!(u.hostname===top.hostname||u.hostname.endsWith('.'+top.hostname)||top.hostname.endsWith('.'+u.hostname));
+  if(cond.domainType==='thirdParty'&&!third)return false;if(cond.domainType==='firstParty'&&third)return false;
+  if(cond.regexFilter){try{if(!new RegExp(cond.regexFilter,cond.isUrlFilterCaseSensitive?'':'i').test(rawUrl))return false}catch{return false}}
+  else if(cond.urlFilter&&!dnrUrlFilterMatches(rawUrl,cond.urlFilter,Boolean(cond.isUrlFilterCaseSensitive)))return false;
+  return true;
+}
+function sanitizeDnrRules(value){return (Array.isArray(value)?value:[]).filter((r)=>r&&Number.isInteger(Number(r.id))&&r.action&&r.condition).map((r)=>({...r,id:Number(r.id),priority:Math.max(1,Number(r.priority)||1)})).slice(0,30000)}
+function extensionVisibleTab(tab){
   return Boolean(tab && !tab.disableExtensions && tab.securityDomain!=='anonymous' && tab.securityDomain!=='hardened');
 }
 function extensionWorldId(id){
