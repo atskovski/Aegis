@@ -544,8 +544,8 @@ function statePayload() {
     },
     privacySummary: {
       ephemeralTabs: true,
-      fingerprinting: settings.privacyLevel,
-      webrtc: 'non-proxied UDP disabled',
+      fingerprinting: currentSettings.privacyLevel,
+      webrtc: currentSettings.disableWebRtc ? 'disabled in this compartment' : 'non-proxied UDP disabled',
       tlsMinimum: 'TLS 1.2',
       telemetry: 'off',
       history: 'not stored'
@@ -995,7 +995,10 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
     disableExtensions: Boolean(options.disableExtensions)
   };
   if (tab.securityDomain === 'hardened') hardenTabState(tab);
-  if (tab.securityDomain === 'anonymous') anonymousTabState(tab, options.torProxy || '127.0.0.1:9050');
+  if (tab.securityDomain === 'anonymous') {
+    anonymousTabState(tab, options.torProxy || '127.0.0.1:9050');
+    tab.javascriptEnabled = settings.anonymity?.disableJavaScript === false ? Boolean(settings.javascriptDefault) : false;
+  }
 
   const view = createTabView(tab);
   tab.view = view;
@@ -1273,6 +1276,7 @@ function showTabContextMenu(tab, params = {}) {
   if (link) {
     template.push(
       { label: 'Open Link in New Isolated Tab', click: () => createTab(link, true) },
+      { label: 'Open Link in Anonymous Compartment', click: () => createAnonymousTab(link) },
       { label: 'Copy Clean Link', click: () => clipboard.writeText(link) }
     );
   } else if (selectedText) {
