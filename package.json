@@ -2,7 +2,7 @@
   "name": "aegis-privacy-browser",
   "version": "1.3.0",
   "private": true,
-  "description": "Aegis 1.3 Security Kernel and Extension Runtime 4: hardened Chromium browser with signed CRX, Chrome Web Store, Firefox WebExtension and explicit add-on compatibility.",
+  "description": "Aegis 1.3 Security Kernel and Extension Runtime 5: hardened Chromium browser with signed CRX, Chrome Web Store, Firefox WebExtension, reviewed updates and explicit add-on compatibility.",
   "main": "src/main.js",
   "type": "commonjs",
   "scripts": {
