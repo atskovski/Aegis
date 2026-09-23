@@ -61,6 +61,9 @@ alarms:{create:(...a)=>call('alarms.create',...a),get:(n)=>call('alarms.get',n),
 commands:{getAll:()=>call('commands.getAll'),onCommand:event('commands.onCommand')},
 scripting:{executeScript:(d)=>call('scripting.executeScript',d||{}),insertCSS:(d)=>call('scripting.insertCSS',d||{}),removeCSS:(d)=>call('scripting.removeCSS',d||{})},
 webNavigation:{onBeforeNavigate:event('webNavigation.onBeforeNavigate'),onCommitted:event('webNavigation.onCommitted'),onCompleted:event('webNavigation.onCompleted'),onErrorOccurred:event('webNavigation.onErrorOccurred')},
+notifications:{create:(...a)=>call('notifications.create',...a),clear:(id)=>call('notifications.clear',id),getAll:()=>call('notifications.getAll'),onClicked:event('notifications.onClicked'),onClosed:event('notifications.onClosed')},
+menus:{create:(d)=>call('menus.create',d||{}),update:(id,d)=>call('menus.update',id,d||{}),remove:(id)=>call('menus.remove',id),removeAll:()=>call('menus.removeAll'),onClicked:event('menus.onClicked')},
+contextMenus:{create:(d)=>call('contextMenus.create',d||{}),update:(id,d)=>call('contextMenus.update',id,d||{}),remove:(id)=>call('contextMenus.remove',id),removeAll:()=>call('contextMenus.removeAll'),onClicked:event('contextMenus.onClicked')},
 action:actionApi('action'),browserAction:actionApi('browserAction'),pageAction:actionApi('pageAction')};
 Object.defineProperty(globalThis,'browser',{value:api,configurable:false});if(!globalThis.chrome)Object.defineProperty(globalThis,'chrome',{value:api,configurable:false});
 ${messageHook}
