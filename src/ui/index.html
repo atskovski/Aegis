@@ -173,7 +173,7 @@
         <button class="settings-nav-item" data-settings-target="search"><span>⌕</span>Search</button>
         <button class="settings-nav-item" data-settings-target="appearance"><span>✦</span>Appearance</button>
         <button class="settings-nav-item" data-settings-target="addons"><span>⬡</span>Add-ons</button>
-        <button class="settings-nav-item" data-settings-target="diagnostics"><span>⌁</span>Diagnostics</button>
+        <button class="settings-nav-item" data-settings-target="enterprise"><span>▦</span>Enterprise</button><button class="settings-nav-item" data-settings-target="diagnostics"><span>⌁</span>Diagnostics</button>
         <button class="settings-nav-item" data-settings-target="about"><span>i</span>About</button>
       </nav>
 
@@ -323,6 +323,19 @@
           </div>
           <div class="info-callout warning"><b>Compatibility is explicit</b><span>Firefox and Chromium WebExtension APIs differ. Aegis shows a compatibility score and unsupported APIs instead of pretending an add-on works when it does not.</span></div>
           <div id="addonList" class="addon-list"><div class="suite-empty"><b>No add-ons installed</b><span>Install a Firefox WebExtension package to see its permissions and compatibility.</span></div></div>
+        </section>
+
+        <section class="settings-page" data-settings-page="enterprise">
+          <div class="page-title"><h3>Enterprise security</h3><p>Managed policy controls for high-assurance deployments. Enterprise policy is enforced in the browser process, not only in the settings UI.</p></div>
+          <div class="settings-card grouped-card">
+            <div class="setting-row"><div><b>Enterprise policy mode</b><small>Enable centrally defined browsing, extension and data-loss restrictions.</small></div><label class="switch"><input id="enterpriseMode" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Block extensions not explicitly allowed</b><small>Only extension IDs listed below can be installed when enterprise mode is active.</small></div><label class="switch"><input id="enterpriseBlockExtensions" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Disable printing</b><small>Enterprise DLP control for printing web content.</small></div><label class="switch"><input id="enterpriseDisablePrinting" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Disable clipboard reads</b><small>Prevents websites from reading clipboard data through managed policy.</small></div><label class="switch"><input id="enterpriseDisableClipboard" type="checkbox"><span></span></label></div>
+            <div class="setting-row"><div><b>Disable screen capture</b><small>Blocks managed screen/window/tab capture permission.</small></div><label class="switch"><input id="enterpriseDisableCapture" type="checkbox"><span></span></label></div>
+          </div>
+          <div class="settings-card"><label class="stacked"><span><b>URL allowlist</b><small>One hostname, *.domain, or URL prefix per line. A non-empty allowlist becomes the permitted browsing boundary.</small></span><textarea id="enterpriseUrlAllowlist" rows="6"></textarea></label><label class="stacked"><span><b>URL blocklist</b><small>Managed destinations that Aegis must refuse.</small></span><textarea id="enterpriseUrlBlocklist" rows="6"></textarea></label><label class="stacked"><span><b>Extension allowlist</b><small>One Aegis extension ID per line.</small></span><textarea id="enterpriseExtensionAllowlist" rows="5"></textarea></label></div>
+          <div class="info-callout"><b>Enterprise boundary</b><span>Aegis enforces these controls locally. MDM enrollment, SIEM transport, certificate deployment and OS-level DLP require an organization's device-management infrastructure.</span></div>
         </section>
 
         <section class="settings-page" data-settings-page="diagnostics">
