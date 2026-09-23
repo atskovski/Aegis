@@ -62,6 +62,7 @@ test('anonymous compartment settings are sanitized and default fail-closed', () 
   assert.equal(d.anonymity.blockPrivateNetwork,true);
   assert.equal(d.anonymity.disableDownloads,true);
   assert.equal(d.anonymity.disableExtensions,true);
+  assert.equal(d.anonymity.disableJavaScript,true);
   const s=sanitizeSettings({anonymity:{torProxy:'127.0.0.1:9150',requireTorVerification:false,blockPrivateNetwork:false,disableDownloads:false,disableExtensions:false}});
   assert.equal(s.anonymity.torProxy,'127.0.0.1:9150');
   assert.equal(s.anonymity.requireTorVerification,false);
