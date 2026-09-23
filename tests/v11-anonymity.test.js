@@ -65,3 +65,9 @@ test('independent security test lab is allowlisted and opens hardened tabs',()=>
   assert.match(html,/data-security-test="eff"/);
   assert.match(html,/data-security-test="webrtc"/);
 });
+
+
+test('fixed-proxy diagnostics fail closed before making external verification requests',()=>{
+  assert.match(main,/failClosedFixedProxy: !\['system','direct'\]\.includes\(diagnosticMode\)/);
+  assert.match(main,/if \(!route\?\.ok\) throw new Error/);
+});
