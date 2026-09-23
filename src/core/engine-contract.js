@@ -7,7 +7,7 @@ const REQUIRED=Object.freeze([
  'name','version','capabilities','createSession','createView','attachView','detachView','destroyView',
  'registerProtocol','fetch','getRuntimeVersions','installPermissionHandlers','onDownload',
  'attachDebugger','detachDebugger','debuggerCommand','executeJavaScript','executeIsolatedWorld',
- 'insertCSS','setWindowOpenPolicy','onCertificateError'
+ 'insertCSS','setWindowOpenPolicy','onCertificateError','isDestroyed','loadURL','getURL','on','reload','stop','focus','navigationHistory','sessionOf','clearSessionData','clearSessionCache','closeSessionConnections','removeInsertedCSS','closeView'
 ]);
 function assertEngineAdapter(engine){
  if(!engine||typeof engine!=='object')throw new TypeError('Browser engine adapter is required.');
