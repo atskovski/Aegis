@@ -1098,6 +1098,18 @@ class AegisExtensionRuntime{
     return list.map(safeRel).filter(Boolean);
   }
   backgroundBootstrap(ext){ return webExtensionBootstrap(ext,'__aegisBackgroundBridge'); }
+  attachBackgroundDiagnostics(ext,host){
+    if(!host?.webContents)return;
+    try{host.webContents.on('console-message',(_event,...args)=>{
+      let level=args[0],message=args[1],line=args[2],source=args[3];
+      if(args.length===1&&args[0]&&typeof args[0]==='object'){const d=args[0];level=d.level;message=d.message;line=d.lineNumber;source=d.sourceId}
+      const text=String(message||'');
+      const severe=Number(level)>=3||/^(?:Uncaught\s+)?(?:SyntaxError|ReferenceError|TypeError|RangeError|Error)\b/i.test(text)||/Uncaught\s+(?:in promise\s+)?/i.test(text);
+      if(severe)this.noteRuntimeError(ext.id,'background-console',text+(source?(' · '+source+(line?(':'+line):'')):''));
+    })}catch{}
+    try{host.webContents.on('render-process-gone',(_event,details)=>this.noteRuntimeError(ext.id,'background-process','Renderer exited: '+String(details?.reason||'unknown')))}catch{}
+    try{host.on('unresponsive',()=>this.noteRuntimeError(ext.id,'background-process','Extension background became unresponsive.'))}catch{}
+  }
   async startBackground(ext){
     this.stopBackground(ext.id);
     if(this.suspensionReasons.size||ext.enabled===false||!this.BrowserWindow||!this.electronSession)return false;
@@ -1111,7 +1123,7 @@ class AegisExtensionRuntime{
       const target=path.resolve(ext.path,page),root=path.resolve(ext.path)+path.sep;
       if(!target.startsWith(root)||!fs.existsSync(target)||!fs.statSync(target).isFile())return false;
       const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-page-preload.js'),additionalArguments:this.pageArguments(ext,'background')}});
-      host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
+      host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);this.attachBackgroundDiagnostics(ext,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
       try{await host.loadURL(extensionResourceUrl(ext,page));const health=this.healthFor(ext.id);health.lastStartedAt=new Date().toISOString();this.clearRuntimeErrors(ext.id,'background');return true}catch(err){this.noteRuntimeError(ext.id,'background',err);try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
     }
 
@@ -1120,11 +1132,12 @@ class AegisExtensionRuntime{
     if(!valid.length)return false;
     const wrapper=path.join(ext.path,'__aegis_background.html'),bootstrapFile=path.join(ext.path,'__aegis_background_bootstrap.js');
     fs.writeFileSync(bootstrapFile,this.backgroundBootstrap(ext),{mode:0o600});
-    const tags=['<script src="__aegis_background_bootstrap.js"></script>',...valid.map((rel)=>'<script src="'+rel.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></script>')].join('');
+    const serviceWorker=safeRel(bg.service_worker||''),moduleWorker=Boolean(serviceWorker&&String(bg.type||'').toLowerCase()==='module');
+    const tags=['<script src="__aegis_background_bootstrap.js"></script>',...valid.map((rel)=>'<script'+(moduleWorker&&rel===serviceWorker?' type="module"':'')+' src="'+rel.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></script>')].join('');
     const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; connect-src https: http: aegis-extension:; img-src \'self\' data: aegis-extension:; style-src \'self\' \'unsafe-inline\'; object-src \'none\'">'+tags;
     fs.writeFileSync(wrapper,html,{mode:0o600});
     const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-host-preload.js'),additionalArguments:['--aegis-extension-id='+encodeURIComponent(ext.id)]}});
-    host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
+    host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);this.attachBackgroundDiagnostics(ext,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
     try{await host.loadFile(wrapper);const health=this.healthFor(ext.id);health.lastStartedAt=new Date().toISOString();this.clearRuntimeErrors(ext.id,'background');return true}catch(err){this.noteRuntimeError(ext.id,'background',err);try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
   }
   async startAll(){if(this.suspensionReasons.size)return;for(const ext of this.enabled()){await this.startBackground(ext);this.emitEvent(ext,'runtime.onStartup',[])}}
@@ -1140,11 +1153,18 @@ class AegisExtensionRuntime{
   sendRuntimeMessage(ext, sourceTab, message){
     const host=this.backgroundHosts.get(ext.id);
     if(!host||host.isDestroyed())return Promise.resolve(undefined);
-    const messageId=crypto.randomUUID();
+    const messageId=crypto.randomUUID(),visible=sourceTab&&!sourceTab.disableExtensions&&sourceTab.securityDomain!=='anonymous'&&sourceTab.securityDomain!=='hardened';
+    let sender;
+    if(visible){
+      const raw=String(sourceTab.url||'');let origin='null';try{origin=new URL(raw).origin}catch{}
+      sender={id:ext.id,tab:this.publicTab(ext,sourceTab)||{id:sourceTab.id,url:raw,title:sourceTab.title||'',incognito:true},frameId:0,url:raw,origin};
+    }else{
+      sender={id:ext.id,frameId:0,url:extensionResourceUrl(ext,''),origin:'aegis-extension://'+ext.resourceToken};
+    }
     return new Promise((resolve)=>{
-      const timer=setTimeout(()=>{this.pendingMessages.delete(messageId);resolve(undefined)},2500);
+      const timer=setTimeout(()=>{this.pendingMessages.delete(messageId);resolve(undefined)},30000);
       this.pendingMessages.set(messageId,{extensionId:ext.id,resolve:(value)=>{clearTimeout(timer);resolve(value)}});
-      host.webContents.send('extension:runtime-message',{extensionId:ext.id,messageId,message,sender:sourceTab&&!sourceTab.disableExtensions&&sourceTab.securityDomain!=='anonymous'&&sourceTab.securityDomain!=='hardened'?{tab:{id:sourceTab.id,url:sourceTab.url||'',title:sourceTab.title||'',incognito:true}}:{id:ext.id}});
+      host.webContents.send('extension:runtime-message',{extensionId:ext.id,messageId,message,sender});
     });
   }
   handleBackgroundResponse(sender,payload={}){
