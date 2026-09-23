@@ -28,7 +28,8 @@ app.setName('Aegis Privacy Browser');
 // error surface rather than a user-bypass path.
 app.on('certificate-error', (event, _webContents, url, error, _certificate, callback) => {
   try { event.preventDefault(); } catch {}
-  console.warn('Blocked invalid TLS certificate:', String(url || '').slice(0, 300), String(error || 'certificate-error'));
+  let host = 'unknown-host'; try { host = new URL(String(url || '')).hostname || host; } catch {}
+  console.warn('Blocked invalid TLS certificate for host:', host, String(error || 'certificate-error'));
   callback(false);
 });
 // Keep the wire-level User-Agent generic. Product branding belongs in browser chrome, not in requests sites can fingerprint.
