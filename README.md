@@ -9,7 +9,11 @@ Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or T
 ## What's new in 1.1
 
 ### Security Kernel and Runtime Guardian
-- Centralized fail-closed policy decision kernel for navigation, extensions, downloads and permissions.
+- Centralized fail-closed policy broker for navigation, redirects, popups, requests, extensions, downloads, permissions, clipboard, screen capture, printing and developer tools.
+- Kernel decisions carry explainable reason, enforcement layer and risk metadata rather than opaque allow/deny booleans.
+- A tamper-evident SHA-256 decision chain records kernel evidence after secret redaction and continuously verifies chain integrity.
+- A local adaptive risk engine correlates fingerprinting, phishing, TLS, private-network, permission, download and extension signals with time decay; successfully blocked activity contributes reduced residual risk.
+- Unknown kernel actions and dangerous local/script URL schemes fail closed.
 - Managed-policy runtime expiry enforcement, anti-rollback version comparison and signing-key identity support.
 - Enterprise URL block rules now take precedence over allow rules.
 - Fingerprint activity telemetry classifies bursts of high-entropy surface access as Low, Elevated or Aggressive without claiming anonymity.
