@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildGenericUA, isRiskyDownload, makeTabStats, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled, applyExtensionHeaderRemovals, configurePrivacySession } = require('../src/core/privacy');
+const { buildGenericUA, isRiskyDownload, makeTabStats, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled, applyExtensionHeaderRemovals, configurePrivacySession, applyBlockingHeaderDecision, safeReferrerReduction } = require('../src/core/privacy');
 
 test('generic UA hides Electron token and uses reduced Chromium version', () => {
   const ua = buildGenericUA('152.0.7977.130');
@@ -116,4 +116,28 @@ test('privacy session forwards onResponseStarted into the extension event pipeli
   handlers.responseStarted(details);
   assert.equal(events.at(-1).type,'webRequest.onResponseStarted');
   assert.equal(events.at(-1).details,details);
+});
+
+
+test('Privacy Badger referrer reduction is allowed only when it removes path detail', () => {
+  assert.equal(safeReferrerReduction('https://site.example/a/b?x=1','https://site.example/'),true);
+  assert.equal(safeReferrerReduction('https://site.example/a/b','https://other.example/'),false);
+  assert.equal(safeReferrerReduction('https://site.example/a','https://site.example/a/more'),false);
+
+  const reduced=applyBlockingHeaderDecision(
+    {Referer:'https://site.example/a/b?x=1',Cookie:'a=1','User-Agent':'Aegis'},
+    [{name:'Referer',value:'https://site.example/'},{name:'DNT',value:'1'},{name:'Sec-GPC',value:'1'}],
+    'request'
+  );
+  assert.equal(reduced.Referer,'https://site.example/');
+  assert.equal(reduced.Cookie,undefined);
+  assert.equal(reduced.DNT,'1');
+  assert.equal(reduced['Sec-GPC'],'1');
+
+  const rejected=applyBlockingHeaderDecision(
+    {Referer:'https://site.example/a/b'},
+    [{name:'Referer',value:'https://other.example/'}],
+    'request'
+  );
+  assert.equal(rejected.Referer,'https://site.example/a/b');
 });
