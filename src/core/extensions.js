@@ -284,14 +284,39 @@ function matchPattern(url,p){
   return new RegExp('^'+escaped+'$').test(u.pathname+u.search);
 }
 function contentScriptPhase(entry){
-  const runAt=String(entry?.run_at||'document_idle');
+  const runAt=String(entry?.run_at||entry?.runAt||'document_idle');
   if(runAt==='document_idle')return 'idle';
   if(runAt==='document_start')return 'start';
   return 'end';
 }
+function normalizeRegisteredScript(value){
+  const input=value&&typeof value==='object'?value:{},id=String(input.id||'').trim();
+  if(!id||id.length>128)throw new Error('Registered content script requires a valid id.');
+  const matches=(Array.isArray(input.matches)?input.matches:[]).map(String).filter(Boolean);
+  if(!matches.length)throw new Error('Registered content script requires at least one match pattern.');
+  const js=(Array.isArray(input.js)?input.js:[]).map(safeRel).filter(Boolean),css=(Array.isArray(input.css)?input.css:[]).map(safeRel).filter(Boolean);
+  const exclude=(Array.isArray(input.excludeMatches)?input.excludeMatches:(Array.isArray(input.exclude_matches)?input.exclude_matches:[])).map(String).filter(Boolean);
+  return {
+    id,matches,exclude_matches:exclude,js,css,
+    run_at:String(input.runAt||input.run_at||'document_idle'),
+    all_frames:Boolean(input.allFrames??input.all_frames),
+    match_about_blank:Boolean(input.matchAboutBlank??input.match_about_blank),
+    world:String(input.world||'ISOLATED').toUpperCase()==='MAIN'?'MAIN':'ISOLATED',
+    persistAcrossSessions:input.persistAcrossSessions!==false,
+    __registered:true
+  };
+}
+function publicRegisteredScript(entry){
+  return {
+    id:entry.id,matches:[...(entry.matches||[])],excludeMatches:[...(entry.exclude_matches||[])],
+    js:[...(entry.js||[])],css:[...(entry.css||[])],runAt:String(entry.run_at||'document_idle'),
+    allFrames:Boolean(entry.all_frames),matchOriginAsFallback:Boolean(entry.match_about_blank),
+    world:String(entry.world||'ISOLATED'),persistAcrossSessions:entry.persistAcrossSessions!==false
+  };
+}
 function matchingContentScripts(m,url,phase=null){
   return (Array.isArray(m.content_scripts)?m.content_scripts:[]).filter((e)=>{
-    const inc=Array.isArray(e.matches)?e.matches:[], exc=Array.isArray(e.exclude_matches)?e.exclude_matches:[];
+    const inc=Array.isArray(e.matches)?e.matches:[], exc=Array.isArray(e.exclude_matches)?e.exclude_matches:(Array.isArray(e.excludeMatches)?e.excludeMatches:[]);
     const matched=inc.some((p)=>matchPattern(url,p))&&!exc.some((p)=>matchPattern(url,p));
     return matched && (!phase || contentScriptPhase(e)===phase);
   });
@@ -396,7 +421,7 @@ class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion,notifyExtension,getSettings}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
     this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.notifyExtension=typeof notifyExtension==='function'?notifyExtension:null;this.getSettings=typeof getSettings==='function'?getSettings:(()=>({}));
-    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.dnrSessionRules=new Map();this.browserVersion=String(browserVersion||'1.1');
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.dnrSessionRules=new Map();this.registeredContentScripts=new Map();this.browserVersion=String(browserVersion||'1.1');
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const rawManifest=normalizeManifest(readJson(path.join(row.path,'manifest.json'))),manifest=localizeManifest(row.path,rawManifest);this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
@@ -431,6 +456,39 @@ class AegisExtensionRuntime{
     };
   }
   list(){return [...this.items.values()].map((e)=>this.publicRecord(e))}
+  registeredScriptFile(e){const dir=path.join(this.dataDir,e.id);fs.mkdirSync(dir,{recursive:true,mode:0o700});return path.join(dir,'registered-content-scripts.json')}
+  registeredScriptsFor(e){
+    if(this.registeredContentScripts.has(e.id))return this.registeredContentScripts.get(e.id);
+    const map=new Map();let rows=[];try{rows=readJson(this.registeredScriptFile(e))}catch{}
+    for(const row of Array.isArray(rows)?rows:[]){try{const normalized=normalizeRegisteredScript(row);if(normalized.persistAcrossSessions)map.set(normalized.id,normalized)}catch{}}
+    this.registeredContentScripts.set(e.id,map);return map;
+  }
+  saveRegisteredScripts(e){writeStore(this.registeredScriptFile(e),[...this.registeredScriptsFor(e).values()].filter((x)=>x.persistAcrossSessions).map(publicRegisteredScript))}
+  registerContentScripts(e,rows=[]){
+    const map=this.registeredScriptsFor(e),incoming=(Array.isArray(rows)?rows:[]).map(normalizeRegisteredScript);
+    for(const row of incoming)if(map.has(row.id))throw new Error('Content script id already registered: '+row.id);
+    for(const row of incoming){for(const rel of [...row.js,...row.css])this.extensionFile(e,rel);map.set(row.id,row)}
+    this.saveRegisteredScripts(e);return undefined;
+  }
+  updateRegisteredContentScripts(e,rows=[]){
+    const map=this.registeredScriptsFor(e);
+    for(const input of Array.isArray(rows)?rows:[]){
+      const id=String(input?.id||'');if(!map.has(id))throw new Error('Registered content script not found: '+id);
+      const current=publicRegisteredScript(map.get(id)),next=normalizeRegisteredScript({...current,...input,id});
+      for(const rel of [...next.js,...next.css])this.extensionFile(e,rel);map.set(id,next);
+    }
+    this.saveRegisteredScripts(e);return undefined;
+  }
+  unregisterContentScripts(e,filter={}){
+    const map=this.registeredScriptsFor(e),ids=Array.isArray(filter?.ids)?filter.ids.map(String):null;
+    if(ids)for(const id of ids)map.delete(id);else map.clear();
+    this.saveRegisteredScripts(e);return undefined;
+  }
+  getRegisteredContentScripts(e,filter={}){
+    const ids=Array.isArray(filter?.ids)?new Set(filter.ids.map(String)):null;
+    return [...this.registeredScriptsFor(e).values()].filter((row)=>!ids||ids.has(row.id)).map(publicRegisteredScript);
+  }
+  contentScriptsFor(e){return [...(Array.isArray(e.manifest?.content_scripts)?e.manifest.content_scripts:[]),...this.registeredScriptsFor(e).values()]}
   dnrFile(e,name){const dir=path.join(this.dataDir,e.id);fs.mkdirSync(dir,{recursive:true,mode:0o700});return path.join(dir,name)}
   dnrEnabledRulesets(e){
     const resources=Array.isArray(e.manifest?.declarative_net_request?.rule_resources)?e.manifest.declarative_net_request.rule_resources:[];
