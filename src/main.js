@@ -1471,6 +1471,11 @@ function showTabContextMenu(tab, params = {}) {
   } else if (selectedText) {
     template.push({ label: 'Copy', role: 'copy' });
   }
+  const extensionItems = extensionRuntime?.contextMenuTemplate(tab, params) || [];
+  if (extensionItems.length) {
+    if (template.length) template.push({ type: 'separator' });
+    template.push(...extensionItems);
+  }
   if (template.length) template.push({ type: 'separator' });
   template.push(
     { label: 'Site Privacy Inspector', click: () => openBrowserUi({ panel: 'privacyPanel' }) },
@@ -1978,6 +1983,10 @@ app.whenReady().then(async () => {
     electronSession: { fromPartition:(partition,options)=>browserRuntime.session(partition,options) },
     registerProtocols: registerInternalProtocol,
     browserVersion: app.getVersion(),
+    notifyExtension: ({ name, title, message, tone }) => {
+      const heading=String(title||name||'Extension').slice(0,120),body=String(message||'').slice(0,1000);
+      toast(body ? heading + ': ' + body : heading, tone || 'default');
+    },
     createTab,
     updateTab: async (id, props = {}) => { const tab=tabs.get(Number(id)); if(!tab) throw new Error('Tab not found'); if(props.url) await navigateTab(tab, props.url); if(props.active) activateTab(tab.id); return serializeTab(tab); },
     removeTab: (id) => closeTab(id)
