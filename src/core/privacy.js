@@ -76,7 +76,10 @@ function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onSta
     const highConfidence = known && (!category || categoryEnabled(settings, category));
     const firstPartyAnalytics = Boolean(settings.heuristicTrackingProtection && !thirdParty && looksFirstPartyAnalytics(details.url, details.resourceType));
     const explicitScriptTracker = Boolean(isKnownScriptTrackerUrl(details.url));
-    const shouldBlock = tab.shieldsEnabled && !tab.compatibilityMode && ((thirdParty && (highConfidence || fpScript || learned || explicitScriptTracker)) || firstPartyAnalytics);
+    // Known script hosts are telemetry evidence, but blocking still obeys the category-specific toggles above.
+    // Do not let a generic script-host helper silently override Block Ads / Social / Trackers preferences.
+    const uncategorizedScriptTracker = explicitScriptTracker && !category && settings.blockTrackers !== false;
+    const shouldBlock = tab.shieldsEnabled && !tab.compatibilityMode && ((thirdParty && (highConfidence || fpScript || learned || uncategorizedScriptTracker)) || firstPartyAnalytics);
     if (shouldBlock) {
       tab.stats.blockedTrackers += 1;
       if (category === 'ads') tab.stats.adsBlocked += 1;
