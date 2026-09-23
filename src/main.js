@@ -1461,6 +1461,11 @@ function wireIpc() {
     const origin = safeOrigin(tab?.url);
     const key = String(patch.key || '');
     if (!origin || !Object.keys(settings.permissionDefaults).includes(key)) return;
+    if (tab?.securityDomain !== 'private') {
+      toast('Site permission exceptions are locked in this security compartment.', 'warning');
+      emitState();
+      return;
+    }
     clearTemporaryPermissionsForOrigin(origin);
     if (patch.value === 'default') {
       if (settings.sitePermissions[origin]) {
