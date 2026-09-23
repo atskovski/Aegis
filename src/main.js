@@ -10,7 +10,7 @@ const { buildAntiFingerprintScript } = require('./core/fingerprint');
 const { sanitizeSettings, searchTemplateFor, profileDefaults, cloneDefaults, SEARCH_ENGINES } = require('./core/settings');
 const { navigationUrl, navigationIsMainFrame, shouldAllowInternalNavigation, failedHttpsCanOfferHttp } = require('./core/navigation');
 const { applyProxyToSession: applyProxyCore, runConnectivityTest, verifyTorRoute } = require('./core/network');
-const { parseFilterRules } = require('./core/filter-rules');
+const { parseFilterRules, cosmeticSelectorsForHost } = require('./core/filter-rules');
 const { cosmeticCss, buildPagePrivacyScript } = require('./core/content-filter');
 const { TrackerLearner } = require('./core/tracker-learning');
 const { analyzeUrl } = require('./core/safety');
@@ -907,7 +907,9 @@ async function applyCosmeticFiltering(tab) {
   const enabled = effective.cosmeticFiltering !== false && tab.shieldsEnabled && !tab.compatibilityMode;
   if (!enabled) { tab.cosmeticFilteringReady = false; return false; }
   try {
-    tab.cosmeticCssKey = await tab.view.webContents.insertCSS(cosmeticCss(filterRules.cosmetic || []), { cssOrigin: 'user' });
+    let cosmeticHost='';try{cosmeticHost=new URL(tab.url||'').hostname;}catch{}
+    const customSelectors=cosmeticSelectorsForHost(cosmeticHost,filterRules);
+    tab.cosmeticCssKey = await tab.view.webContents.insertCSS(cosmeticCss(customSelectors), { cssOrigin: 'user' });
     tab.cosmeticFilteringReady = true;
     return true;
   } catch (err) {
