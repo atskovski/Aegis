@@ -6,6 +6,16 @@ Aegis 1.1 is a local-first macOS privacy, security and managed-browser platform 
 
 Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or Tor Browser equivalence. It reduces attack surface and linkability, isolates high-risk activity, can fail closed for selected routes, and reports important residual exposure instead of converting limitations into green badges.
 
+## 1.1.3 visibility and confirmation UX
+
+- Replaced the small bottom toast with a large top-of-chrome confirmation banner that cannot be covered by the native webpage surface.
+- Added clear success, warning, danger and informational treatments with larger typography, iconography and a dismiss button.
+- Increased confirmation persistence to 6.5 seconds for normal/success messages, 8.5 seconds for warnings and 12 seconds for failures.
+- Enlarged Settings, floating privacy/library panels, the command palette and permission dialogs.
+- Raised and documented the UI stack so notifications remain above permission prompts, command palette, Settings and floating panels.
+- Settings now show a prominent Unsaved / Saving / Saved ✓ state instead of immediately claiming a save before backend confirmation.
+- Added regression tests that enforce notification placement, modal sizing and z-index ordering.
+
 ## 1.1.2 stability release
 
 This release is a stabilization pass over the 1.1 Security Kernel and BrowserRuntime migration.
