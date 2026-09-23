@@ -49,7 +49,7 @@ function applyExtensionHeaderRemovals(headers, operations = []) {
   return out;
 }
 
-function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, onExtensionRequest, getExtensionNetworkDecision, getExtensionHeaderModifications, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
+function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, onExtensionRequest, getExtensionNetworkDecision, getExtensionBlockingDecision, getExtensionHeaderModifications, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
   const genericUA = buildGenericUA(chromiumVersion);
   ses.setUserAgent(genericUA, 'en-US,en');
   ses.spellCheckerEnabled = false;
@@ -68,7 +68,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   if(engine?.installPermissionHandlers)engine.installPermissionHandlers(ses,{request:permissionRequest,check:permissionCheck});else{ses.setPermissionRequestHandler(permissionRequest);ses.setPermissionCheckHandler(permissionCheck);}
   if(engine?.installDevicePermissionHandlers) engine.installDevicePermissionHandlers(ses);
 
-  ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+  ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, async (details, callback) => {
     const settings = getSettings();
     if (settings.blockPrivateNetwork && isPrivateNetworkUrl(details.url)) {
       tab.stats.privateNetworkBlocks = (tab.stats.privateNetworkBlocks || 0) + 1;
@@ -83,6 +83,20 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
     const extensionDecision = typeof getExtensionNetworkDecision === 'function' ? getExtensionNetworkDecision(details) : null;
     if (extensionDecision?.action === 'block') { tab.stats.blockedTrackers += 1; noteBlocked(tab, details.url); if (typeof onNetworkAccess === 'function') onNetworkAccess({ url:details.url, blocked:true, category:'extension-dnr', resourceType:details.resourceType }); onStats(tab); return callback({cancel:true}); }
     if (extensionDecision?.action === 'redirect' && extensionDecision.redirectURL) { if (typeof onNetworkAccess === 'function') onNetworkAccess({ url:details.url, blocked:false, category:'extension-dnr-redirect', resourceType:details.resourceType }); return callback({redirectURL:extensionDecision.redirectURL}); }
+    if (typeof getExtensionBlockingDecision === 'function') {
+      try {
+        const blockingDecision = await getExtensionBlockingDecision('webRequest.onBeforeRequest', details);
+        if (blockingDecision?.cancel) {
+          tab.stats.blockedTrackers += 1; noteBlocked(tab, details.url);
+          if (typeof onNetworkAccess === 'function') onNetworkAccess({ url:details.url, blocked:true, category:'extension-webrequest', resourceType:details.resourceType });
+          onStats(tab); return callback({ cancel:true });
+        }
+        if (blockingDecision?.redirectURL) {
+          if (typeof onNetworkAccess === 'function') onNetworkAccess({ url:details.url, blocked:false, category:'extension-webrequest-redirect', resourceType:details.resourceType });
+          return callback({ redirectURL:blockingDecision.redirectURL });
+        }
+      } catch {}
+    }
     if (details.resourceType === 'mainFrame' && settings.stripTrackingParams) {
       const cleaned = stripTrackingParams(details.url);
       if (cleaned !== details.url) { tab.stats.trackingParamsRemoved += 1; onStats(tab); return callback({ redirectURL: cleaned }); }
