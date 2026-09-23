@@ -85,6 +85,14 @@ Aegis does not execute arbitrary third-party uBO scriptlets/procedural JavaScrip
 
 Aegis local policy enforcement is not a substitute for an organization's MDM, EDR, SIEM, certificate deployment or OS-level DLP infrastructure.
 
+## Engine architecture
+
+Aegis is Chromium-based, but the product architecture is being separated from Electron. `src/core/engine-contract.js` defines the browser-engine boundary and `src/engine/electron-adapter.js` is the current Chromium/Electron implementation. Private-session creation, remote renderer construction/attachment and selected network operations now route through that adapter.
+
+This is an incremental migration: Electron remains the current desktop host and update vehicle, while privacy policy, ad blocking, enterprise controls, Sentinel evidence, fingerprint policy and compartment logic remain Aegis-owned core capabilities. The goal is to make a future direct Chromium host adapter possible without rewriting those security systems.
+
+Chromium's sandbox and Site Isolation remain intentional security foundations; Aegis is reducing framework coupling, not reimplementing Chromium's renderer sandbox.
+
 ## Secure renderer baseline
 
 Remote content runs with a deliberately restrictive Chromium/Electron policy: sandbox enabled, context isolation enabled, Node integration disabled, subframe Node integration disabled, web security enabled, insecure-content execution disabled, WebView disabled, plugins disabled, developer tools disabled, drag/drop navigation disabled, WebSQL disabled and media autoplay gated on user activation.
