@@ -225,13 +225,22 @@ if ! run_node --check "$RUNTIME_DIR/src/main.js" \
   || ! run_node --check "$RUNTIME_DIR/src/ui/start.js" \
   || ! run_node --check "$RUNTIME_DIR/src/ui/error.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/blocklist.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/browser-runtime.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/engine-contract.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/engine/electron-adapter.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/filter-rules.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/fingerprint.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/navigation.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/network.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/privacy.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/security-suite.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/security-kernel.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/control-registry.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/compartment.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/extensions.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/safety.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/settings.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/site-intelligence.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/sponsor.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/tracker-learning.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/url.js" \
