@@ -17,6 +17,13 @@ Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or T
 - TLS certificate errors fail closed and are recorded as security evidence; Aegis does not claim to rewrite Chromium's TLS fingerprint.
 
 ### Privacy and fingerprint resistance
+- A dedicated **Aegis Cohort v2** policy defines coherent Standard, Strict and Maximum identities instead of independently randomizing every surface.
+- Strict/Maximum normalize timezone, locale, screen geometry, DPR, CPU concurrency, memory, User-Agent/Client Hints and related identity surfaces as a group.
+- Maximum/Anonymous elevate WebGL to blocked, canvas extraction to a blank cohort behavior, WebRTC to blocked and timers to a coarser 10 ms quantum.
+- Strict reduces local-font, plugin/MIME, media-device, speech-voice and selected high-entropy API exposure.
+- Additional high-entropy surfaces such as installed-related-app discovery, gamepad/keyboard exposure, pressure APIs, detailed screen APIs and file-system picker surfaces are reduced in protected profiles.
+- Selected preference media queries are normalized so OS theme/contrast/HDR preferences do not become an unnecessary identity signal.
+- Fingerprint runtime evidence now carries the active cohort policy so Sentinel/Diagnostics can compare intended policy with observed behavior.
 - Standard, Strict and Maximum privacy profiles.
 - Cohort-oriented normalization for UA/Client Hints, locale, timezone, screen metrics, hardware concurrency and device memory.
 - Canvas/audio perturbation, WebGL identity reduction and protected-profile WebGPU suppression.
@@ -87,7 +94,7 @@ Aegis local policy enforcement is not a substitute for an organization's MDM, ED
 
 ## Engine architecture
 
-Aegis is Chromium-based, but the product architecture is being separated from Electron. `src/core/engine-contract.js` defines the browser-engine boundary and `src/engine/electron-adapter.js` is the current Chromium/Electron implementation. Private-session creation, remote renderer construction/attachment and selected network operations now route through that adapter.
+Aegis is Chromium-based, but the product architecture is being separated from Electron. `src/core/engine-contract.js` defines the browser-engine boundary and `src/engine/electron-adapter.js` is the current Chromium/Electron implementation. Private-session creation, remote renderer construction/attachment, protocol registration, selected network operations, permission mediation, download interception, popup policy, certificate observation, JavaScript execution and DevTools-protocol fingerprint setup now route through that adapter.
 
 This is an incremental migration: Electron remains the current desktop host and update vehicle, while privacy policy, ad blocking, enterprise controls, Sentinel evidence, fingerprint policy and compartment logic remain Aegis-owned core capabilities. The goal is to make a future direct Chromium host adapter possible without rewriting those security systems.
 
