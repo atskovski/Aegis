@@ -1,12 +1,12 @@
 <p align="center"><img src="assets/brand/aegis-lockup.svg" alt="Aegis Privacy Browser" width="430"></p>
 
-# Aegis Privacy Browser v0.9.0 — Guardian
+# Aegis Privacy Browser v1.0 — Runtime Guardian
 
-Aegis is a local-first privacy and security browser for macOS built on Electron/Chromium. Guardian moves the project from “privacy settings” toward a **proof-oriented security suite**: protections are implemented in code, important behaviors are tested, warnings and known limits are shown explicitly, and the UI explains what a page is attempting to learn about the user.
+Aegis 1.0 is a local-first privacy and security browser for macOS built on Electron/Chromium. The 1.0 architecture treats security controls as enforceable contracts: browser policy, backend enforcement, behavioral runtime probes and user-visible evidence must agree before a protection is presented as working.
 
-Aegis does **not** claim anonymity or “zero fingerprint.” A direct/system network route can expose a public IP, Chromium TLS characteristics can remain observable, and sophisticated fingerprinting can still distinguish a browser. The goal is to materially reduce tracking surface while making the remaining exposure visible.
+Aegis does **not** claim anonymity or “zero fingerprint.” A direct/system route can expose a public IP, Chromium transport characteristics remain observable, and sophisticated fingerprinting can still distinguish a browser. Aegis instead reduces tracking and attack surface, isolates high-risk browsing contexts, verifies important protections at runtime, and reports residual exposure explicitly.
 
-## Guardian highlights
+## Aegis 1.0 security architecture
 
 - Per-tab **ephemeral session isolation** with a behavioral cookie-separation proof.
 - Native main-process **ad/tracker filtering** plus conservative **cosmetic filtering**.
@@ -34,7 +34,7 @@ The supplied v0.8 benchmark evidence showed that raw network interception was su
 4. Use **Settings → Diagnostics → Run Security Suite** to verify the active runtime.
 5. Use **`Diagnose-Aegis.command`** for engine integrity, routing/startup markers, quarantine/code-sign diagnostics, and the local launch log.
 
-Normal launch does not require npm or Node. The launcher copies Aegis to `~/Library/Application Support/Aegis Privacy Browser/runtime-v0.9.0`, installs the pinned Electron 44.4.3 runtime for Apple Silicon or Intel, validates the expected release archive, runs local preflight checks, and starts the browser from Application Support.
+Normal launch does not require npm or Node. The launcher copies Aegis to `~/Library/Application Support/Aegis Privacy Browser/runtime-v1.0.0`, installs the pinned Electron 44.4.3 runtime for Apple Silicon or Intel, validates the expected release archive, runs local preflight checks, and starts the browser from Application Support.
 
 ## Security Suite evidence model
 
