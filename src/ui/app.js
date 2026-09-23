@@ -1550,13 +1550,14 @@ $('#confirmAddonInstall').addEventListener('click', async () => {
     const result = await window.aegis.invoke('extensions:install-staged', pendingAddonInstall.token);
     if (result?.ok) {
       pendingAddonInstall = null;
-      await refreshExtensions();
+      let refreshError = '';
+      try { await refreshExtensions(); } catch (err) { refreshError = String(err?.message || err || 'Unknown manager refresh error'); }
       showToast({
         title: previousAddon ? 'Add-on updated' : 'Add-on installed',
         message: previousAddon
-          ? (result.extension.name + ' updated from ' + previousAddon.version + ' to ' + result.extension.version + '. The package was re-verified before activation.')
-          : (result.extension.name + ' ' + result.extension.version + ' is installed. Supported background, content, toolbar and options features are now active.'),
-        tone:'success',duration:8000
+          ? (result.extension.name + ' updated from ' + previousAddon.version + ' to ' + result.extension.version + '. The package was re-verified before activation.' + (refreshError ? ' The Add-ons view could not refresh automatically: ' + refreshError : ''))
+          : (result.extension.name + ' ' + result.extension.version + ' is installed. Supported background, content, toolbar and options features are now active.' + (refreshError ? ' The Add-ons view could not refresh automatically: ' + refreshError : '')),
+        tone:refreshError?'warning':'success',duration:8000
       });
     } else showToast({title:'Extension install failed',message:result?.error || 'Unknown installation error.',tone:'danger'});
   } catch (err) { showToast({title:'Extension install failed',message:err.message,tone:'danger'}); }
