@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { safeRel, normalizeManifest, compatibility, matchPattern, matchingContentScripts, installRisk } = require('../src/core/extensions');
+const { safeRel, normalizeManifest, compatibility, matchPattern, matchingContentScripts, installRisk, extensionWorldId } = require('../src/core/extensions');
 
 test('XPI runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
@@ -42,4 +42,14 @@ test('high-power extension permissions are marked high risk', () => {
   const manifest={manifest_version:2,name:'T',version:'1',permissions:['<all_urls>','storage']};
   const risk=installRisk(manifest);
   assert.equal(risk.find((x)=>x.permission==='<all_urls>').level,'high');
+});
+
+
+test('each extension receives a stable isolated world id', () => {
+  const a=extensionWorldId('one@example');
+  const b=extensionWorldId('two@example');
+  assert.ok(a >= 1000);
+  assert.ok(b >= 1000);
+  assert.equal(a, extensionWorldId('one@example'));
+  assert.notEqual(a, b);
 });
