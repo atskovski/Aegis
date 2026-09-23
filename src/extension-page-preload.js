@@ -61,6 +61,7 @@ const actionApi = (root) => ({
   setBadgeText: (details={}, ...rest) => call(root + '.setBadgeText', details, ...rest),
   getBadgeText: (details={}, ...rest) => call(root + '.getBadgeText', details, ...rest),
   setBadgeBackgroundColor: (details={}, ...rest) => call(root + '.setBadgeBackgroundColor', details, ...rest),
+  setBadgeTextColor: (details={}, ...rest) => call(root + '.setBadgeTextColor', details, ...rest),
   setPopup: (details={}, ...rest) => call(root + '.setPopup', details, ...rest),
   getPopup: (details={}, ...rest) => call(root + '.getPopup', details, ...rest),
   setIcon: (details={}, ...rest) => call(root + '.setIcon', details, ...rest),
@@ -68,6 +69,7 @@ const actionApi = (root) => ({
   disable: (...args) => call(root + '.disable', ...args),
   isEnabled: (...args) => call(root + '.isEnabled', ...args),
   openPopup: (...args) => call(root + '.openPopup', ...args),
+  getUserSettings: (...args) => call(root + '.getUserSettings', ...args),
   onClicked: event(root + '.onClicked')
 });
 function localMessage(key, substitutions) {
@@ -147,6 +149,9 @@ const declarativeNetRequest = {
   onRuleMatchedDebug:event('declarativeNetRequest.onRuleMatchedDebug')
 };
 const webRequest = {
+  OnBeforeRequestOptions:Object.freeze({ BLOCKING:'blocking', REQUEST_BODY:'requestBody' }),
+  OnBeforeSendHeadersOptions:Object.freeze({ REQUEST_HEADERS:'requestHeaders', BLOCKING:'blocking', EXTRA_HEADERS:'extraHeaders' }),
+  OnHeadersReceivedOptions:Object.freeze({ RESPONSE_HEADERS:'responseHeaders', BLOCKING:'blocking', EXTRA_HEADERS:'extraHeaders' }),
   onBeforeRequest:event('webRequest.onBeforeRequest'),
   onBeforeSendHeaders:event('webRequest.onBeforeSendHeaders'),
   onSendHeaders:event('webRequest.onSendHeaders'),
@@ -175,7 +180,8 @@ const tabs = {
   onCreated: event('tabs.onCreated'),
   onUpdated: event('tabs.onUpdated'),
   onRemoved: event('tabs.onRemoved'),
-  onActivated: event('tabs.onActivated')
+  onActivated: event('tabs.onActivated'),
+  onReplaced: event('tabs.onReplaced')
 };
 const api = {
   runtime,
