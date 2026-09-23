@@ -319,23 +319,23 @@
         </section>
 
         <section class="settings-page addons-page" data-settings-page="addons">
-          <div class="page-title"><h3>Add-ons & WebExtensions</h3><p>Aegis installs complete Chrome CRX and Firefox XPI/WebExtension packages. Package installation and runtime API compatibility are shown separately so a valid add-on is never mislabeled as “65% installed.”</p></div>
+          <div class="page-title"><h3>Extensions</h3><p>Aegis uses one extension model: Chrome extensions. Install from the Chrome Web Store, a signed CRX, a ZIP package, or an unpacked Chrome extension. Package integrity, permissions and runtime health are verified before activation.</p></div>
 
           <div class="addon-hero addon-hero-v3">
             <div>
-              <span class="eyebrow">AEGIS EXTENSION RUNTIME 5</span>
-              <h4>Universal Chrome + Firefox package installer</h4>
-              <p>Install a complete <b>.crx</b>, <b>.xpi</b>, <b>.zip</b>, unpacked extension, Chrome Web Store URL, or Chrome extension ID. Aegis verifies the package first, then reports API/runtime coverage separately.</p>
+              <span class="eyebrow">AEGIS CHROME EXTENSION RUNTIME 6</span>
+              <h4>Chrome extension engine</h4>
+              <p>Install a <b>.crx</b>, <b>.zip</b>, unpacked Chrome extension, Chrome Web Store URL, or 32-character extension ID. Runtime 6 is built around Chromium extension semantics instead of maintaining separate Chrome and Firefox compatibility paths.</p>
             </div>
             <div class="addon-install-actions">
-              <button id="installXpi" class="primary addon-install-btn">Choose CRX / XPI / ZIP</button>
+              <button id="installXpi" class="primary addon-install-btn">Choose CRX / ZIP</button>
               <button id="loadUnpackedExtension" class="secondary">Load unpacked</button>
             </div>
           </div>
 
           <div class="addon-url-install">
-            <label for="addonUrlInput"><span>Chrome Web Store, Firefox Add-ons, extension ID, or direct package URL</span><small>Paste a Chrome Web Store listing, Mozilla Add-ons listing, 32-character Chrome extension ID, or direct HTTPS .crx/.xpi/.zip URL.</small></label>
-            <div class="addon-url-row"><input id="addonUrlInput" autocomplete="off" spellcheck="false" placeholder="Chrome Web Store or addons.mozilla.org/firefox/addon/..."><button id="installAddonUrl" class="secondary">Download & inspect</button></div>
+            <label for="addonUrlInput"><span>Chrome Web Store, extension ID, or direct package URL</span><small>Paste a Chrome Web Store listing, 32-character Chrome extension ID, or direct HTTPS .crx/.zip package URL.</small></label>
+            <div class="addon-url-row"><input id="addonUrlInput" autocomplete="off" spellcheck="false" placeholder="Chrome Web Store URL or extension ID"><button id="installAddonUrl" class="secondary">Download & inspect</button></div>
           </div>
 
           <div id="addonRuntimeSummary" class="addon-runtime-summary addon-runtime-summary-v3" aria-live="polite">
@@ -371,7 +371,7 @@
           </div>
 
           <div class="addon-capability-matrix">
-            <div class="addon-capability-head"><div><span class="eyebrow">INSTALL + COMPATIBILITY LAYER</span><h4>What Aegis implements — package install vs API coverage</h4></div><span>Runtime 5</span></div>
+            <div class="addon-capability-head"><div><span class="eyebrow">CHROME COMPATIBILITY ENGINE</span><h4>What Runtime 6 implements</h4></div><span>Runtime 6</span></div>
             <div class="addon-capability-grid">
               <div class="supported"><b>Content & UI</b><span>content_scripts, document_start/end/idle, action/browserAction/pageAction, popups, options pages, extension resources</span></div>
               <div class="supported"><b>Core APIs</b><span>runtime + Ports, storage.local/sync/session/managed, tabs, windows, cookies, permissions, i18n, scripting, alarms, commands, webNavigation</span></div>
@@ -381,13 +381,13 @@
           </div>
 
           <div class="addon-boundary-grid">
-            <div class="info-callout success"><b>Chrome + Firefox package support</b><span>CRX2/CRX3, XPI, ZIP and unpacked Manifest V2/V3 packages are staged into an Aegis-owned sandbox, scanned for API usage, and given an explicit compatibility score before install.</span></div>
+            <div class="info-callout success"><b>Chrome extension support</b><span>CRX2/CRX3, ZIP and unpacked Manifest V2/V3 Chrome extensions are staged into an Aegis-owned sandbox, scanned for API usage, and health-checked before activation. Privacy Badger 2026.9.15 is the Runtime 6 reference extension.</span></div>
             <div class="info-callout warning"><b>Aegis security boundary</b><span>Add-ons cannot disable Aegis routing, weaken hardened/anonymous compartments, use Node.js/native messaging, or silently take control of the browser security kernel.</span></div>
           </div>
 
           <div class="addon-manager-toolbar">
             <div class="addon-section-head">
-              <div><span class="eyebrow">INSTALLED ADD-ONS</span><h4>Your extensions</h4></div>
+              <div><span class="eyebrow">INSTALLED EXTENSIONS</span><h4>Your Chrome extensions</h4></div>
               <span id="addonManagerStatus" class="addon-manager-status">Runtime ready</span>
             </div>
             <div class="addon-manager-controls">
@@ -403,7 +403,7 @@
               <button id="refreshAddons" class="secondary">Refresh</button>
             </div>
           </div>
-          <div id="addonList" class="addon-list"><div class="suite-empty addon-empty"><b>No add-ons installed</b><span>Choose a Chrome CRX, Firefox XPI, ZIP, unpacked extension, or paste a Chrome Web Store/package URL to inspect and install it.</span></div></div>
+          <div id="addonList" class="addon-list"><div class="suite-empty addon-empty"><b>No extensions installed</b><span>Choose a Chrome CRX/ZIP, unpacked extension, Chrome Web Store URL, or extension ID to inspect and install it.</span></div></div>
         </section>
 
         <section class="settings-page" data-settings-page="enterprise">
