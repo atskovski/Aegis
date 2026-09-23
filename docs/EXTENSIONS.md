@@ -50,7 +50,7 @@ Runtime 5 currently implements or emulates the following major surfaces:
 - scripting: packaged file/code execution in the top frame or targeted subframes (`frameIds` / `allFrames`), including MAIN-world injection; CSS insertion/removal is currently top-frame-only.
 - webNavigation observation.
 - webRequest observation.
-- declarativeNetRequest static/dynamic/session rules for block, allow, redirect and upgradeScheme decisions.
+- declarativeNetRequest static/dynamic/session rules for block, allow, redirect and upgradeScheme decisions, plus constrained privacy-strengthening `modifyHeaders` removals for cookies, referrers and cache/tracking identifiers.
 - privacy read/query compatibility surfaces controlled by Aegis policy.
 - notifications rendered through Aegis browser chrome.
 - menus/contextMenus integrated into Aegis context menus.
@@ -63,7 +63,7 @@ Runtime 5 currently implements or emulates the following major surfaces:
 Runtime 5 does not claim universal Chrome or Firefox API parity.
 
 - Aegis owns synchronous network blocking. Blocking webRequest listener return values are not exposed; extensions should use supported declarativeNetRequest behavior where possible.
-- declarativeNetRequest modifyHeaders is intentionally not allowed to weaken Aegis security headers, and matched-rule telemetry is reduced.
+- declarativeNetRequest `modifyHeaders` can remove privacy-sensitive request/response headers such as Cookie, Set-Cookie, Referer, ETag and related cache identifiers. Header sets/appends and removal of security-critical headers remain blocked, and matched-rule telemetry is reduced.
 - proxy replacement, native messaging, browsing-history database access, extension management, debugger APIs and DevTools extension pages are withheld.
 - optional_permissions and optional_host_permissions are detected and reviewed, but runtime permission-request/removal prompts are not yet implemented.
 - manifest and dynamically registered `content_scripts.all_frames` are injected into loaded subframes through Aegis's sandboxed iframe bridge, including `match_about_blank` origin fallback. Programmatic `scripting.executeScript()` supports `frameIds` and `allFrames`, including MAIN-world execution. Exact `document_start` ordering can still differ from upstream Chrome/Firefox.
