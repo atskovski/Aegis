@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const allowedSend = new Set([
   'nav','tab:new','tab:close','tab:activate','tab:duplicate','tab:command','identity:new',
   'settings:update','settings:profile','settings:reset','shields:set','http:set','javascript:set',
-  'site-permission:set','site-permission:reset','data:clear-tab','data:clear-all','permission:respond',
+  'site-permission:set','site-permission:reset','site:harden','tab:new-anonymous','data:clear-tab','data:clear-all','permission:respond',
   'compatibility:set','ui:layer','bookmark:toggle','bookmark:open','bookmark:remove','downloads:clear','download:cancel','download:reveal'
 ]);
 const allowedInvoke = new Set(['state:get','settings:get','network:test','network:test-tor','security-suite:run','security-test:open','enterprise:import-policy','enterprise:export-events','adblock:pick-element','adblock:lists','adblock:refresh-lists','extensions:list','extensions:install','extensions:set-enabled','extensions:remove']);
