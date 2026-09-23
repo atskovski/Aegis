@@ -394,7 +394,7 @@ function renderAddonInstallReview() {
   score.className = 'addon-score compat-' + compat.status;
   $('#addonReviewId').textContent = summary.id || 'Generated after install';
   $('#addonReviewDigest').textContent = summary.digest || '—';
-  $('#addonReviewSignature').textContent = summary.signature?.metadataPresent ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature metadata present · cryptographic verification not claimed') : 'Signature metadata not detected';
+  $('#addonReviewSignature').textContent = summary.signature?.verified ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature verified') : (summary.signature?.metadataPresent ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature present · NOT verified') : 'Signature metadata not detected');
 
   const featureBox = $('#addonReviewFeatures'); featureBox.replaceChildren();
   addonFeatureLabels(summary.features).forEach((item) => featureBox.append(makeAddonChip(item, 'supported')));
