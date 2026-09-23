@@ -67,3 +67,12 @@ test('anonymous compartment settings are sanitized and default fail-closed', () 
   assert.equal(s.anonymity.torProxy,'127.0.0.1:9150');
   assert.equal(s.anonymity.requireTorVerification,false);
 });
+
+
+test('migrates legacy internal start page default to DuckDuckGo', () => {
+  assert.equal(sanitizeSettings({ homePage: 'aegis://app/start.html' }).homePage, 'https://duckduckgo.com/');
+});
+
+test('preserves explicit custom home pages', () => {
+  assert.equal(sanitizeSettings({ homePage: 'https://example.com/' }).homePage, 'https://example.com/');
+});
