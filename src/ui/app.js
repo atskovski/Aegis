@@ -409,8 +409,8 @@ function renderAddonInstallReview() {
   $('#addonReviewMeta').textContent = '100% package installable · ' + ecosystem + ' · Manifest V' + (summary.manifestVersion || '?') + ' · API/runtime coverage ' + compat.score + '% · review expires ' + new Date(pendingAddonInstall.expiresAt).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
   $('#addonReviewDescription').textContent = summary.description || 'This extension does not provide a description.';
   const score = $('#addonReviewScore');
-  score.textContent = 'API ' + compat.score + '%';
-  score.className = 'addon-score compat-' + compat.status;
+  score.textContent = '100% INSTALL';
+  score.className = 'addon-score install-complete';
   $('#addonReviewId').textContent = summary.id || 'Generated after install';
   $('#addonReviewDigest').textContent = summary.digest || '—';
   $('#addonReviewSignature').textContent = summary.signature?.verified ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature verified') : (summary.signature?.metadataPresent ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature present · NOT verified') : 'Signature metadata not detected');
