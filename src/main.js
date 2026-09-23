@@ -1081,6 +1081,9 @@ async function destroyTab(tab) {
   try { mainWindow.contentView.removeChildView(tab.view); } catch {}
   if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
   tabs.delete(tab.id);
+  if (tab.securityDomain === 'anonymous' && ![...tabs.values()].some((t) => t.securityDomain === 'anonymous')) {
+    try { await extensionRuntime?.resumeAll('anonymous-tabs'); } catch (err) { console.warn('Could not resume extension backgrounds:', err.message); }
+  }
 }
 
 async function closeTab(id) {
@@ -1191,6 +1194,7 @@ async function createAnonymousTab(raw = null) {
     deferNavigation:true
   });
   if (!tab) return null;
+  extensionRuntime?.suspendAll('anonymous-tabs');
   try {
     const route = await applyProxyToSession(tab.privateSession, { freshSession:false }, tab);
     tab.networkRoute = route;
