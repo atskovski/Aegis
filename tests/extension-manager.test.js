@@ -25,6 +25,8 @@ test('Add-ons manager exposes staged review and installed-extension controls',()
   assert.match(ui,/extensions:install-url/);
   assert.match(ui,/extensionStoreSource/);
   assert.match(ui,/storeInstall/);
+  assert.match(ui,/renderStoreInstallButton\(\);/);
+  assert.doesNotMatch(ui,/renderStoreInstallButton\(tab\);/);
   assert.match(ui,/extensions:install-staged/);
   assert.match(ui,/extensions:diagnose/);
   assert.match(ui,/extensions:cancel-install/);
