@@ -1076,7 +1076,7 @@ async function replaceTabView(tab, javascriptEnabled) {
   tab.javascriptEnabled = Boolean(javascriptEnabled);
   const nextView = createTabView(tab);
   tab.view = nextView;
-  mainWindow.contentView.addChildView(nextView);
+  browserEngine.attachView(mainWindow,nextView);
   nextView.setVisible(false);
   wireTabView(tab, nextView);
   await installFingerprintDefenses(tab);
@@ -1084,7 +1084,7 @@ async function replaceTabView(tab, javascriptEnabled) {
   if (previousBounds) nextView.setBounds(previousBounds);
   if (wasActive) nextView.setVisible(uiLayer.mode !== 'hidden');
 
-  try { mainWindow.contentView.removeChildView(previousView); } catch {}
+  browserEngine.detachView(mainWindow,previousView);
   try {
     if (previousView && !previousView.webContents.isDestroyed()) previousView.webContents.close();
   } catch {}
@@ -1153,7 +1153,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
   const view = createTabView(tab);
   tab.view = view;
   tabs.set(id, tab);
-  mainWindow.contentView.addChildView(view);
+  browserEngine.attachView(mainWindow,view);
   view.setVisible(false);
 
   configurePrivacySession({
@@ -1260,7 +1260,7 @@ async function destroyTab(tab) {
     await tab.view.webContents.session.clearCache();
     await tab.view.webContents.session.closeAllConnections();
   } catch {}
-  try { mainWindow.contentView.removeChildView(tab.view); } catch {}
+  browserEngine.detachView(mainWindow,tab.view);
   if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
   tabs.delete(tab.id);
   if (tab.securityDomain === 'anonymous' && ![...tabs.values()].some((t) => t.securityDomain === 'anonymous')) {
