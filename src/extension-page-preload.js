@@ -153,7 +153,8 @@ const webRequest = {
   onHeadersReceived:event('webRequest.onHeadersReceived'),
   onResponseStarted:event('webRequest.onResponseStarted'),
   onCompleted:event('webRequest.onCompleted'),
-  onErrorOccurred:event('webRequest.onErrorOccurred')
+  onErrorOccurred:event('webRequest.onErrorOccurred'),
+  handlerBehaviorChanged:(...args)=>call('webRequest.handlerBehaviorChanged',...args)
 };
 const tabs = {
   query: (q={}, ...rest) => call('tabs.query', q, ...rest),
@@ -218,9 +219,14 @@ const api = {
   },
   commands: { getAll:(...args)=>call('commands.getAll',...args), onCommand:event('commands.onCommand') },
   scripting: {
+    ExecutionWorld:Object.freeze({ ISOLATED:'ISOLATED', MAIN:'MAIN' }),
     executeScript:(...args)=>call('scripting.executeScript',...args),
     insertCSS:(...args)=>call('scripting.insertCSS',...args),
-    removeCSS:(...args)=>call('scripting.removeCSS',...args)
+    removeCSS:(...args)=>call('scripting.removeCSS',...args),
+    registerContentScripts:(...args)=>call('scripting.registerContentScripts',...args),
+    updateContentScripts:(...args)=>call('scripting.updateContentScripts',...args),
+    unregisterContentScripts:(...args)=>call('scripting.unregisterContentScripts',...args),
+    getRegisteredContentScripts:(...args)=>call('scripting.getRegisteredContentScripts',...args)
   },
   webNavigation: {
     onBeforeNavigate:event('webNavigation.onBeforeNavigate'),
@@ -288,15 +294,34 @@ ipcRenderer.on('extension:event', (_event, payload) => {
   for (const fn of [...set]) { try { fn(...args); } catch {} }
 });
 
-ipcRenderer.on('extension:runtime-message', async (_event, payload) => {
-  if (String(payload?.extensionId || '') !== extensionId) return;
-  let response;
+async function dispatchRuntimeMessage(message, sender = {}) {
   for (const fn of [...eventList('runtime.onMessage')]) {
     try {
-      const value = await fn(payload?.message, payload?.sender || {}, () => {});
-      if (value !== undefined) { response = value; break; }
+      let settled = false, resolveResponse;
+      const responsePromise = new Promise((resolve) => { resolveResponse = resolve; });
+      const sendResponse = (value) => {
+        if (!settled) { settled = true; resolveResponse(value); }
+        return true;
+      };
+      let value = fn(message, sender, sendResponse);
+      if (value && typeof value.then === 'function') value = await value;
+      if (value === true) {
+        if (settled) return await responsePromise;
+        return await Promise.race([
+          responsePromise,
+          new Promise((resolve) => setTimeout(() => resolve(undefined), 30000))
+        ]);
+      }
+      if (settled) return await responsePromise;
+      if (value !== undefined) return value;
     } catch {}
   }
+  return undefined;
+}
+
+ipcRenderer.on('extension:runtime-message', async (_event, payload) => {
+  if (String(payload?.extensionId || '') !== extensionId) return;
+  const response = await dispatchRuntimeMessage(payload?.message, payload?.sender || {});
   ipcRenderer.send('extension:message-response', {
     extensionId,
     messageId:String(payload?.messageId || ''),
