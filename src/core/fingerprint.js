@@ -16,8 +16,6 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
     const DNT = ${doNotTrack ? 'true' : 'false'};
     const ANONYMOUS = ${anonymousMode ? 'true' : 'false'};
     const DISABLE_WEBRTC = ${disableWebRtc ? 'true' : 'false'};
-    const ANONYMOUS = ${anonymousMode ? 'true' : 'false'};
-    const DISABLE_WEBRTC = ${disableWebRtc ? 'true' : 'false'};
     const host = (() => { try { return location.hostname || 'opaque'; } catch { return 'opaque'; } })();
     let h = 2166136261 >>> 0;
     // Maximum/anonymous profiles use a cohort seed, not a per-user seed. This makes
