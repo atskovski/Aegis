@@ -1041,6 +1041,7 @@ $('#compatibilityToggle').addEventListener('change', (e) => window.aegis.send('c
 $('#hardenSite').addEventListener('click', () => window.aegis.send('site:harden'));
 $('#anonymousTab').addEventListener('click', () => window.aegis.send('tab:new-anonymous'));
 $('#newAnonymousTabFromNetwork').addEventListener('click', () => { hidePanels(); window.aegis.send('tab:new-anonymous'); });
+$('#testTorRoute').addEventListener('click', testTorRoute);
 $('#clearTabData').addEventListener('click', () => window.aegis.send('data:clear-tab'));
 $('#resetSitePermissions').addEventListener('click', () => window.aegis.send('site-permission:reset'));
 $('#clearDownloads').addEventListener('click', () => window.aegis.send('downloads:clear'));
