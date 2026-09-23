@@ -315,6 +315,40 @@ test('tabs.sendMessage can target an injected subframe by frameId', async () => 
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
+test('scripting.executeScript targets a specific subframe in MAIN world', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-frame-scripting-'));
+  try{
+    const extRoot=path.join(root,'extension');fs.mkdirSync(extRoot,{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'clobber.js'),'globalThis.__clobberWorked=true;');
+    const mainFrame={framesInSubtree:[]};
+    const frame={processId:41,routingId:42,url:'https://tracker.example/frame',parent:{url:'https://example.com/'},isDestroyed:()=>false};
+    mainFrame.framesInSubtree=[mainFrame,frame];
+    let runtime,payloadSeen;
+    const contents={
+      mainFrame,
+      isDestroyed:()=>false,
+      sendToFrame:(_frameId,channel,payload)=>{
+        assert.equal(channel,'extension:frame-inject');
+        payloadSeen=payload;
+        setImmediate(()=>runtime.handleFrameInjectionResult(contents,frame,{
+          requestId:payload.requestId,extensionId:payload.extensionId,ok:true,scriptCount:1,cssCount:0,failures:[],result:'ran'
+        }));
+      }
+    };
+    const tab={id:7,url:'https://example.com/',securityDomain:'private',disableExtensions:false,view:{webContents:contents}};
+    const manifest={manifest_version:3,name:'Frame Scripting',version:'1',permissions:['scripting'],host_permissions:['<all_urls>']};
+    runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[tab],getActiveId:()=>7,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'frame-scripting',path:extRoot,resourceToken:'scripttoken',enabled:true,manifest,detectedApis:['scripting'],compatibility:compatibility(manifest,['scripting'])};
+    runtime.items.set(e.id,e);
+    assert.equal(runtime.requiresSubFramePreload(tab),true);
+    const result=await runtime.executeExtensionScript(e,tab,{target:{tabId:7,frameIds:[42]},world:'MAIN',files:['clobber.js']});
+    assert.deepEqual(result,[{frameId:42,result:'ran'}]);
+    assert.equal(payloadSeen.world,'MAIN');
+    assert.equal(payloadSeen.scripts.length,1);
+    assert.match(payloadSeen.scripts[0].code,/__clobberWorked/);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
 test('MAIN-world scripting executes packaged files without the isolated API bootstrap', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-main-world-'));
   try{
