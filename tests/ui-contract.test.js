@@ -28,3 +28,16 @@ test('production UI includes local library and network diagnostics surfaces', ()
   assert.match(html, /id="compatibilityToggle"/);
   assert.match(html, /id="bookmarkBtn"/);
 });
+
+
+test('every id-addressable button is wired by browser chrome JavaScript', () => {
+  const buttonIds=[...html.matchAll(/<button\b[^>]*\bid="([^"]+)"/g)].map((m)=>m[1]);
+  const unwired=buttonIds.filter((id)=>!js.includes(`$('#${id}')`)&&!js.includes(`#${id}`));
+  assert.deepEqual(unwired,[]);
+});
+
+test('every id-addressable form control is consumed by browser chrome JavaScript', () => {
+  const controlIds=[...html.matchAll(/<(?:input|select|textarea)\b[^>]*\bid="([^"]+)"/g)].map((m)=>m[1]);
+  const unwired=controlIds.filter((id)=>!js.includes(`$('#${id}')`)&&!js.includes(`#${id}`));
+  assert.deepEqual(unwired,[]);
+});

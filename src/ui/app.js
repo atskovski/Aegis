@@ -33,7 +33,8 @@ const COMMANDS = [
   { name: 'Run connectivity test', hint: 'Diagnostics', run: () => { openSettings('diagnostics'); runNetworkTest(); } },
   { name: 'Run full security verification', hint: 'Security Suite', run: () => { openSettings('diagnostics'); runSecuritySuite(); } },
   { name: 'Toggle compatibility mode', hint: 'Current tab', run: () => { const t = activeTab(); if (t) window.aegis.send('compatibility:set', !t.compatibilityMode); } },
-  { name: 'Harden current site', hint: 'Sentinel', run: () => window.aegis.send('site:harden') }
+  { name: 'Harden current site', hint: 'Sentinel', run: () => window.aegis.send('site:harden') },
+  { name: 'New anonymous compartment', hint: 'Tor · fail closed', run: () => window.aegis.send('tab:new-anonymous') }
 ];
 
 function deepClone(value) { return JSON.parse(JSON.stringify(value || {})); }
@@ -304,7 +305,8 @@ function renderSentinelSummary(tab) {
   const route = suite.route?.mode || tab.networkRoute?.mode || state.settings.proxy?.mode || 'system';
   const provider = suite.publicIp?.provider ? ' · ' + suite.publicIp.provider : '';
   const routeWarnings = suite.route?.warnings?.length ? ' · warning: ' + suite.route.warnings[0] : '';
-  $('#sentinelRoute').textContent = titleCase(route) + ' route' + provider + routeWarnings;
+  const domain = tab.securityDomainLabel || titleCase(tab.securityDomain || 'private') + ' compartment';
+  $('#sentinelRoute').textContent = domain + ' · ' + titleCase(route) + ' route' + provider + routeWarnings;
   $('#sentinelTrackers').textContent = stats.blockedTrackers || 0;
   $('#sentinelThirdParty').textContent = tab.siteIntelligence?.network?.uniqueThirdParties || stats.thirdPartyRequests || 0;
   $('#sentinelFingerprint').textContent = tab.siteIntelligence?.totals?.fingerprintCategories || 0;
@@ -446,10 +448,15 @@ function renderPrivacyPanel(tab) {
   renderSentinelSummary(tab);
   renderRuntimeEvidence(tab);
   applySentinelMode(sentinelMode);
+  const protectedCompartment = tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous';
   $('#shieldToggle').checked = Boolean(tab.shieldsEnabled);
+  $('#shieldToggle').disabled = protectedCompartment;
   $('#jsToggle').checked = Boolean(tab.javascriptEnabled);
+  $('#jsToggle').disabled = tab.securityDomain === 'anonymous' && state.settings.anonymity?.disableJavaScript !== false;
   $('#httpToggle').checked = Boolean(tab.allowHttp);
+  $('#httpToggle').disabled = protectedCompartment;
   $('#compatibilityToggle').checked = Boolean(tab.compatibilityMode);
+  $('#compatibilityToggle').disabled = protectedCompartment;
   $('#fpMode').textContent = titleCase(state.settings.privacyLevel || 'strict');
   $('#safetyMode').textContent = tab.safety?.warnings?.length ? `${tab.safety.warnings.length} warning${tab.safety.warnings.length === 1 ? '' : 's'}` : 'No warnings';
   $('#connectionState').textContent = tab.url?.startsWith('https://') ? 'HTTPS encrypted' : (isInternal(tab.url) ? 'Aegis internal' : (tab.url?.startsWith('http://') ? 'HTTP insecure' : 'Not established'));
@@ -457,14 +464,22 @@ function renderPrivacyPanel(tab) {
   $('#siteLabel').textContent = tab.origin ? new URL(tab.origin).hostname : 'Internal Aegis page';
 
   const internal = !tab.origin;
-  $$('#sitePermissionGrid select').forEach((select) => {
-    select.disabled = internal;
+  const compartmentLocked = tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous';
+  $('#sitePermissionGrid select').forEach((select) => {
+    select.disabled = internal || compartmentLocked;
     select.value = currentSitePermission(select.dataset.sitePermission);
   });
-  $('#resetSitePermissions').disabled = internal;
+  $('#resetSitePermissions').disabled = internal || compartmentLocked;
+  const hardenButton = $('#hardenSite');
+  hardenButton.textContent = tab.securityDomain === 'hardened' ? 'Site hardened' : (tab.securityDomain === 'anonymous' ? 'Anonymous compartment' : 'Harden this site');
+  hardenButton.disabled = tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous' || internal;
+  $('#anonymousTab').disabled = false;
+
   $('#sitePermissionHint').textContent = internal
     ? 'Site permissions apply to HTTP and HTTPS origins, not internal Aegis pages.'
-    : `Exceptions here apply only to ${new URL(tab.origin).hostname}.`;
+    : (compartmentLocked
+      ? 'Sensitive permissions are locked to Block by this security compartment.'
+      : `Exceptions here apply only to ${new URL(tab.origin).hostname}.`);
 
   const recent = stats.recentBlocked || [];
   const box = $('#recentBlocked');
@@ -624,6 +639,25 @@ async function runSecuritySuite() {
   }
 }
 
+
+async function testTorRoute() {
+  const status = $('#torRouteStatus');
+  const button = $('#testTorRoute');
+  if (button) { button.disabled = true; button.textContent = 'Testing…'; }
+  try {
+    const result = await window.aegis.invoke('network:test-tor', { torProxy: ($('#anonymousTorProxy')?.value || '').trim() });
+    if (status) {
+      status.className = 'info-callout ' + (result?.verified ? 'success' : 'warning');
+      status.innerHTML = '<b>' + (result?.verified ? 'Tor route verified' : 'Tor route not verified') + '</b><span></span>';
+      status.querySelector('span').textContent = result?.verified
+        ? ('Tor Project confirmed the route' + (result.exitIp ? ' · exit ' + result.exitIp : '') + '.')
+        : (result?.error || 'Could not verify Tor.');
+    }
+    showToast({ message: result?.verified ? 'Tor route verified.' : 'Tor route verification failed.', tone: result?.verified ? 'success' : 'warning' });
+  } catch (err) { showToast({ message:'Tor route verification failed: '+err.message,tone:'danger' }); }
+  finally { if (button) { button.disabled = false; button.textContent = 'Test Tor route'; } }
+}
+
 async function runNetworkTest() {
   const buttons = [$('#runNetworkTest'), $('#networkTestFromNetwork')].filter(Boolean);
   buttons.forEach((b) => { b.disabled = true; b.textContent = 'Testing…'; });
@@ -762,6 +796,12 @@ function renderSettingsDraft() {
   $('#proxyServer').value = s.proxy?.server || '';
   $('#proxyBypassLocal').checked = Boolean(s.proxy?.bypassLocal);
   $('#proxyFailClosed').checked = s.proxy?.failClosedFixedProxy !== false;
+  $('#anonymousTorProxy').value = s.anonymity?.torProxy || '127.0.0.1:9050';
+  $('#anonymousRequireTor').checked = s.anonymity?.requireTorVerification !== false;
+  $('#anonymousBlockLan').checked = s.anonymity?.blockPrivateNetwork !== false;
+  $('#anonymousDisableDownloads').checked = s.anonymity?.disableDownloads !== false;
+  $('#anonymousDisableExtensions').checked = s.anonymity?.disableExtensions !== false;
+  $('#anonymousDisableJavaScript').checked = s.anonymity?.disableJavaScript !== false;
   $('#homePage').value = s.homePage || 'https://duckduckgo.com/';
   $('#searchEngine').value = s.searchEngine || 'duckduckgo';
   $('#customSearchTemplate').value = s.customSearchTemplate || '';
@@ -809,6 +849,15 @@ function collectDraftFromControls() {
   draftSettings.sponsorBlock = { ...(draftSettings.sponsorBlock || {}), enabled: $('#sponsorBlockEnabled').checked, categories: $$('[data-sponsor-category]:checked').map((el) => el.dataset.sponsorCategory) };
   draftSettings.fireproofSites = $('#fireproofSites').value.split(/\r?\n|,/).map((x) => x.trim()).filter(Boolean);
   draftSettings.proxy = { mode: $('#proxyMode').value, server: $('#proxyServer').value.trim(), bypassLocal: $('#proxyBypassLocal').checked, failClosedFixedProxy: $('#proxyFailClosed').checked };
+  draftSettings.anonymity = {
+    ...(draftSettings.anonymity || {}),
+    torProxy: $('#anonymousTorProxy').value.trim() || '127.0.0.1:9050',
+    requireTorVerification: $('#anonymousRequireTor').checked,
+    blockPrivateNetwork: $('#anonymousBlockLan').checked,
+    disableDownloads: $('#anonymousDisableDownloads').checked,
+    disableExtensions: $('#anonymousDisableExtensions').checked,
+    disableJavaScript: $('#anonymousDisableJavaScript').checked
+  };
   draftSettings.homePage = $('#homePage').value.trim() || 'https://duckduckgo.com/';
   draftSettings.searchEngine = $('#searchEngine').value;
   draftSettings.customSearchTemplate = $('#customSearchTemplate').value.trim();
@@ -1001,6 +1050,9 @@ $('#jsToggle').addEventListener('change', (e) => window.aegis.send('javascript:s
 $('#httpToggle').addEventListener('change', (e) => window.aegis.send('http:set', e.target.checked));
 $('#compatibilityToggle').addEventListener('change', (e) => window.aegis.send('compatibility:set', e.target.checked));
 $('#hardenSite').addEventListener('click', () => window.aegis.send('site:harden'));
+$('#anonymousTab').addEventListener('click', () => window.aegis.send('tab:new-anonymous'));
+$('#newAnonymousTabFromNetwork').addEventListener('click', () => { hidePanels(); window.aegis.send('tab:new-anonymous'); });
+$('#testTorRoute').addEventListener('click', testTorRoute);
 $('#clearTabData').addEventListener('click', () => window.aegis.send('data:clear-tab'));
 $('#resetSitePermissions').addEventListener('click', () => window.aegis.send('site-permission:reset'));
 $('#clearDownloads').addEventListener('click', () => window.aegis.send('downloads:clear'));
@@ -1016,7 +1068,16 @@ $('#installXpi').addEventListener('click', async () => {
   finally { button.disabled = false; button.textContent = 'Install .xpi'; }
 });
 $('#networkTestFromNetwork').addEventListener('click', () => { openSettings('diagnostics'); runNetworkTest(); });
-$$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
+$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
+$('[data-security-test]').forEach((button) => button.addEventListener('click', async () => {
+  button.disabled=true;
+  try {
+    const result=await window.aegis.invoke('security-test:open',button.dataset.securityTest);
+    if(result?.ok){ hidePanels(); showToast({message:'Opened independent security test in a fresh hardened compartment.',tone:'success'}); }
+    else showToast({message:'Could not open security test: '+(result?.error||'unknown error'),tone:'danger'});
+  } catch(err){ showToast({message:'Could not open security test: '+err.message,tone:'danger'}); }
+  finally { button.disabled=false; }
+}));
 
 $$('.settings-nav-item').forEach((b) => b.addEventListener('click', () => { switchSettingsPage(b.dataset.settingsTarget); clearSettingsSearch(); }));
 $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
@@ -1029,7 +1090,7 @@ $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
 const draftControlIds = [
   'blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','heuristicTrackingProtection','siteIntelligence','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
   'disableServiceWorkers','gpcToggle','dntToggle','downloadToggle','javascriptDefault','clearClipboardIdentity','compatibilityAssistance','threatProtection','cookieAutoDelete','cookieAutoDeleteDelay','sponsorBlockEnabled','fireproofSites',
-  'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
+  'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
 ];
 draftControlIds.forEach((id) => $('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));

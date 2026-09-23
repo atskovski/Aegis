@@ -32,6 +32,16 @@ function normalizeManifest(m){
   return m;
 }
 function permissions(m){ return [...new Set([...(Array.isArray(m.permissions)?m.permissions:[]),...(Array.isArray(m.host_permissions)?m.host_permissions:[])])]; }
+function hostPermissions(m){
+  return permissions(m).filter((p)=>p === '<all_urls>' || /^(?:\*|https?):\/\//.test(String(p||'')));
+}
+function networkAllowedByManifest(m,url){
+  const patterns=hostPermissions(m);
+  return patterns.some((p)=>matchPattern(url,p));
+}
+function extensionVisibleTab(tab){
+  return Boolean(tab && !tab.disableExtensions && tab.securityDomain!=='anonymous' && tab.securityDomain!=='hardened');
+}
 function extensionWorldId(id){
   const h=crypto.createHash('sha256').update(String(id)).digest();
   return 1100 + (h.readUInt32BE(0) % 50000);
@@ -157,7 +167,7 @@ function getKeys(store,keys){
 class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
-    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();
+    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.suspensionReasons=new Set();
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest)})}catch{}}}
@@ -181,6 +191,7 @@ class AegisExtensionRuntime{
     return {extensionId:ext.id,path:target,relative:safe};
   }
   async inject(tab,phase='idle'){
+    if(tab?.disableExtensions || tab?.securityDomain === 'anonymous' || tab?.securityDomain === 'hardened') return [];
     if(!tab?.view?.webContents||tab.view.webContents.isDestroyed())return [];
     const url=tab.view.webContents.getURL(); if(!/^https?:\/\//.test(url))return [];
     if(!tab.extensionInjectionKeys)tab.extensionInjectionKeys=new Set();
@@ -219,12 +230,24 @@ class AegisExtensionRuntime{
     if(m==='runtime.getPlatformInfo')return {os:process.platform==='darwin'?'mac':'unknown',arch:process.arch==='arm64'?'arm':'x86-64'};
     if(m==='permissions.contains'){const set=new Set(permissions(e.manifest));return [...(a[0]?.permissions||[]),...(a[0]?.origins||[])].every((x)=>set.has(x))}
     if(m.startsWith('storage.')){const [,area,op]=m.split('.'),file=path.join(this.dataDir,e.id,'storage.json'),store=area==='local'?readStore(file):(this.sessionStores.get(e.id)||{});this.sessionStores.set(e.id,store);if(op==='get')return getKeys(store,a[0]);if(op==='set')Object.assign(store,a[0]||{});if(op==='remove')for(const k of Array.isArray(a[0])?a[0]:[a[0]])delete store[k];if(op==='clear')for(const k of Object.keys(store))delete store[k];if(area==='local'&&op!=='get')writeStore(file,store);return;}
+    const extensionVisible=extensionVisibleTab;
     const pub=(t)=>({id:t.id,url:t.url||'',title:t.title||'',active:t.id===this.getActiveId(),incognito:true,status:t.loading?'loading':'complete'});
-    if(m==='tabs.query')return tabs.filter((t)=>!a[0]?.active||t.id===this.getActiveId()).map(pub);
+    if(m==='tabs.query')return tabs.filter(extensionVisible).filter((t)=>!a[0]?.active||t.id===this.getActiveId()).map(pub);
     if(m==='tabs.create')return pub(await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false));
-    if(m==='tabs.update')return this.updateTab(typeof a[0]==='number'?a[0]:source?.id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
-    if(m==='tabs.remove'){for(const id of (Array.isArray(a[0])?a[0]:[a[0]]))this.removeTab(Number(id));return}
-    if(m==='tabs.sendMessage'){const t=tabs.find((x)=>x.id===Number(a[0]));if(!t)throw new Error('Tab not found');const targetExt=this.items.get(e.id); return t.view.webContents.executeJavaScriptInIsolatedWorld(targetExt.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+'):undefined'}])}
+    if(m==='tabs.update'){
+      const id=typeof a[0]==='number'?a[0]:source?.id, target=tabs.find((t)=>t.id===Number(id));
+      if(!extensionVisible(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');
+      return this.updateTab(id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
+    }
+    if(m==='tabs.remove'){
+      for(const id of (Array.isArray(a[0])?a[0]:[a[0]])){
+        const target=tabs.find((t)=>t.id===Number(id));
+        if(!extensionVisible(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');
+        this.removeTab(Number(id));
+      }
+      return;
+    }
+    if(m==='tabs.sendMessage'){const t=tabs.find((x)=>x.id===Number(a[0]));if(!t||!extensionVisible(t))throw new Error('Tab unavailable to extensions');const targetExt=this.items.get(e.id); return t.view.webContents.executeJavaScriptInIsolatedWorld(targetExt.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+'):undefined'}])}
     if(m==='runtime.sendMessage')return this.sendRuntimeMessage(e, source, a[0]);
     throw new Error('Unsupported extension API: '+m);
   }
@@ -243,6 +266,7 @@ class AegisExtensionRuntime{
   }
   async startBackground(ext){
     this.stopBackground(ext.id);
+    if(this.suspensionReasons.size)return false;
     const scripts=this.backgroundScripts(ext);
     if(!ext.enabled||!scripts.length||!this.BrowserWindow||!this.electronSession)return false;
     const valid=scripts.filter((rel)=>{const file=path.resolve(ext.path,rel);return file.startsWith(path.resolve(ext.path)+path.sep)&&fs.existsSync(file)&&fs.statSync(file).isFile()});
@@ -254,13 +278,28 @@ class AegisExtensionRuntime{
     const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; connect-src https: http: aegis-extension:; img-src \'self\' data: aegis-extension:; style-src \'self\' \'unsafe-inline\'; object-src \'none\'">'+tags;
     fs.writeFileSync(wrapper,html,{mode:0o600});
     const ses=this.electronSession.fromPartition('aegis-extension-bg-'+crypto.createHash('sha256').update(ext.id).digest('hex').slice(0,24),{cache:false});
+    // Extension background networking is least-privilege: only manifest-declared
+    // host permissions may leave the sandboxed background session.
+    try {
+      ses.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>{
+        callback({cancel:!networkAllowedByManifest(ext.manifest,details.url)});
+      });
+    } catch {}
     if(typeof this.registerProtocols==='function')this.registerProtocols(ses.protocol,'extension '+ext.id);
     const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-host-preload.js'),additionalArguments:['--aegis-extension-id='+encodeURIComponent(ext.id)]}});
     this.backgroundHosts.set(ext.id,host);
     host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
     try{await host.loadFile(wrapper);return true}catch(err){try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
   }
-  async startAll(){for(const ext of this.enabled())await this.startBackground(ext)}
+  async startAll(){if(this.suspensionReasons.size)return;for(const ext of this.enabled())await this.startBackground(ext)}
+  suspendAll(reason='privacy-compartment'){
+    this.suspensionReasons.add(String(reason));
+    for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);
+  }
+  async resumeAll(reason='privacy-compartment'){
+    this.suspensionReasons.delete(String(reason));
+    if(!this.suspensionReasons.size)await this.startAll();
+  }
   stopBackground(id){const host=this.backgroundHosts.get(id);if(host&&!host.isDestroyed())try{host.destroy()}catch{}this.backgroundHosts.delete(id)}
   sendRuntimeMessage(ext, sourceTab, message){
     const host=this.backgroundHosts.get(ext.id);
@@ -269,7 +308,7 @@ class AegisExtensionRuntime{
     return new Promise((resolve)=>{
       const timer=setTimeout(()=>{this.pendingMessages.delete(messageId);resolve(undefined)},2500);
       this.pendingMessages.set(messageId,{extensionId:ext.id,resolve:(value)=>{clearTimeout(timer);resolve(value)}});
-      host.webContents.send('extension:runtime-message',{extensionId:ext.id,messageId,message,sender:sourceTab?{tab:{id:sourceTab.id,url:sourceTab.url||'',title:sourceTab.title||'',incognito:true}}:{id:ext.id}});
+      host.webContents.send('extension:runtime-message',{extensionId:ext.id,messageId,message,sender:sourceTab&&!sourceTab.disableExtensions&&sourceTab.securityDomain!=='anonymous'&&sourceTab.securityDomain!=='hardened'?{tab:{id:sourceTab.id,url:sourceTab.url||'',title:sourceTab.title||'',incognito:true}}:{id:ext.id}});
     });
   }
   handleBackgroundResponse(sender,payload={}){
@@ -279,4 +318,4 @@ class AegisExtensionRuntime{
   }
   stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear()}
 }
-module.exports={extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
+module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};

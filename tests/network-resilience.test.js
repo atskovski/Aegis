@@ -48,3 +48,22 @@ test('connectivity diagnostics exercise proxy, DNS and HTTPS in one Chromium ses
   assert.ok(calls.some((x) => x[0] === 'dns'));
   assert.ok(calls.some((x) => x[0] === 'fetch'));
 });
+
+
+test('SOCKS diagnostics never issue a local DNS resolution probe', async () => {
+  let dnsCalls=0;
+  const calls=[];
+  const ses={
+    resolveProxy: async()=> 'SOCKS5 127.0.0.1:9050',
+    resolveHost: async()=> { dnsCalls += 1; throw new Error('must not be called'); },
+    fetch: async(url,init)=> {
+      calls.push(['fetch',url,init.method]);
+      return {status:200,arrayBuffer:async()=>new ArrayBuffer(0)};
+    }
+  };
+  const result=await runConnectivityTest(ses,{target:'https://duckduckgo.com/',proxyMode:'socks5'});
+  assert.equal(result.ok,true);
+  assert.equal(dnsCalls,0);
+  assert.match(result.dns,/skipped/i);
+  assert.ok(calls.some((x)=>x[0]==='fetch'));
+});
