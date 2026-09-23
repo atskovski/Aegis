@@ -1,3 +1,15 @@
+# Changelog
+
+## v1.1.0 — Security Kernel
+
+- Added centralized Security Kernel decisions with fail-closed managed-policy expiry handling.
+- Hardened signed enterprise policy with rollback protection, key identity and runtime validity.
+- Made explicit enterprise block rules take precedence.
+- Added fingerprint activity telemetry and identity-coherence evaluation primitives.
+- Hardened filter subscriptions with streaming byte limits, cache TTL, conditional HTTP refresh, parse-health checks, last-known-good preservation and hosts-list conversion.
+- Continued BrowserRuntime/BrowserEngine decoupling so portable core security logic remains Electron-independent.
+- Added regression tests for the new security, fingerprint and filtering primitives.
+
 # Aegis Privacy Browser — Changelog
 
 ## v1.0.0 — Runtime Guardian
