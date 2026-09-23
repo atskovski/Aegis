@@ -11,6 +11,7 @@ let permissionQueue = [];
 let activePermissionPrompt = null;
 let lastUiLayerKey = '';
 let currentSettingsPage = 'privacy';
+let sentinelMode = 'simple';
 
 const PROFILE_VALUES = {
   standard: { privacyLevel: 'standard', letterbox: false, blockTrackers: true, blockAds: true, blockSocialTrackers: true, heuristicTrackingProtection: false, blockFingerprintingScripts: true, cosmeticFiltering: true, privacyApiGuard: false, blockTrackingBeacons: true, blockThirdPartyCookies: true, stripTrackingParams: true, stripCrossSiteReferrers: true, disableServiceWorkers: false },
@@ -40,6 +41,35 @@ function activeTab() { return state.tabs.find((t) => t.id === state.activeId); }
 function isInternal(url) { return String(url || '').startsWith('aegis://'); }
 function displayUrl(url) { return isInternal(url) ? '' : String(url || ''); }
 function titleCase(value) { return String(value || '').replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
+
+function setSentinelMode(mode) {
+  sentinelMode = mode === 'advanced' ? 'advanced' : 'simple';
+  const advanced = $('#sentinelAdvanced');
+  if (advanced) advanced.classList.toggle('hidden', sentinelMode !== 'advanced');
+  if ($('#sentinelSimpleBtn')) $('#sentinelSimpleBtn').classList.toggle('active', sentinelMode === 'simple');
+  if ($('#sentinelAdvancedBtn')) $('#sentinelAdvancedBtn').classList.toggle('active', sentinelMode === 'advanced');
+}
+
+function renderSentinelReport(report) {
+  if (!report?.simple) return;
+  const simple = report.simple;
+  $('#sentinelHeadline').textContent = simple.headline || 'Aegis is evaluating this tab.';
+  $('#sentinelProtection').textContent = simple.protection || 'Unknown';
+  $('#sentinelBlocked').textContent = String(simple.blocked ?? 0);
+  $('#sentinelThirdParties').textContent = String(simple.thirdParties ?? 0);
+  $('#sentinelRoute').textContent = String(simple.route || 'system').toUpperCase();
+  $('#sentinelIp').textContent = simple.publicIp || 'Not tested';
+  $('#sentinelIpMeaning').textContent = simple.ipMeaning || 'External IP has not been tested.';
+}
+
+async function refreshSentinelReport() {
+  try {
+    const report = await window.aegis.invoke('sentinel:report');
+    renderSentinelReport(report);
+  } catch {
+    renderSentinelReport({ simple:{ headline:'Sentinel report is unavailable for this tab.', protection:'Unknown', blocked:0, thirdParties:0, route:state.network?.proxyMode || 'system', publicIp:'', ipMeaning:'Run Security Suite to collect external routing evidence.' } });
+  }
+}
 
 function currentSitePermission(key) {
   const tab = activeTab();
@@ -716,6 +746,7 @@ function syncUiLayer() {
 function showPanel(id) {
   ['privacyPanel', 'libraryPanel', 'settingsPanel'].forEach((x) => $('#' + x).classList.toggle('hidden', x !== id));
   if (id !== 'settingsPanel') draftSettings = null;
+  if (id === 'privacyPanel') refreshSentinelReport();
   requestAnimationFrame(syncUiLayer);
 }
 
@@ -848,6 +879,8 @@ $('#libraryBtn').addEventListener('click', () => showPanel('libraryPanel'));
 $('#settingsBtn').addEventListener('click', () => openSettings());
 $('#commandBtn').addEventListener('click', openCommandPalette);
 $('#privacyBeacon').addEventListener('click', () => showPanel('privacyPanel'));
+$('#sentinelSimpleBtn').addEventListener('click', () => setSentinelMode('simple'));
+$('#sentinelAdvancedBtn').addEventListener('click', () => { setSentinelMode('advanced'); refreshSentinelReport(); });
 $('#openFullSettings').addEventListener('click', () => openSettings('privacy'));
 $$('[data-close]').forEach((b) => b.addEventListener('click', hidePanels));
 
@@ -945,4 +978,5 @@ window.aegis.on('ui:open', (payload = {}) => {
   if (payload.panel === 'privacyPanel') showPanel('privacyPanel');
   else if (payload.settingsPage) openSettings(payload.settingsPage);
 });
+setSentinelMode('simple');
 window.aegis.invoke('state:get').then((s) => { if (s) { state = s; render(); } requestAnimationFrame(syncUiLayer); });
