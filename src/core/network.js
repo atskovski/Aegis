@@ -105,13 +105,16 @@ async function runConnectivityTest(ses, options = {}) {
     try { return await timeout(ses.resolveProxy(target), 4500, 'Proxy resolution') || 'DIRECT'; }
     catch (err) { return `Error: ${err.message}`; }
   })();
-  const dnsCheck = (async () => {
-    try {
-      const resolved = await timeout(ses.resolveHost(host), 4500, 'DNS resolution');
-      const endpoints = Array.isArray(resolved?.endpoints) ? resolved.endpoints : [];
-      return endpoints.length ? `Resolved (${endpoints.length} endpoint${endpoints.length === 1 ? '' : 's'})` : 'Resolved';
-    } catch (err) { return `Error: ${err.message}`; }
-  })();
+  const skipLocalDns = options.skipLocalDns === true || String(options.proxyMode || '').toLowerCase() === 'socks5';
+  const dnsCheck = skipLocalDns
+    ? Promise.resolve('Local DNS probe skipped — hostname resolution delegated to the proxied HTTPS request')
+    : (async () => {
+      try {
+        const resolved = await timeout(ses.resolveHost(host), 4500, 'DNS resolution');
+        const endpoints = Array.isArray(resolved?.endpoints) ? resolved.endpoints : [];
+        return endpoints.length ? `Resolved (${endpoints.length} endpoint${endpoints.length === 1 ? '' : 's'})` : 'Resolved';
+      } catch (err) { return `Error: ${err.message}`; }
+    })();
   const httpsCheck = fetchConnectivityTarget(ses, target);
 
   const [proxyResult, dnsResult, httpsResult] = await Promise.all([proxyCheck, dnsCheck, httpsCheck]);
