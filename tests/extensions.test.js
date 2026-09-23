@@ -90,7 +90,7 @@ test('generated background WebExtension bootstrap is valid JavaScript', () => {
 test('content script run_at phases are explicit and document_start is a documented fallback', () => {
   assert.equal(contentScriptPhase({run_at:'document_idle'}),'idle');
   assert.equal(contentScriptPhase({run_at:'document_end'}),'end');
-  assert.equal(contentScriptPhase({run_at:'document_start'}),'end');
+  assert.equal(contentScriptPhase({run_at:'document_start'}),'start');
   const report=compatibility({manifest_version:2,name:'T',version:'1',content_scripts:[{matches:['<all_urls>'],run_at:'document_start',js:['start.js']}]});
   assert.ok(report.warnings.some((x)=>x.api==='content_scripts.run_at'));
 });
@@ -182,4 +182,62 @@ test('notifications and context menus are supported with explicit reduced-surfac
   assert.ok(report.supported.includes('menus'));
   assert.ok(report.warnings.some((x)=>x.api==='notifications'));
   assert.ok(report.warnings.some((x)=>x.api==='menus'));
+});
+
+
+test('Runtime 3 compatibility recognizes windows cookies and durable sync storage', () => {
+  const report=compatibility({
+    manifest_version:2,name:'Runtime 3',version:'1',
+    permissions:['storage','tabs','windows','cookies','https://example.com/*']
+  },['storage','tabs','windows','cookies']);
+  for (const api of ['storage','tabs','windows','cookies']) assert.ok(report.supported.includes(api), api + ' should be supported');
+  assert.equal(report.unsupported.some((x)=>['windows','cookies'].includes(x.api)),false);
+});
+
+test('generated WebExtension bootstrap exposes Runtime 3 APIs', () => {
+  const source=bootstrap({
+    id:'runtime3@example',
+    resourceToken:'runtime3token',
+    path:__dirname,
+    manifest:{manifest_version:2,name:'Runtime 3',version:'1',permissions:['storage','tabs','windows','cookies']}
+  });
+  assert.match(source,/sync:area\('sync'\)/);
+  assert.match(source,/const windows=/);
+  assert.match(source,/const cookies=/);
+  assert.match(source,/captureVisibleTab/);
+  assert.match(source,/getContexts/);
+  assert.match(source,/setIcon/);
+  assert.doesNotThrow(()=>new Function(source));
+});
+
+test('extension popup preload exposes the same Runtime 3 API families', () => {
+  const fs=require('node:fs'),path=require('node:path');
+  const source=fs.readFileSync(path.join(__dirname,'..','src','extension-page-preload.js'),'utf8');
+  assert.match(source,/sync:area\('sync'\)/);
+  assert.match(source,/windows:/);
+  assert.match(source,/cookies:/);
+  assert.match(source,/captureVisibleTab/);
+  assert.match(source,/getContexts/);
+  assert.match(source,/setIcon/);
+});
+
+test('installed extension diagnostics verify package resources and bootstrap health', async () => {
+  const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-ext-health-'));
+  try {
+    const extRoot=path.join(root,'extensions','health@example');
+    fs.mkdirSync(extRoot,{recursive:true});
+    const manifest={manifest_version:2,name:'Health',version:'1',browser_specific_settings:{gecko:{id:'health@example'}},background:{scripts:['background.js']},content_scripts:[{matches:['<all_urls>'],js:['content.js']}]};
+    fs.writeFileSync(path.join(extRoot,'manifest.json'),JSON.stringify(manifest));
+    fs.writeFileSync(path.join(extRoot,'background.js'),'void 0;');
+    fs.writeFileSync(path.join(extRoot,'content.js'),'void 0;');
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'health@example',path:extRoot,resourceToken:'healthtoken',worldId:extensionWorldId('health@example'),enabled:true,manifest,detectedApis:[],compatibility:compatibility(manifest)};
+    runtime.items.set(e.id,e);
+    const result=await runtime.diagnose(e.id,{repair:false});
+    assert.ok(['pass','fail'].includes(result.status));
+    assert.ok(result.checks.some((x)=>x.id==='manifest'&&x.status==='pass'));
+    assert.ok(result.checks.some((x)=>x.id==='resources'&&x.status==='pass'));
+    assert.ok(result.checks.some((x)=>x.id==='bootstrap'&&x.status==='pass'));
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
