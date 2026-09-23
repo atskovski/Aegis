@@ -283,7 +283,7 @@
             <label class="check-row"><input id="anonymousDisableDownloads" type="checkbox"><span><b>Block downloads</b><small>Reduces the risk of opening a downloaded document outside the anonymous route.</small></span></label>
             <label class="check-row"><input id="anonymousDisableExtensions" type="checkbox"><span><b>Disable add-ons</b><small>Keeps extension code and extension-specific fingerprinting out of anonymous compartments.</small></span></label>
           </div>
-          <div class="action-card anonymous-action"><div><b>Open anonymous compartment</b><p>Creates a fresh memory-only tab. If Tor verification fails, the tab refuses to browse.</p></div><button id="newAnonymousTabFromNetwork" class="primary">New anonymous tab</button></div>
+          <div class="action-card anonymous-action"><div><b>Open anonymous compartment</b><p>Creates a fresh memory-only tab. If Tor verification fails, the tab refuses to browse.</p></div><div class="inline-actions"><button id="testTorRoute" class="secondary">Test Tor route</button><button id="newAnonymousTabFromNetwork" class="primary">New anonymous tab</button></div></div>
           <div id="torRouteStatus" class="info-callout warning"><b>Tor is not bundled</b><span>A local Tor service must already be running. Aegis does not claim Tor Browser-equivalent anonymity on the Electron engine.</span></div>
 
           <div class="action-card"><div><b>Connection test</b><p>Test a disposable Chromium session with the same routing settings, so a broken tab cannot break Diagnostics.</p></div><button id="networkTestFromNetwork" class="secondary">Run test</button></div>
