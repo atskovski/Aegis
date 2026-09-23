@@ -18,11 +18,11 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
     const DISABLE_WEBRTC = ${disableWebRtc ? 'true' : 'false'};
     const host = (() => { try { return location.hostname || 'opaque'; } catch { return 'opaque'; } })();
     let h = 2166136261 >>> 0;
-    // Maximum/anonymous profiles use a cohort seed, not a per-user seed. This makes
+    // Strict/Maximum/anonymous profiles use a cohort seed, not a per-user seed. This makes
     // perturbation deterministic across Aegis users at the same first party instead
     // of creating a stable, user-specific randomized fingerprint.
     const COHORT = 'aegis-cohort-v1';
-    const input = (MAXIMUM || ANONYMOUS ? COHORT : BASE) + '|' + host;
+    const input = (STRICT || ANONYMOUS ? COHORT : BASE) + '|' + host;
     for (let i = 0; i < input.length; i++) { h ^= input.charCodeAt(i); h = Math.imul(h, 16777619); }
     const randByte = (index) => {
       let x = (h ^ Math.imul(index + 1, 0x45d9f3b)) >>> 0;
