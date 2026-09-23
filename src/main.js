@@ -16,7 +16,7 @@ const { TrackerLearner } = require('./core/tracker-learning');
 const { analyzeUrl } = require('./core/safety');
 const { youtubeVideoId, fetchSponsorSegments, sponsorSkipScript } = require('./core/sponsor');
 const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNetworkEvent, publicSiteIntelligence, buildSiteAuditScript } = require('./core/site-intelligence');
-const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
+const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, compareFingerprintCohort, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
 const { AegisExtensionRuntime } = require('./core/extensions');
 const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
@@ -448,6 +448,27 @@ async function runSecuritySuite() {
   }
   checks.push(makeCheck('tls-fingerprint', 'TLS fingerprint visibility', 'info',
     'Sites can still observe Chromium TLS characteristics (for example JA3/JA4-style fingerprints). Aegis does not claim to rewrite the Chromium TLS stack.', 'known-limit'));
+
+  if (tab && effective.privacyLevel !== 'standard' && tab.javascriptEnabled !== false) {
+    const liveTabs = tabs.filter((candidate) =>
+      candidate?.id !== tab.id &&
+      candidate?.securityDomain === tab.securityDomain &&
+      candidate?.javascriptEnabled !== false &&
+      candidate?.fingerprintReady &&
+      candidate?.view?.webContents &&
+      !candidate.view.webContents.isDestroyed()
+    ).slice(0, 2);
+    if (liveTabs.length) {
+      const samples = [await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true))];
+      for (const candidate of liveTabs) {
+        samples.push(await captureFingerprintSnapshot((source) => candidate.view.webContents.executeJavaScript(source, true)));
+      }
+      const cohort = compareFingerprintCohort(samples);
+      checks.push(makeCheck('cross-tab-cohort', 'Cross-tab fingerprint cohort', cohort.status, cohort.evidence, 'behavioral-test'));
+    } else {
+      checks.push(makeCheck('cross-tab-cohort', 'Cross-tab fingerprint cohort', 'not-tested', 'Open a second tab in the same security compartment to compare the exposed fingerprint cohort across isolated renderer sessions.', 'behavioral-test'));
+    }
+  }
 
   const isolation = await testSessionIsolation((suffix) => electronSession.fromPartition(`aegis-suite-${suffix}-${crypto.randomUUID()}`, { cache: false }));
   checks.push(makeCheck('session-isolation', 'Ephemeral session isolation', isolation.status, isolation.evidence, 'behavioral-test'));
