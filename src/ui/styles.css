@@ -143,3 +143,39 @@ body[data-text-scale="xlarge"]{font-size:17px}
 
 /* v0.9 Guardian brand + readability */
 .brand-logo{width:30px;height:30px;display:block;filter:drop-shadow(0 7px 16px color-mix(in srgb,var(--accent) 23%,transparent))}.about-mark{width:52px;height:52px;background:transparent;box-shadow:none}.about-mark img{width:52px;height:52px;display:block}.settings-nav-item{font-size:13px}.settings-nav:before{font-size:10px}.settings-search-result b{font-size:13px}.settings-search-result small{font-size:11px}.settings-search-result em{font-size:10px}.page-title p{font-size:13.5px}.profile-card b{font-size:14.5px}.profile-card small{font-size:12px;line-height:1.5}.settings-group-head b{font-size:14px}.settings-group-head small{font-size:11.5px}.setting-row b,.select-row b{font-size:14px}.setting-row small,.select-row small{font-size:12px;line-height:1.55}.check-grid label{font-size:12.5px}.info-callout,.action-card,.hardening-grid div{font-size:12.5px;line-height:1.55}.settings-footer>span{font-size:11px}.primary,.secondary,.danger{font-size:13px}.toast{font-size:12.5px}.permission-dialog p{font-size:13px}.permission-dialog>small{font-size:11px}.diagnostic-hero p{font-size:12px}.facts p{font-size:12.5px}.chips span{font-size:10.5px}
+
+
+/* Sentinel v1: simple/advanced intelligence views */
+.sentinel-mode{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;background:color-mix(in srgb,var(--surface2) 78%,transparent);border:1px solid var(--line);border-radius:13px;margin-bottom:14px}
+.sentinel-mode-btn{appearance:none;border:0;border-radius:9px;background:transparent;color:var(--muted);font:700 13px/1.2 inherit;padding:10px 14px;cursor:pointer}
+.sentinel-mode-btn.active{background:var(--surface);color:var(--text);box-shadow:0 5px 18px rgba(0,0,0,.1)}
+.sentinel-simple-summary{display:grid;gap:12px;margin-bottom:14px}
+.sentinel-route-card{display:grid;gap:4px;padding:16px 17px;border:1px solid color-mix(in srgb,var(--accent) 24%,var(--line));border-radius:15px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 9%,var(--surface)),var(--surface))}
+.sentinel-route-card strong{font-size:20px;letter-spacing:-.02em}.sentinel-route-card small{font-size:12px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+.sentinel-quick-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sentinel-quick-grid div{display:grid;gap:3px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.sentinel-quick-grid b{font-size:19px}.sentinel-quick-grid span{font-size:11.5px;color:var(--muted)}
+.sentinel-headline{padding:11px 13px;border-radius:11px;background:color-mix(in srgb,var(--accent2) 7%,var(--surface));border:1px solid color-mix(in srgb,var(--accent2) 19%,var(--line));font-size:12.5px;line-height:1.5}
+.hidden-by-mode{display:none!important}
+.privacy-panel[data-sentinel-mode="advanced"] .sentinel-simple-summary{display:none}
+
+/* Add-on manager */
+.addon-hero{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:20px;border:1px solid color-mix(in srgb,var(--accent) 24%,var(--line));border-radius:16px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 8%,var(--surface)),var(--surface));margin-bottom:14px}
+.addon-hero h4{font-size:18px;margin:3px 0 5px}.addon-hero p{font-size:12.5px;line-height:1.55;color:var(--muted);max-width:760px}
+.addon-list{display:grid;gap:10px;margin-top:14px}.addon-card{display:grid;gap:12px;padding:17px;border:1px solid var(--line);border-radius:15px;background:var(--surface)}
+.addon-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.addon-head>span{display:grid;gap:3px}.addon-head b{font-size:14.5px}.addon-head small{font-size:11.5px;color:var(--muted)}
+.addon-details{display:grid;grid-template-columns:1fr 1fr;gap:8px}.addon-details>span{display:grid;gap:4px;padding:10px 12px;background:var(--surface2);border-radius:10px}
+.addon-details b{font-size:11.5px}.addon-details small{font-size:10.5px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}.addon-foot{display:flex;justify-content:flex-end}.danger-text{color:var(--danger)}
+
+/* Every privacy toggle has visible enforcement evidence */
+.control-assurance{display:grid;gap:8px}.assurance-row{display:grid;grid-template-columns:94px minmax(0,1fr) 130px;gap:13px;align-items:center;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.assurance-status{display:inline-flex;justify-content:center;padding:6px 8px;border-radius:999px;border:1px solid var(--line);font-size:9px;font-weight:800;letter-spacing:.09em}
+.assurance-status.enforced{color:var(--good);border-color:color-mix(in srgb,var(--good) 35%,var(--line));background:color-mix(in srgb,var(--good) 7%,var(--surface))}
+.assurance-status.degraded{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 35%,var(--line));background:color-mix(in srgb,var(--warn) 7%,var(--surface))}
+.assurance-status.disabled{color:var(--muted)}.assurance-copy{display:grid;gap:3px}.assurance-copy b{font-size:12.5px}.assurance-copy small{font-size:11px;line-height:1.45;color:var(--muted)}
+.assurance-row em{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);text-align:right}
+
+/* Legibility floor for security-critical UI */
+.settings-content,.privacy-panel{font-size:max(14px,1em)}
+.setting-row small,.select-row small,.info-callout,.suite-copy small,.assurance-copy small,.addon-details small,.intelligence-help{font-size:max(11.5px,.76em)}
+@media(max-width:760px){.addon-hero{align-items:stretch;flex-direction:column}.addon-hero .primary{width:100%}.addon-details{grid-template-columns:1fr}.assurance-row{grid-template-columns:84px minmax(0,1fr)}.assurance-row em{grid-column:2;text-align:left}}
