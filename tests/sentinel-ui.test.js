@@ -38,7 +38,7 @@ test('one-click Harden this site restores shields and blocks sensitive site perm
   assert.match(main, /ipcMain\.on\('site:harden'/);
   assert.match(main, /hardenTabState\(tab\)/);
   assert.match(main, /SENSITIVE_PERMISSION_KEYS/);
-  assert.match(main, /clearData\(\{ dataTypes:/);
+  assert.match(main, /browserRuntime\.clearData\(tab\.privateSession, \{ dataTypes:/);
   assert.match(main, /replaceTabView\(tab, true\)/);
 });
 
