@@ -532,51 +532,73 @@ function chromiumMajor() { return String(process.versions.chrome || '152').split
 async function installFingerprintDefenses(tab) {
   const dbg = tab?.view?.webContents?.debugger;
   if (!dbg) return false;
+  const components = { debugger:false, page:false, runtime:false, timezone:false, locale:false, antiFingerprint:false, privacyApi:false, sentinel:false, errors:[] };
+  const attempt = async (label, fn) => {
+    try { await fn(); return true; }
+    catch (err) { components.errors.push(label + ': ' + String(err?.message || err).slice(0,180)); return false; }
+  };
   try {
     if (!dbg.isAttached()) dbg.attach('1.3');
-    await withTimeout(dbg.sendCommand('Runtime.enable'), 1800, 'Privacy Intelligence Runtime.enable');
-    await withTimeout(dbg.sendCommand('Page.enable'), 1800, 'Fingerprint Page.enable');
+    components.debugger = true;
+  } catch (err) {
+    components.errors.push('debugger: ' + String(err?.message || err).slice(0,180));
+    tab.privacyComponents = components;
+    tab.fingerprintReady = false;
+    return false;
+  }
 
-    if (settings.siteIntelligence !== false) {
-      const bindingName = `__aegisAudit_${tab.seed.slice(0, 12)}`;
-      tab.auditBinding = bindingName;
-      if (!tab.auditMessageHandler && typeof dbg.on === 'function') {
-        tab.auditMessageHandler = (_event, method, params) => {
-          if (settings.siteIntelligence === false || method !== 'Runtime.bindingCalled' || params?.name !== tab.auditBinding) return;
-          try {
-            const payload = JSON.parse(String(params.payload || '{}'));
-            if (recordSiteSignal(tab, payload)) emitState();
-          } catch {}
-        };
-        dbg.on('message', tab.auditMessageHandler);
-      }
-      await withTimeout(dbg.sendCommand('Runtime.addBinding', { name: bindingName }), 1400, 'Privacy Intelligence binding');
+  components.runtime = await attempt('Runtime.enable', () => withTimeout(dbg.sendCommand('Runtime.enable'), 1800, 'Privacy Runtime.enable'));
+  components.page = await attempt('Page.enable', () => withTimeout(dbg.sendCommand('Page.enable'), 1800, 'Privacy Page.enable'));
+
+  if (settings.siteIntelligence !== false && components.runtime) {
+    const bindingName = `__aegisAudit_${tab.seed.slice(0, 12)}`;
+    tab.auditBinding = bindingName;
+    if (!tab.auditMessageHandler && typeof dbg.on === 'function') {
+      tab.auditMessageHandler = (_event, method, params) => {
+        if (settings.siteIntelligence === false || method !== 'Runtime.bindingCalled' || params?.name !== tab.auditBinding) return;
+        try {
+          const payload = JSON.parse(String(params.payload || '{}'));
+          if (recordSiteSignal(tab, payload)) emitState();
+        } catch {}
+      };
+      dbg.on('message', tab.auditMessageHandler);
     }
-    if (settings.privacyLevel !== 'standard') {
-      await withTimeout(dbg.sendCommand('Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense');
-      await withTimeout(dbg.sendCommand('Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense');
-    }
-    await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+    await attempt('Sentinel binding', () => withTimeout(dbg.sendCommand('Runtime.addBinding', { name: bindingName }), 1400, 'Privacy Intelligence binding'));
+  }
+
+  if (settings.privacyLevel !== 'standard') {
+    components.timezone = await attempt('Timezone override', () => withTimeout(dbg.sendCommand('Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense'));
+    components.locale = await attempt('Locale override', () => withTimeout(dbg.sendCommand('Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense'));
+  } else {
+    components.timezone = true;
+    components.locale = true;
+  }
+
+  if (components.page) {
+    components.antiFingerprint = await attempt('Anti-fingerprint preload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
       source: buildAntiFingerprintScript({ seed: `${identitySeed}:${tab.seed}`, chromiumMajor: chromiumMajor(), profile: settings.privacyLevel, disableServiceWorkers: settings.disableServiceWorkers, globalPrivacyControl: settings.globalPrivacyControl, doNotTrack: settings.doNotTrack })
-    }), 1800, 'Fingerprint preload');
-    await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+    }), 2200, 'Fingerprint preload'));
+
+    components.privacyApi = await attempt('Privacy API preload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
       source: buildPagePrivacyScript({
         maximum: settings.privacyLevel === 'maximum',
         privacyApiGuard: settings.privacyApiGuard !== false,
         blockTrackingBeacons: settings.blockTrackingBeacons !== false,
         globalPrivacyControl: settings.globalPrivacyControl !== false
       })
-    }), 1800, 'Page privacy preload');
+    }), 2200, 'Page privacy preload'));
+
     if (settings.siteIntelligence !== false && tab.auditBinding) {
-      await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName: tab.auditBinding }) }), 1800, 'Privacy Intelligence preload');
+      components.sentinel = await attempt('Sentinel preload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName: tab.auditBinding }) }), 1800, 'Privacy Intelligence preload'));
+    } else {
+      components.sentinel = settings.siteIntelligence === false;
     }
-    tab.fingerprintReady = true;
-    return true;
-  } catch (err) {
-    tab.fingerprintReady = false;
-    console.error('Fingerprint defense initialization failed (fail-soft):', err.message);
-    return false;
   }
+
+  tab.privacyComponents = components;
+  tab.fingerprintReady = Boolean(components.antiFingerprint && components.privacyApi);
+  if (!tab.fingerprintReady) console.error('Privacy bootstrap degraded:', components.errors.join(' | '));
+  return tab.fingerprintReady;
 }
 
 function applySessionDownloadPolicy(tab) {
