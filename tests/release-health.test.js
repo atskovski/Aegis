@@ -88,6 +88,20 @@ test('every BrowserRuntime operation used by main is exposed by the runtime cont
   assert.deepEqual(used.filter((name) => !exposed.includes(name)), []);
 });
 
+test('profile and reset actions preserve managed locks and rebuild runtime state', () => {
+  const profileAt = main.indexOf("ipcMain.on('settings:profile'");
+  const resetAt = main.indexOf("ipcMain.on('settings:reset'");
+  const updateAt = main.indexOf("ipcMain.on('settings:update'");
+  assert.ok(profileAt >= 0 && resetAt > profileAt && updateAt > resetAt);
+  const profileSource = main.slice(profileAt, resetAt);
+  const resetSource = main.slice(resetAt, updateAt);
+  assert.match(profileSource, /preserveLockedSettings\(settings, profileDefaults\(level\)\)/);
+  assert.match(profileSource, /managedPolicy: settings\.managedPolicy/);
+  assert.match(resetSource, /preserveLockedSettings\(settings, cloneDefaults\(\)\)/);
+  assert.match(resetSource, /managedPolicy: settings\.managedPolicy/);
+  assert.match(resetSource, /replaceTabView\(tab, tab\.javascriptEnabled\)/);
+});
+
 test('privacy session uses one deterministic request-header pipeline', () => {
   const registrations = [...privacy.matchAll(/ses\.webRequest\.onBeforeSendHeaders\(/g)];
   assert.equal(registrations.length, 1, 'privacy session must install exactly one onBeforeSendHeaders handler');
