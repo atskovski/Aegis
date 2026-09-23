@@ -951,9 +951,7 @@ function wireTabView(tab, view) {
       event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState();
       view.webContents.loadURL(url).catch((err) => showLoadError(tab, url, err?.errno, err?.message)); return;
     }
-    const managed=evaluateUrl(url, settings);
-  if(!managed.allowed){ securityEvents.add('enterprise-navigation-block','warning',{url:safeOrigin(url),reason:managed.reason},tab.id); toast('Blocked by enterprise browser policy.', 'danger'); return false; }
-  tab.safety = effective.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+    tab.safety = effective.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
     if (tab.safety.risk >= 50) toast(`Caution: ${tab.safety.warnings[0]}`, 'warning');
     if (shouldUpgradeHttp(url, tab.allowHttp)) {
       event.preventDefault(); tab.stats.httpsUpgrades += 1; emitState();
