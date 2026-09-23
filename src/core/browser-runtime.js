@@ -20,7 +20,11 @@ function createBrowserRuntime(engine){
   evaluateIsolated:(view,worldId,scripts,userGesture)=>engine.executeIsolatedWorld(view,worldId,scripts,userGesture),
   css:(view,source,options)=>engine.insertCSS(view,source,options),
   windows:(view,handler)=>engine.setWindowOpenPolicy(view,handler),
-  certificates:(view,handler)=>engine.onCertificateError(view,handler)
+  certificates:(view,handler)=>engine.onCertificateError(view,handler),
+  destroyed:(view)=>engine.isDestroyed(view), load:(view,url,options)=>engine.loadURL(view,url,options), url:(view)=>engine.getURL(view), on:(view,event,handler)=>engine.on(view,event,handler),
+  reload:(view)=>engine.reload(view), stop:(view)=>engine.stop(view), focus:(view)=>engine.focus(view), history:(view)=>engine.navigationHistory(view), sessionOf:(view)=>engine.sessionOf(view),
+  clearData:(ses,options)=>engine.clearSessionData(ses,options), clearCache:(ses)=>engine.clearSessionCache(ses), closeConnections:(ses)=>engine.closeSessionConnections(ses),
+  removeCSS:(view,key)=>engine.removeInsertedCSS(view,key), close:(view)=>engine.closeView(view)
  });
 }
 module.exports={createBrowserRuntime};
