@@ -1010,6 +1010,10 @@ function wireTabView(tab, view) {
     tab.extensionIds = [];
     extensionRuntime?.clearActiveGrantForTab(tab.id);
     extensionRuntime?.notifyNavigation('webNavigation.onBeforeNavigate',tab,url);
+    extensionRuntime?.inject(tab, 'start', url).then((ids) => {
+      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
+      emitState();
+    }).catch((err) => console.warn('Extension document-start injection failed:', err.message));
     const nextOrigin = safeOrigin(url);
     if (tab.siteIntelligence?.url !== url) { resetSiteIntelligence(tab, url, nextOrigin); emitState(); }
   });
