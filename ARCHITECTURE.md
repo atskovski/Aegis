@@ -1,8 +1,30 @@
-# Aegis v0.9 Guardian Architecture
+# Aegis 1.0 Runtime Guardian Architecture
+
+## Engine portability boundary
+
+Aegis now treats Electron as the **current Chromium host adapter**, not as the product architecture. Engine-independent security logic lives under `src/core/`; host-specific creation of renderer views, private sessions, protocol registration and network fetches is exposed through the engine contract in `src/core/engine-contract.js` and implemented by `src/engine/electron-adapter.js`.
+
+The target layering is:
+
+```
+Aegis UI / Sentinel / Enterprise
+        ↓
+Aegis browser orchestration
+        ↓
+Security, policy, adblock, privacy and compartment cores
+        ↓
+BrowserEngine contract
+        ↓
+Chromium host adapter (Electron today; direct Chromium embedder is a future adapter)
+```
+
+This migration deliberately preserves Chromium's sandbox, Site Isolation and renderer-process boundaries. Removing Electron is not itself a security objective; reducing privileged framework coupling while retaining Chromium security updates is.
+
+New browser functionality should not import Electron from `src/core/`. Platform APIs belong in an engine or OS adapter. The main orchestration process may still use Electron while the migration is in progress.
 
 ## Trust boundaries
 
-**Main process (`src/main.js`)** owns the browser lifecycle, BrowserWindow/WebContentsView creation, private Chromium sessions, navigation policy, settings/bookmarks/downloads, permission prompts, network diagnostics, SponsorBlock orchestration, cleanup and New Identity.
+**Browser orchestration (`src/main.js`)** owns lifecycle and policy coordination. Renderer/session construction and other engine-host operations are progressively delegated through the BrowserEngine adapter. Privacy, filtering, policy and evidence decisions remain in engine-independent core modules.
 
 **Trusted UI renderer (`src/ui/`)** is delivered only through `aegis://app/`. It has no Node integration, cannot directly access local files or Electron APIs, cannot navigate the trusted shell onto the public web, and reaches privileged operations only through the narrow preload bridge.
 
