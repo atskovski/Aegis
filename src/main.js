@@ -28,7 +28,9 @@ const { evaluateUrl, extensionAllowed } = require('./core/enterprise-policy');
 const { verifyBundle, applyManagedPolicy, preserveLockedSettings } = require('./core/managed-policy');
 const { createElectronChromiumAdapter } = require('./engine/electron-adapter');
 const { engineEvidence } = require('./core/engine-contract');
+const { createBrowserRuntime } = require('./core/browser-runtime');
 const browserEngine = createElectronChromiumAdapter();
+const browserRuntime = createBrowserRuntime(browserEngine);
 
 app.setName('Aegis Privacy Browser');
 
@@ -191,11 +193,11 @@ function extensionProtocolHandler(request) {
 function registerInternalProtocol(targetProtocol, label = 'session') {
   if (!targetProtocol) throw new Error(`Missing protocol object for ${label}`);
   if (!targetProtocol.isProtocolHandled('aegis')) {
-    browserEngine.registerProtocol(targetProtocol,'aegis',internalProtocolHandler);
+    browserRuntime.protocol(targetProtocol,'aegis',internalProtocolHandler);
     startupLog(`Registered aegis:// protocol for ${label}.`);
   }
   if (extensionRuntime && !targetProtocol.isProtocolHandled('aegis-extension')) {
-    browserEngine.registerProtocol(targetProtocol,'aegis-extension',extensionProtocolHandler);
+    browserRuntime.protocol(targetProtocol,'aegis-extension',extensionProtocolHandler);
     startupLog(`Registered aegis-extension:// protocol for ${label}.`);
   }
 }
@@ -218,7 +220,7 @@ function rebuildFilterRules(){
   filterRules=parseFilterRules([subscribed,settings.customFilterRules||''].filter(Boolean).join('\n'));
 }
 async function updateFilterLists(){
-  const results=await refreshFilterLists({dir:FILTER_LIST_DIR(),enabled:settings.enabledFilterLists||[],fetchImpl:(url,opts)=>browserEngine.fetch(url,{...opts,bypassCustomProtocolHandlers:true})});
+  const results=await refreshFilterLists({dir:FILTER_LIST_DIR(),enabled:settings.enabledFilterLists||[],fetchImpl:(url,opts)=>browserRuntime.fetch(url,{...opts,bypassCustomProtocolHandlers:true})});
   rebuildFilterRules();securityEvents.add('filter-lists-refreshed',results.some(x=>!x.ok)?'warning':'success',{results});
   await Promise.allSettled([...tabs.values()].map(tab=>applyCosmeticFiltering(tab)));emitState();return results;
 }
@@ -287,7 +289,7 @@ async function runNetworkTest() {
   // Diagnostics deliberately use a disposable Chromium session. This keeps the
   // test working even when the current tab renderer/session is unhealthy and
   // prevents a proxy reset from interrupting a page the user is viewing.
-  const ses = browserEngine.createSession(`aegis-diagnostic-${crypto.randomUUID()}`, { cache: false });
+  const ses = browserRuntime.session(`aegis-diagnostic-${crypto.randomUUID()}`, { cache: false });
   try {
     const diagnosticMode = effective.proxy?.mode || 'system';
     const route = await applyProxyCore(ses, effective.proxy || {},  {
@@ -492,10 +494,10 @@ async function runSecuritySuite() {
     }
   }
 
-  const isolation = await testSessionIsolation((suffix) => browserEngine.createSession(`aegis-suite-${suffix}-${crypto.randomUUID()}`, { cache: false }));
+  const isolation = await testSessionIsolation((suffix) => browserRuntime.session(`aegis-suite-${suffix}-${crypto.randomUUID()}`, { cache: false }));
   checks.push(makeCheck('session-isolation', 'Ephemeral session isolation', isolation.status, isolation.evidence, 'behavioral-test'));
 
-  const ses = browserEngine.createSession(`aegis-security-suite-${crypto.randomUUID()}`, { cache: false });
+  const ses = browserRuntime.session(`aegis-security-suite-${crypto.randomUUID()}`, { cache: false });
   let route = null;
   let connectivity = null;
   let publicIp = { ok: false, status: 'not-tested', ip: '', provider: '', error: 'Not tested.' };
@@ -745,23 +747,23 @@ async function installFingerprintDefenses(tab) {
     catch (err) { tab.fingerprintStatus.errors.push(name + ': ' + err.message); if (required) console.error('Required privacy preload step failed:', name, err.message); else console.warn('Optional privacy preload step failed:', name, err.message); return false; }
   };
   try {
-    if (!dbg.isAttached()) browserEngine.attachDebugger(tab.view,'1.3');
+    if (!dbg.isAttached()) browserRuntime.attachInspector(tab.view,'1.3');
     tab.fingerprintStatus.debugger = true;
   } catch (err) {
     tab.fingerprintStatus.errors.push('debugger: ' + err.message);
     return false;
   }
 
-  await step('page', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Page.enable'), 1800, 'Fingerprint Page.enable'), true);
-  await step('runtime', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Runtime.enable'), 1800, 'Privacy Runtime.enable'));
+  await step('page', () => withTimeout(browserRuntime.command(tab.view,'Page.enable'), 1800, 'Fingerprint Page.enable'), true);
+  await step('runtime', () => withTimeout(browserRuntime.command(tab.view,'Runtime.enable'), 1800, 'Privacy Runtime.enable'));
 
   if (effective.privacyLevel !== 'standard') {
-    await step('timezone', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense'));
-    await step('locale', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense'));
+    await step('timezone', () => withTimeout(browserRuntime.command(tab.view,'Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense'));
+    await step('locale', () => withTimeout(browserRuntime.command(tab.view,'Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense'));
   }
 
   const fpSource = buildAntiFingerprintScript({ seed: identitySeed + ':' + tab.seed, chromiumMajor: chromiumMajor(), profile: effective.privacyLevel, disableServiceWorkers: effective.disableServiceWorkers, globalPrivacyControl: effective.globalPrivacyControl, doNotTrack: effective.doNotTrack, anonymousMode: effective.anonymousRouteRequired === true, disableWebRtc: effective.disableWebRtc === true });
-  await step('fingerprintPreload', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: fpSource }), 1800, 'Fingerprint preload'), true);
+  await step('fingerprintPreload', () => withTimeout(browserRuntime.command(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: fpSource }), 1800, 'Fingerprint preload'), true);
 
   const privacySource = buildPagePrivacyScript({
     maximum: effective.privacyLevel === 'maximum',
@@ -769,12 +771,12 @@ async function installFingerprintDefenses(tab) {
     blockTrackingBeacons: effective.blockTrackingBeacons !== false,
     globalPrivacyControl: effective.globalPrivacyControl !== false
   });
-  await step('privacyPreload', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: privacySource }), 1800, 'Page privacy preload'), true);
+  await step('privacyPreload', () => withTimeout(browserRuntime.command(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: privacySource }), 1800, 'Page privacy preload'), true);
 
   if (effective.siteIntelligence !== false) {
     const bindingName = '__aegisAudit_' + tab.seed.slice(0, 12);
     tab.auditBinding = bindingName;
-    const bindingReady = await step('sentinelBinding', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Runtime.addBinding', { name: bindingName }), 1400, 'Sentinel binding'));
+    const bindingReady = await step('sentinelBinding', () => withTimeout(browserRuntime.command(tab.view,'Runtime.addBinding', { name: bindingName }), 1400, 'Sentinel binding'));
     if (bindingReady) {
       if (!tab.auditMessageHandler && typeof dbg.on === 'function') {
         tab.auditMessageHandler = (_event, method, params) => {
@@ -783,7 +785,7 @@ async function installFingerprintDefenses(tab) {
         };
         dbg.on('message', tab.auditMessageHandler);
       }
-      await step('sentinelPreload', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName }) }), 1800, 'Sentinel preload'));
+      await step('sentinelPreload', () => withTimeout(browserRuntime.command(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName }) }), 1800, 'Sentinel preload'));
     }
   }
 
@@ -793,7 +795,7 @@ async function installFingerprintDefenses(tab) {
 
 
 function applySessionDownloadPolicy(tab) {
-  browserEngine.onDownload(tab.view.webContents.session, (event, item) => {
+  browserRuntime.downloads(tab.view.webContents.session, (event, item) => {
     const effective = tabSettings(tab);
     const filename = item.getFilename();
     if (effective.blockAllDownloads) {
@@ -875,7 +877,7 @@ const REMOTE_RENDERER_POLICY = Object.freeze({
 
 function createTabView(tab) {
   tab.rendererPolicy = { ...REMOTE_RENDERER_POLICY };
-  const view = browserEngine.createView({
+  const view = browserRuntime.view({
       ...REMOTE_RENDERER_POLICY,
       preload: path.join(__dirname, 'extension-bridge-preload.js'),
       additionalArguments: extensionRuntime ? extensionRuntime.bridgeArguments() : [],
@@ -947,7 +949,7 @@ async function applySponsorProtection(tab) {
 }
 
 function wireTabView(tab, view) {
-  browserEngine.setWindowOpenPolicy(view,({ url }) => {
+  browserRuntime.windows(view,({ url }) => {
     const effective=tabSettings(tab);const rule=matchFilterRules(url,filterRules,{topUrl:tab.url||url,resourceType:'popup'});
     if(rule==='block'||!isAllowedNavigation(url)){tab.stats.blockedPopups+=1;scheduleStateEmit();return {action:'deny'};}
     createTab(url,true);return {action:'deny'};
@@ -1046,14 +1048,14 @@ function wireTabView(tab, view) {
       setTimeout(() => showLoadError(tab, url, code, desc), 0);
     }
   });
-  browserEngine.onCertificateError(view, (_event, url, error, certificate) => {
+  browserRuntime.certificates(view, (_event, url, error, certificate) => {
     tab.tls={valid:false,error:String(error||'certificate-error'),host:(()=>{try{return new URL(url).hostname}catch{return''}})(),issuer:certificate?.issuerName||'',subject:certificate?.subjectName||'',validStart:certificate?.validStart||0,validExpiry:certificate?.validExpiry||0,serialNumber:certificate?.serialNumber||'',fingerprint:certificate?.fingerprint||'',at:new Date().toISOString()};
     securityEvents.add('tls-certificate-error','danger',tab.tls,tab.id); emitState();
   });
   view.webContents.on('did-finish-load', async () => {
     if (!/^https:/i.test(tab.url||'')) return;
     try {
-      const cert=await browserEngine.executeJavaScript(view,`({protocol:location.protocol,secure:location.protocol==='https:'})`,true);
+      const cert=await browserRuntime.evaluate(view,`({protocol:location.protocol,secure:location.protocol==='https:'})`,true);
       tab.tls={...(tab.tls||{}),valid:true,protocol:cert?.protocol||'https:',observedAt:new Date().toISOString()};
     } catch {}
   });
@@ -1078,7 +1080,7 @@ async function replaceTabView(tab, javascriptEnabled) {
   tab.javascriptEnabled = Boolean(javascriptEnabled);
   const nextView = createTabView(tab);
   tab.view = nextView;
-  browserEngine.attachView(mainWindow,nextView);
+  browserRuntime.mount(mainWindow,nextView);
   nextView.setVisible(false);
   wireTabView(tab, nextView);
   await installFingerprintDefenses(tab);
@@ -1086,7 +1088,7 @@ async function replaceTabView(tab, javascriptEnabled) {
   if (previousBounds) nextView.setBounds(previousBounds);
   if (wasActive) nextView.setVisible(uiLayer.mode !== 'hidden');
 
-  browserEngine.detachView(mainWindow,previousView);
+  browserRuntime.unmount(mainWindow,previousView);
   try {
     if (previousView && !previousView.webContents.isDestroyed()) previousView.webContents.close();
   } catch {}
@@ -1102,7 +1104,7 @@ async function replaceTabView(tab, javascriptEnabled) {
 async function createTab(raw = null, activate = true, waitForNavigation = false, options = {}) {
   const id = nextId++;
   const partition = `aegis-tab-${crypto.randomUUID()}`; // no persist: prefix = memory-only session
-  const privateSession = browserEngine.createSession(partition, { cache: false });
+  const privateSession = browserRuntime.session(partition, { cache: false });
   // Custom protocols are session-scoped in Electron. Every in-memory tab session
   // must explicitly register Aegis's internal protocol before loading start/settings pages.
   registerInternalProtocol(privateSession.protocol, `private tab ${id}`);
@@ -1155,7 +1157,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
   const view = createTabView(tab);
   tab.view = view;
   tabs.set(id, tab);
-  browserEngine.attachView(mainWindow,view);
+  browserRuntime.mount(mainWindow,view);
   view.setVisible(false);
 
   configurePrivacySession({
@@ -1262,7 +1264,7 @@ async function destroyTab(tab) {
     await tab.view.webContents.session.clearCache();
     await tab.view.webContents.session.closeAllConnections();
   } catch {}
-  browserEngine.detachView(mainWindow,tab.view);
+  browserRuntime.unmount(mainWindow,tab.view);
   if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
   tabs.delete(tab.id);
   if (tab.securityDomain === 'anonymous' && ![...tabs.values()].some((t) => t.securityDomain === 'anonymous')) {
@@ -1458,7 +1460,7 @@ function wireIpc() {
   ipcMain.handle('network:test-tor', async (event, payload = {}) => {
     if (!assertUiSender(event)) return { ok:false, verified:false, error:'IPC sender denied' };
     const partition = 'aegis-tor-proof-' + crypto.randomUUID();
-    const ses = browserEngine.createSession(partition, { cache:false });
+    const ses = browserRuntime.session(partition, { cache:false });
     const server = String(payload?.torProxy || settings.anonymity?.torProxy || '127.0.0.1:9050').trim().slice(0,180);
     try {
       const route = await applyProxyCore(ses, { mode:'socks5', server, bypassLocal:false, failClosedFixedProxy:true }, { failClosedFixedProxy:true, freshSession:true });
@@ -1861,7 +1863,7 @@ app.whenReady().then(async () => {
     getTabs: () => [...tabs.values()],
     getActiveId: () => activeId,
     BrowserWindow,
-    electronSession: { fromPartition:(partition,options)=>browserEngine.createSession(partition,options) },
+    electronSession: { fromPartition:(partition,options)=>browserRuntime.session(partition,options) },
     registerProtocols: registerInternalProtocol,
     createTab,
     updateTab: async (id, props = {}) => { const tab=tabs.get(Number(id)); if(!tab) throw new Error('Tab not found'); if(props.url) await navigateTab(tab, props.url); if(props.active) activateTab(tab.id); return serializeTab(tab); },
