@@ -60,6 +60,21 @@ function renderSentinelReport(report) {
   $('#sentinelRoute').textContent = String(simple.route || 'system').toUpperCase();
   $('#sentinelIp').textContent = simple.publicIp || 'Not tested';
   $('#sentinelIpMeaning').textContent = simple.ipMeaning || 'External IP has not been tested.';
+  const evidence = $('#sentinelProtectionEvidence');
+  if (evidence) {
+    const protections = report.advanced?.protectionStatus?.protections || [];
+    const enforced = protections.filter((x) => x.status === 'enforced').length;
+    $('#sentinelEnforcedCount').textContent = String(enforced);
+    evidence.replaceChildren();
+    if (!protections.length) {
+      const empty=document.createElement('div'); empty.className='signal-empty'; empty.textContent='No protection evidence is available for this tab.'; evidence.append(empty);
+    } else for (const item of protections) {
+      const row=document.createElement('div'); row.className='protection-evidence-row';
+      const copy=document.createElement('div'); const b=document.createElement('b'); b.textContent=item.label; const small=document.createElement('small'); small.textContent=(item.layer||'runtime')+' · '+(item.reason||'No evidence detail'); copy.append(b,small);
+      const badge=document.createElement('span'); badge.className='protection-evidence-state '+item.status; badge.textContent=item.status;
+      row.append(copy,badge); evidence.append(row);
+    }
+  }
 }
 
 async function refreshSentinelReport() {
