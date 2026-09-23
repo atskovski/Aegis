@@ -1204,6 +1204,8 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
     onPermissionPrompt: (payload) => queuePermissionPrompt({ ...payload, tabId: tab.id }),
     trackerLearner,
     getFilterRules: () => filterRules,
+    onExtensionRequest: (type, details) => extensionRuntime?.notifyWebRequest(type, tab, details),
+    getExtensionNetworkDecision: (details) => extensionRuntime?.networkDecision(tab, details),
     isTemporarilyAllowed: (origin, key) => isTemporarilyAllowed(tab.id, origin, key)
   });
   tab.permissionFirewallReady = true;
@@ -2052,6 +2054,7 @@ app.whenReady().then(async () => {
     electronSession: { fromPartition:(partition,options)=>browserRuntime.session(partition,options) },
     registerProtocols: registerInternalProtocol,
     browserVersion: app.getVersion(),
+    getSettings: () => settings,
     notifyExtension: ({ name, title, message, tone }) => {
       const heading=String(title||name||'Extension').slice(0,120),body=String(message||'').slice(0,1000);
       toast(body ? heading + ': ' + body : heading, tone || 'default');
