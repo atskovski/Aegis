@@ -227,14 +227,14 @@ const api = {
     onCommitted:event('webNavigation.onCommitted'),
     onCompleted:event('webNavigation.onCompleted'),
     onErrorOccurred:event('webNavigation.onErrorOccurred')
-  },,
+  },
   webRequest,
   declarativeNetRequest,
   privacy: {
     network:{webRTCIPHandlingPolicy:privacySetting('network','webRTCIPHandlingPolicy'),networkPredictionEnabled:privacySetting('network','networkPredictionEnabled')},
     services:{passwordSavingEnabled:privacySetting('services','passwordSavingEnabled'),autofillAddressEnabled:privacySetting('services','autofillAddressEnabled'),autofillCreditCardEnabled:privacySetting('services','autofillCreditCardEnabled')},
     websites:{thirdPartyCookiesAllowed:privacySetting('websites','thirdPartyCookiesAllowed'),hyperlinkAuditingEnabled:privacySetting('websites','hyperlinkAuditingEnabled'),referrersEnabled:privacySetting('websites','referrersEnabled'),protectedContentEnabled:privacySetting('websites','protectedContentEnabled')}
-  }
+  },
   notifications: {
     create:(...args)=>call('notifications.create',...args),
     clear:(...args)=>call('notifications.clear',...args),
