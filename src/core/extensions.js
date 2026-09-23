@@ -563,7 +563,7 @@ class AegisExtensionRuntime{
     const requested=options&&Number.isFinite(Number(options.frameId))?Number(options.frameId):null;
     const topResult=async()=>contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:source}],false);
     if(requested===0)return topResult();
-    const main=contents.mainFrame,frames=Array.isArray(main?.framesInSubtree)?main.framesInSubtree:[];
+    const main=contents.mainFrame||{__aegisTopFrame:true},frames=Array.isArray(main?.framesInSubtree)?main.framesInSubtree:[main];
     if(requested!==null){
       const frame=frames.find((x)=>x!==main&&Number(x?.routingId)===requested&&!x?.isDestroyed?.());
       if(!frame)throw new Error('Requested extension frame is unavailable.');
