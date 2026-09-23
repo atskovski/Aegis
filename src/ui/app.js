@@ -388,6 +388,35 @@ function renderAddons() {
   });
 }
 
+
+function renderRuntimeEvidence(tab) {
+  const box = $('#sentinelRuntimeEvidence');
+  if (!box || !tab) return;
+  const fp = tab.fingerprintStatus || {};
+  const rows = [
+    ['Session firewall', Boolean(tab.privacySessionReady), 'Request, response, cookie, permission and header handlers'],
+    ['Fingerprint preload', Boolean(fp.fingerprintPreload || tab.fingerprintReady), 'Navigator, screen, canvas, WebGL and audio normalization'],
+    ['Privacy API preload', Boolean(fp.privacyPreload || tab.fingerprintReady), 'GPC and guarded browser/API surfaces'],
+    ['Sentinel observer', Boolean(fp.sentinelPreload), 'Local page-observation binding'],
+    ['Cosmetic filter', Boolean(tab.cosmeticFilteringReady), 'User-origin ad-hiding CSS'],
+    ['Extension worlds', true, (tab.extensionIds || []).length + ' extension content runtime' + ((tab.extensionIds || []).length === 1 ? '' : 's') + ' active']
+  ];
+  box.replaceChildren(...rows.map(([name, ok, detail]) => {
+    const row=document.createElement('div'); row.className='runtime-row';
+    const dot=document.createElement('i'); dot.className=ok?'runtime-ok':'runtime-bad';
+    const copy=document.createElement('span'); const b=document.createElement('b'); b.textContent=name; const small=document.createElement('small'); small.textContent=detail; copy.append(b,small);
+    const badge=document.createElement('em'); badge.textContent=ok?'ACTIVE':'NOT CONFIRMED';
+    row.append(dot,copy,badge); return row;
+  }));
+  const errors=Array.isArray(fp.errors)?fp.errors:[];
+  if(errors.length){
+    const error=document.createElement('div'); error.className='runtime-errors';
+    const b=document.createElement('b'); b.textContent='Privacy preload diagnostics';
+    const small=document.createElement('small'); small.textContent=errors.slice(0,4).join(' · ');
+    error.append(b,small); box.append(error);
+  }
+}
+
 function renderPrivacyPanel(tab) {
   if (!tab) return;
   const score = privacyScore(tab);
@@ -412,6 +441,7 @@ function renderPrivacyPanel(tab) {
   renderPrivacyTimeline(tab);
   renderProtectionLayers(tab);
   renderSentinelSummary(tab);
+  renderRuntimeEvidence(tab);
   applySentinelMode(sentinelMode);
   $('#shieldToggle').checked = Boolean(tab.shieldsEnabled);
   $('#jsToggle').checked = Boolean(tab.javascriptEnabled);
