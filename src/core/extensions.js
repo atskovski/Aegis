@@ -1075,6 +1075,8 @@ class AegisExtensionRuntime{
       if(op==='setBadgeText'){state.badgeText=String(details.text||'').slice(0,12);this.actionState.set(e.id,state);return}
       if(op==='getBadgeText')return String(state.badgeText||'');
       if(op==='setBadgeBackgroundColor'){state.badgeColor=details.color||null;this.actionState.set(e.id,state);return}
+      if(op==='setBadgeTextColor'){state.badgeTextColor=details.color||null;this.actionState.set(e.id,state);return}
+      if(op==='getUserSettings')return {isOnToolbar:true};
       if(op==='setPopup'){state.popup=safeRel(details.popup||'');this.actionState.set(e.id,state);return}
       if(op==='getPopup')return String(state.popup!==undefined?state.popup:(action.popup||''));
       if(op==='setIcon'){
