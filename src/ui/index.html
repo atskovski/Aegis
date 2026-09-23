@@ -318,21 +318,29 @@
         </section>
 
         <section class="settings-page addons-page" data-settings-page="addons">
-          <div class="page-title"><h3>Add-ons & WebExtensions</h3><p>Aegis now hosts a broader Firefox/Chromium WebExtension compatibility layer: content scripts, toolbar actions and popups, options pages, background/event pages, storage, tabs, scripting, alarms, commands and navigation events.</p></div>
+          <div class="page-title"><h3>Add-ons & WebExtensions</h3><p>Install Firefox-style WebExtensions into the Aegis Extension Runtime. Every package is inspected before install, runs without Node.js, and receives only the APIs and host access Aegis explicitly allows.</p></div>
 
-          <div class="addon-hero">
+          <div class="addon-hero addon-hero-v3">
             <div>
-              <span class="eyebrow">AEGIS EXTENSION RUNTIME 2</span>
-              <h4>Install a WebExtension package</h4>
-              <p>Select a Firefox <b>.xpi</b> or unpacked-compatible <b>.zip</b> package. Aegis inspects the manifest, package digest, host access and API compatibility before installation. Nothing is activated until you approve the review.</p>
+              <span class="eyebrow">AEGIS EXTENSION RUNTIME 3</span>
+              <h4>Install a Firefox WebExtension</h4>
+              <p>Install a downloaded <b>.xpi</b>/<b>.zip</b> or paste a direct HTTPS package URL. Aegis validates the manifest, referenced resources, SHA-256 digest, permissions, host access and API compatibility before activation.</p>
             </div>
-            <button id="installXpi" class="primary addon-install-btn">Choose package</button>
+            <div class="addon-install-actions">
+              <button id="installXpi" class="primary addon-install-btn">Choose XPI / ZIP</button>
+            </div>
           </div>
 
-          <div id="addonRuntimeSummary" class="addon-runtime-summary" aria-live="polite">
+          <div class="addon-url-install">
+            <label for="addonUrlInput"><span>Install from HTTPS package URL</span><small>Paste a direct .xpi or .zip download URL, including a Mozilla Add-ons download link.</small></label>
+            <div class="addon-url-row"><input id="addonUrlInput" type="url" autocomplete="off" spellcheck="false" placeholder="https://example.org/addon.xpi"><button id="installAddonUrl" class="secondary">Inspect URL</button></div>
+          </div>
+
+          <div id="addonRuntimeSummary" class="addon-runtime-summary addon-runtime-summary-v3" aria-live="polite">
             <div><strong id="addonInstalledCount">0</strong><span>installed</span></div>
             <div><strong id="addonEnabledCount">0</strong><span>enabled</span></div>
-            <div><strong id="addonActionCount">0</strong><span>toolbar actions</span></div>
+            <div><strong id="addonHealthyCount">0</strong><span>healthy</span></div>
+            <div><strong id="addonDegradedCount">0</strong><span>needs attention</span></div>
             <div><strong id="addonCompatibilityCount">0</strong><span>high compatibility</span></div>
           </div>
 
@@ -353,23 +361,47 @@
               <section><b>Host access</b><div id="addonReviewHosts" class="addon-chip-list"></div></section>
               <section><b>Unsupported / limited APIs</b><div id="addonReviewUnsupported" class="addon-review-lines"></div></section>
             </div>
-            <div class="addon-review-integrity"><span>Package ID</span><code id="addonReviewId">—</code><span>SHA-256</span><code id="addonReviewDigest">—</code><span>Mozilla signature</span><code id="addonReviewSignature">—</code></div>
+            <div class="addon-review-integrity"><span>Package ID</span><code id="addonReviewId">—</code><span>SHA-256</span><code id="addonReviewDigest">—</code><span>Mozilla signature metadata</span><code id="addonReviewSignature">—</code></div>
             <div class="addon-review-actions">
               <button id="cancelAddonInstall" class="secondary">Cancel</button>
               <button id="confirmAddonInstall" class="primary">Install add-on</button>
             </div>
           </div>
 
-          <div class="addon-boundary-grid">
-            <div class="info-callout success"><b>Implemented compatibility</b><span>Content scripts, background scripts/pages, action/browserAction/pageAction popups, options pages, runtime messaging, storage, tabs, activeTab, scripting, alarms, commands, webNavigation and extension-local resources.</span></div>
-            <div class="info-callout warning"><b>Protected browser boundary</b><span>Extensions cannot replace Aegis proxy routing, use native messaging, access hardened/anonymous tabs, manage other extensions, attach the debugger, or disable Aegis security controls. Some Firefox-only APIs remain explicitly unsupported.</span></div>
+          <div class="addon-capability-matrix">
+            <div class="addon-capability-head"><div><span class="eyebrow">COMPATIBILITY LAYER</span><h4>What Aegis implements</h4></div><span>Runtime 3</span></div>
+            <div class="addon-capability-grid">
+              <div class="supported"><b>Content & UI</b><span>content_scripts, document_start/end/idle, action/browserAction/pageAction, popups, options pages, extension resources</span></div>
+              <div class="supported"><b>Core APIs</b><span>runtime, storage.local/sync/session, tabs, windows, cookies, permissions, i18n, scripting, alarms, commands, webNavigation</span></div>
+              <div class="supported"><b>Browser surfaces</b><span>context menus, notifications, activeTab, tab messaging, zoom, visible-tab capture, isolated extension worlds</span></div>
+              <div class="limited"><b>Intentionally restricted</b><span>blocking webRequest/DNR parity, proxy replacement, nativeMessaging, debugger/devtools, browser history and extension management</span></div>
+            </div>
           </div>
 
-          <div class="addon-section-head">
-            <div><span class="eyebrow">INSTALLED ADD-ONS</span><h4>Your extensions</h4></div>
-            <span id="addonManagerStatus" class="addon-manager-status">Runtime ready</span>
+          <div class="addon-boundary-grid">
+            <div class="info-callout success"><b>Firefox package support</b><span>Manifest V2/V3 packages are extracted into an Aegis-owned sandbox, scanned for API usage, and given an explicit compatibility score before install.</span></div>
+            <div class="info-callout warning"><b>Aegis security boundary</b><span>Add-ons cannot disable Aegis routing, weaken hardened/anonymous compartments, use Node.js/native messaging, or silently take control of the browser security kernel.</span></div>
           </div>
-          <div id="addonList" class="addon-list"><div class="suite-empty"><b>No add-ons installed</b><span>Choose a Firefox WebExtension .xpi or .zip package to inspect and install it.</span></div></div>
+
+          <div class="addon-manager-toolbar">
+            <div class="addon-section-head">
+              <div><span class="eyebrow">INSTALLED ADD-ONS</span><h4>Your extensions</h4></div>
+              <span id="addonManagerStatus" class="addon-manager-status">Runtime ready</span>
+            </div>
+            <div class="addon-manager-controls">
+              <input id="addonSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Search installed add-ons">
+              <select id="addonFilter" aria-label="Filter installed add-ons">
+                <option value="all">All add-ons</option>
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+                <option value="healthy">Healthy</option>
+                <option value="attention">Needs attention</option>
+                <option value="limited">Limited compatibility</option>
+              </select>
+              <button id="refreshAddons" class="secondary">Refresh</button>
+            </div>
+          </div>
+          <div id="addonList" class="addon-list"><div class="suite-empty addon-empty"><b>No add-ons installed</b><span>Choose a Firefox WebExtension .xpi/.zip or paste a direct HTTPS package URL to inspect and install it.</span></div></div>
         </section>
 
         <section class="settings-page" data-settings-page="enterprise">
