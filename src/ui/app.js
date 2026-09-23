@@ -784,6 +784,7 @@ function renderSettingsDraft() {
   $('#blockCryptominers').checked = Boolean(s.blockCryptominers);
   $('#heuristicTrackingProtection').checked = Boolean(s.heuristicTrackingProtection);
   $('#siteIntelligence').checked = s.siteIntelligence !== false;
+  $('#bounceTrackingProtection').checked = s.bounceTrackingProtection !== false;
   $('#blockFingerprintingScripts').checked = Boolean(s.blockFingerprintingScripts);
   $('#cosmeticFiltering').checked = s.cosmeticFiltering !== false;
   $('#privacyApiGuard').checked = s.privacyApiGuard !== false;
