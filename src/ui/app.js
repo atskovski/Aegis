@@ -394,6 +394,7 @@ function renderAddonInstallReview() {
   score.className = 'addon-score compat-' + compat.status;
   $('#addonReviewId').textContent = summary.id || 'Generated after install';
   $('#addonReviewDigest').textContent = summary.digest || '—';
+  $('#addonReviewSignature').textContent = summary.signature?.metadataPresent ? 'Metadata present · cryptographic verification not claimed' : 'Metadata not detected';
 
   const featureBox = $('#addonReviewFeatures'); featureBox.replaceChildren();
   addonFeatureLabels(summary.features).forEach((item) => featureBox.append(makeAddonChip(item, 'supported')));
@@ -557,7 +558,12 @@ function renderAddons() {
 
     const runtimeCard = document.createElement('span');
     const rb = document.createElement('b'); rb.textContent = 'Runtime';
-    const rs = document.createElement('small'); rs.textContent = (addon.compatibility?.background || 'no background') + ' · ' + (addon.action ? 'toolbar action available' : 'no toolbar action') + (addon.optionsPage ? ' · options page' : '');
+    const rs = document.createElement('small');
+    const runtimeState = addon.runtime || {};
+    const runtimeParts = [runtimeState.status || 'unknown', addon.compatibility?.background || 'no background', addon.action ? 'toolbar action available' : 'no toolbar action'];
+    if (addon.optionsPage) runtimeParts.push('options page');
+    if (runtimeState.errors?.length) runtimeParts.push(runtimeState.errors.length + ' runtime issue' + (runtimeState.errors.length === 1 ? '' : 's') + ': ' + runtimeState.errors[0].scope + ' — ' + runtimeState.errors[0].message);
+    rs.textContent = runtimeParts.join(' · ');
     runtimeCard.append(rb, rs);
     detailGrid.append(permissionCard, hostCard, compatibilityCard, runtimeCard); card.append(detailGrid);
 
