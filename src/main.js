@@ -955,6 +955,9 @@ async function applySponsorProtection(tab) {
 }
 
 function wireTabView(tab, view) {
+  browserRuntime.on(view,'before-input-event',(event,input)=>{
+    if(extensionRuntime?.dispatchCommandInput(input))try{event.preventDefault()}catch{}
+  });
   browserRuntime.windows(view,({ url }) => {
     const effective=tabSettings(tab);const rule=matchFilterRules(url,filterRules,{topUrl:tab.url||url,resourceType:'popup'});
     if(rule==='block'||!isAllowedNavigation(url)){tab.stats.blockedPopups+=1;scheduleStateEmit();return {action:'deny'};}
@@ -1917,6 +1920,9 @@ async function createMainWindow() {
   mainWindow.on('unmaximize', relayout);
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.on('unresponsive', () => toast('Aegis UI is not responding.', 'warning'));
+  mainWindow.webContents.on('before-input-event',(event,input)=>{
+    if(extensionRuntime?.dispatchCommandInput(input))try{event.preventDefault()}catch{}
+  });
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('Aegis browser chrome renderer stopped:', details);
   });
