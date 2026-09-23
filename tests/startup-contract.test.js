@@ -11,7 +11,7 @@ test('internal aegis protocol is registered for default and private tab sessions
   assert.match(source, /registerInternalProtocol\(protocol, 'default UI session'\)/);
   assert.match(source, /registerInternalProtocol\(privateSession\.protocol, `private tab \$\{id\}`\)/);
   assert.match(source, /targetProtocol\.isProtocolHandled\('aegis'\)/);
-  assert.match(source, /browserEngine\.registerProtocol\(targetProtocol,'aegis',internalProtocolHandler\)/);
+  assert.match(source, /browserRuntime\.protocol\(targetProtocol,'aegis',internalProtocolHandler\)/);
 });
 
 test('browser chrome becomes visible before first private tab initialization', () => {
