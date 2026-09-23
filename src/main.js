@@ -16,7 +16,7 @@ const { TrackerLearner } = require('./core/tracker-learning');
 const { analyzeUrl } = require('./core/safety');
 const { youtubeVideoId, fetchSponsorSegments, sponsorSkipScript } = require('./core/sponsor');
 const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNetworkEvent, publicSiteIntelligence, buildSiteAuditScript } = require('./core/site-intelligence');
-const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
+const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
 const { AegisExtensionRuntime } = require('./core/extensions');
 const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
@@ -359,6 +359,27 @@ async function runSecuritySuite() {
         !fontExpected ? 'Standard mode does not normalize off-screen CSS font metric probes.' : (v.fontMetricProtected ? 'Common off-screen font metric probes returned standardized geometry.' : 'Installed-font metric differences remain observable to the active page.'), 'behavioral-test'));
     } else {
       for (const [id,label] of [['privacy-api-guard','High-entropy & ad API guard'],['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],['ua-product-leak','Browser product identifier'],['font-metric-protection','CSS font enumeration resistance']]) checks.push(makeCheck(id,label,'not-tested',surface.evidence,'behavioral-test'));
+    }
+
+    if (effective.privacyLevel !== 'standard' && tab.javascriptEnabled !== false) {
+      const fpOne = await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true));
+      const fpTwo = await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true));
+      if (fpOne.status === 'pass' && fpTwo.status === 'pass') {
+        const stability = compareFingerprintSnapshots(fpOne, fpTwo);
+        checks.push(makeCheck('fingerprint-stability', 'Fingerprint surface stability', stability.status, stability.evidence, 'behavioral-test'));
+        const v = fpOne.values || {};
+        const coherent = /Chrome\//.test(String(v.ua || '')) && !/Aegis|Electron/i.test(String(v.ua || '')) && v.timezone === 'UTC' && v.hardwareConcurrency === 4 && v.deviceMemory === 8;
+        checks.push(makeCheck('fingerprint-coherence', 'Fingerprint cohort coherence', coherent ? 'pass' : 'fail',
+          coherent
+            ? 'UA branding, timezone, CPU concurrency and memory report the standardized Aegis cohort values without Aegis/Electron product tokens.'
+            : `Fingerprint cohort is internally inconsistent (timezone=${v.timezone || 'unknown'}, cores=${v.hardwareConcurrency}, memory=${v.deviceMemory}, ua=${String(v.ua || '').slice(0,120)}).`, 'behavioral-test'));
+      } else {
+        checks.push(makeCheck('fingerprint-stability', 'Fingerprint surface stability', 'not-tested', fpOne.evidence || fpTwo.evidence, 'behavioral-test'));
+        checks.push(makeCheck('fingerprint-coherence', 'Fingerprint cohort coherence', 'not-tested', fpOne.evidence || fpTwo.evidence, 'behavioral-test'));
+      }
+    } else if (tab.javascriptEnabled === false) {
+      checks.push(makeCheck('fingerprint-stability', 'Fingerprint surface stability', 'info', 'JavaScript is disabled in this renderer, so script-based fingerprint sampling is intentionally unavailable.', 'behavioral-test'));
+      checks.push(makeCheck('fingerprint-coherence', 'Fingerprint cohort coherence', 'info', 'JavaScript is disabled; network-visible identity is evaluated separately from script-visible surfaces.', 'behavioral-test'));
     }
 
     const webrtc = await testWebRtcLeakSurface((source) => tab.view.webContents.executeJavaScript(source, true));
