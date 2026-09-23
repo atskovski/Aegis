@@ -1,0 +1,76 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+const main = read('src/main.js');
+const ui = read('src/ui/app.js');
+const preload = read('src/preload.js');
+const html = read('src/ui/index.html');
+const launcher = read('Run-Aegis.command');
+const pkg = JSON.parse(read('package.json'));
+
+function unique(values) { return [...new Set(values)].sort(); }
+function channels(source, rx) { return unique([...source.matchAll(rx)].map((m) => m[1])); }
+function setValues(source, name) {
+  const match = source.match(new RegExp(name + ' = new Set\\(\\[([\\s\\S]*?)\\]\\)'));
+  return match ? unique([...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1])) : [];
+}
+
+test('UI IPC commands are permitted by preload and implemented by main', () => {
+  const sends = channels(ui, /window\.aegis\.send\('([^']+)'/g);
+  const invokes = channels(ui, /window\.aegis\.invoke\('([^']+)'/g);
+  const allowedSend = setValues(preload, 'allowedSend');
+  const allowedInvoke = setValues(preload, 'allowedInvoke');
+  const mainOn = channels(main, /ipcMain\.on\('([^']+)'/g);
+  const mainHandle = channels(main, /ipcMain\.handle\('([^']+)'/g);
+
+  assert.deepEqual(sends.filter((x) => !allowedSend.includes(x)), [], 'UI send channel missing from preload allowlist');
+  assert.deepEqual(invokes.filter((x) => !allowedInvoke.includes(x)), [], 'UI invoke channel missing from preload allowlist');
+  assert.deepEqual(sends.filter((x) => !mainOn.includes(x)), [], 'UI send channel missing main handler');
+  assert.deepEqual(invokes.filter((x) => !mainHandle.includes(x)), [], 'UI invoke channel missing main handler');
+});
+
+test('Settings dynamic controls all exist in the settings document', () => {
+  const block = ui.match(/const draftControlIds = \[([\s\S]*?)\];/);
+  assert.ok(block, 'draftControlIds declaration missing');
+  const ids = [...block[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const missing = ids.filter((id) => !new RegExp('id=["\\\']' + id + '["\\\']').test(html));
+  assert.deepEqual(missing, []);
+});
+
+test('Map-backed runtime collections are not used with Array-only methods', () => {
+  const mapNames = [...main.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new Map\s*\(/g)].map((m) => m[1]);
+  const arrayOnly = ['filter','map','some','find','slice','reduce','includes','at','flatMap','sort'];
+  const violations = [];
+  for (const name of mapNames) {
+    for (const method of arrayOnly) {
+      if (new RegExp('\\b' + name + '\\.' + method + '\\s*\\(').test(main)) violations.push(name + '.' + method);
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+test('Security Suite uses current runtime factories and engine-neutral view checks', () => {
+  assert.doesNotMatch(main, /\btabs\.filter\s*\(/);
+  assert.doesNotMatch(main, /\bcreateStats\s*\(/);
+  assert.match(main, /\[\.\.\.tabs\.values\(\)\]\.filter/);
+  assert.match(main, /stats:makeTabStats\(\)/);
+  assert.doesNotMatch(main, /candidate\?\.view\?\.webContents/);
+  assert.match(main, /suite-runtime-integrity/);
+});
+
+test('launcher and package release versions stay synchronized', () => {
+  const match = launcher.match(/VERSION="([^"]+)"/);
+  assert.ok(match, 'launcher VERSION missing');
+  assert.equal(match[1], pkg.version);
+});
+
+test('single-node DOM selectors are never iterated as collections', () => {
+  const invalid = ui.split('\n').filter((line) => /(^|[^$])\$\((['"])[^)\n]+\2\)\.forEach\(/.test(line));
+  assert.deepEqual(invalid, []);
+});
