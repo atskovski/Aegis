@@ -2,6 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const listeners = new Map();
+const eventListeners = new Map();
 
 function validId(id) { return Boolean(id && id.length <= 120 && /^[a-z0-9@._-]+$/i.test(id)); }
 function validMethod(name) { return Boolean(name && name.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(name)); }
@@ -18,6 +19,11 @@ function registerWorld(extensionId, worldId) {
     },
     onMessage(callback) {
       if (typeof callback === 'function') callbacks.add(callback);
+    },
+    onEvent(callback) {
+      if (typeof callback !== 'function') return;
+      if (!eventListeners.has(extensionId)) eventListeners.set(extensionId, new Set());
+      eventListeners.get(extensionId).add(callback);
     }
   };
   contextBridge.exposeInIsolatedWorld(worldId, '__aegisExtensionBridge', api);
@@ -35,8 +41,8 @@ for (const arg of process.argv.filter((x) => x.startsWith('--aegis-extension-wor
 
 ipcRenderer.on('extension:event', (_event, payload) => {
   const id = String(payload?.extensionId || '');
-  const set = listeners.get(id);
+  const set = eventListeners.get(id);
   if (!set) return;
-  const safe = { message: payload?.message, sender: payload?.sender || {} };
+  const safe = { type:String(payload?.type || ''), args:Array.isArray(payload?.args) ? payload.args : [] };
   for (const fn of [...set]) { try { fn(safe); } catch {} }
 });
