@@ -853,3 +853,36 @@ test('Privacy Badger dynamic DNT script preserves matchOriginAsFallback and MAIN
     assert.equal(scripts[0].world,'MAIN');
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+
+
+test('Chrome MV2 toolbar API presence matches Privacy Badger feature detection', () => {
+  const vm=require('node:vm');
+  const ext={
+    id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp',resourceToken:'pb-toolbar',path:__dirname,
+    manifest:{manifest_version:2,name:'Privacy Badger',version:'2026.9.15',browser_action:{default_popup:'skin/popup.html'}}
+  };
+  const context={
+    setTimeout,clearTimeout,
+    __aegisExtensionBridge:{call:()=>Promise.resolve(),onMessage:()=>{},onEvent:()=>{}}
+  };
+  vm.runInNewContext(bootstrap(ext),context);
+  assert.ok(context.chrome.browserAction);
+  assert.equal(context.chrome.browserAction.getUserSettings,undefined);
+  assert.equal(context.chrome.action,undefined);
+});
+
+test('Chrome MV3 toolbar API presence exposes action without legacy browserAction', () => {
+  const vm=require('node:vm');
+  const ext={
+    id:'mv3-action-test',resourceToken:'mv3-toolbar',path:__dirname,
+    manifest:{manifest_version:3,name:'MV3 Action',version:'1.0',action:{default_title:'Run'}}
+  };
+  const context={
+    setTimeout,clearTimeout,
+    __aegisExtensionBridge:{call:()=>Promise.resolve(),onMessage:()=>{},onEvent:()=>{}}
+  };
+  vm.runInNewContext(bootstrap(ext),context);
+  assert.ok(context.chrome.action);
+  assert.equal(typeof context.chrome.action.getUserSettings,'function');
+  assert.equal(context.chrome.browserAction,undefined);
+});
