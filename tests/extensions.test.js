@@ -742,3 +742,32 @@ test('Privacy Badger shaped MV3 profile keeps DNR scripting and all-frames capab
     assert.equal(decision?.ruleId,42);
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+
+
+test('large extension manifests bootstrap over authenticated IPC instead of command-line arguments', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-large-manifest-'));
+  try{
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{},getSettings:()=>({})});
+    const extensionId='large-extension',sender={};
+    const manifest={
+      manifest_version:3,name:'Large Extension',version:'1',
+      background:{service_worker:'background.js'},
+      host_permissions:['<all_urls>'],
+      content_scripts:[{matches:Array.from({length:3000},(_,i)=>'https://host'+i+'.example/*'),js:['content.js']}]
+    };
+    const e={id:extensionId,path:root,resourceToken:'large-token',enabled:true,manifest,detectedApis:[],compatibility:compatibility(manifest)};
+    runtime.items.set(extensionId,e);
+    runtime.backgroundHosts.set(extensionId,{isDestroyed:()=>false,webContents:sender});
+    const args=runtime.pageArguments(e,'background');
+    assert.ok(args.some((x)=>x.startsWith('--aegis-extension-id=')));
+    assert.ok(args.some((x)=>x.startsWith('--aegis-extension-context=')));
+    assert.equal(args.some((x)=>x.startsWith('--aegis-extension-manifest=')),false);
+    assert.equal(args.some((x)=>x.startsWith('--aegis-extension-messages=')),false);
+    assert.equal(args.some((x)=>x.startsWith('--aegis-extension-token=')),false);
+    assert.ok(args.join(' ').length<512);
+    const bootstrapData=runtime.pageBootstrapData(sender,extensionId,'background');
+    assert.equal(bootstrapData.manifest.background.service_worker,'background.js');
+    assert.equal(bootstrapData.manifest.content_scripts[0].matches.length,3000);
+    assert.equal(bootstrapData.resourceToken,'large-token');
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
