@@ -1002,6 +1002,7 @@ function wireTabView(tab, view) {
     if (!isMainFrame || !url || String(url).startsWith('aegis://')) return;
     tab.extensionInjectionKeys = new Set();
     tab.extensionIds = [];
+    extensionRuntime?.clearActiveGrantForTab(tab.id);
     extensionRuntime?.notifyNavigation('webNavigation.onBeforeNavigate',tab,url);
     const nextOrigin = safeOrigin(url);
     if (tab.siteIntelligence?.url !== url) { resetSiteIntelligence(tab, url, nextOrigin); emitState(); }
