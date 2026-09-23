@@ -1,0 +1,2 @@
+'use strict';const test=require('node:test');const assert=require('node:assert/strict');const {createKernelAudit}=require('../src/core/kernel-audit');
+test('audit chain verifies ordered decisions',()=>{const a=createKernelAudit();a.append({sequence:1,action:'navigate',allow:true});a.append({sequence:2,action:'download',allow:false});assert.equal(a.verify().ok,true);assert.equal(a.list().length,2)});
