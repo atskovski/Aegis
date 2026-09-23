@@ -33,8 +33,8 @@ test('compatibility report never claims unsupported privileged APIs work', () =>
   assert.ok(report.supported.includes('storage'));
   assert.ok(report.unsupported.some((x)=>x.api==='webRequest'));
   assert.ok(report.unsupported.some((x)=>x.api==='proxy'));
-  assert.ok(report.unsupported.some((x)=>x.api==='background'));
-  assert.equal(report.background,'not-implemented');
+  assert.equal(report.background,'sandboxed-emulation');
+  assert.ok(report.warnings.some((x)=>x.api==='background'));
   assert.ok(report.score < 100);
 });
 
@@ -52,4 +52,11 @@ test('each extension receives a stable isolated world id', () => {
   assert.ok(b >= 1000);
   assert.equal(a, extensionWorldId('one@example'));
   assert.notEqual(a, b);
+});
+
+
+test('custom background pages remain explicitly unsupported', () => {
+  const report=compatibility({manifest_version:2,name:'T',version:'1',background:{page:'background.html'}});
+  assert.equal(report.background,'unsupported-page');
+  assert.ok(report.unsupported.some((x)=>x.api==='background.page'));
 });
