@@ -737,18 +737,16 @@ function relayout() {
     x = Math.floor((availableW - w) / 2);
     y = TOOLBAR_H + Math.floor((availableH - h) / 2);
   }
-  tab.view.setBounds({ x, y, width: w, height: h });
-  try { tab.view.setVisible(true); } catch {}
+  browserRuntime.bounds(tab.view,{ x, y, width: w, height: h });
+  try { browserRuntime.visible(tab.view,true); } catch {}
 }
 
 function chromiumMajor() { return String(browserEngine.version() || '152').split('.')[0]; }
 
 async function installFingerprintDefenses(tab) {
   
-  const dbg = tab?.view?.webContents?.debugger;
   const effective = tabSettings(tab);
   tab.fingerprintStatus = { debugger:false, page:false, timezone:false, locale:false, fingerprintPreload:false, privacyPreload:false, sentinelPreload:false, errors:[], policy:fingerprintPolicyEvidence(fingerprintPolicyFor({profile:effective.privacyLevel,anonymousMode:effective.anonymousRouteRequired===true,disableWebRtc:effective.disableWebRtc===true,chromiumMajor:chromiumMajor()})) };
-  if (!dbg) { tab.fingerprintStatus.errors.push('Debugger interface unavailable.'); return false; }
   const step = async (name, fn, required = false) => {
     try { await fn(); tab.fingerprintStatus[name] = true; return true; }
     catch (err) { tab.fingerprintStatus.errors.push(name + ': ' + err.message); if (required) console.error('Required privacy preload step failed:', name, err.message); else console.warn('Optional privacy preload step failed:', name, err.message); return false; }
@@ -1080,9 +1078,9 @@ async function replaceTabView(tab, javascriptEnabled) {
   if (!tab || !tab.privateSession) return;
 
   const previousView = tab.view;
-  const previousUrl = tab.url || previousView ? browserRuntime.url(previousView) : '' || 'aegis://app/start.html';
+  const previousUrl = tab.url || (previousView ? browserRuntime.url(previousView) : '') || 'aegis://app/start.html';
   const wasActive = activeId === tab.id;
-  const previousBounds = previousView?.getBounds?.();
+  const previousBounds = previousView ? browserRuntime.getBounds(previousView) : null;
 
   tab.javascriptEnabled = Boolean(javascriptEnabled);
   const nextView = createTabView(tab);
@@ -1092,7 +1090,7 @@ async function replaceTabView(tab, javascriptEnabled) {
   wireTabView(tab, nextView);
   await installFingerprintDefenses(tab);
 
-  if (previousBounds) nextView.setBounds(previousBounds);
+  if (previousBounds) browserRuntime.bounds(nextView,previousBounds);
   if (wasActive) nextView.setVisible(uiLayer.mode !== 'hidden');
 
   browserRuntime.unmount(mainWindow,previousView);
