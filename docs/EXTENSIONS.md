@@ -1,4 +1,4 @@
-# Aegis Extension Runtime
+# Aegis Extension Runtime 5
 
 Aegis supports installing Firefox-style WebExtension packages (.xpi) through an Aegis-owned compatibility runtime.
 
@@ -63,3 +63,12 @@ Each installed extension is assigned its own isolated-world ID. The renderer pre
 Aegis honors `document_end` at Electron's DOM-ready phase and `document_idle` after the document finishes loading. Electron does not provide this compatibility runtime with Firefox-equivalent pre-page-script `document_start` injection into the same isolated world, so `document_start` currently falls back to DOM-ready and generates a compatibility warning. Aegis does not count that package as fully compatible.
 
 Relative `url(...)` references in extension CSS are rewritten to the private `aegis-extension://` resource origin so packaged images/fonts continue to resolve without exposing local filesystem paths.
+
+
+## Package installation vs runtime compatibility
+
+Runtime 5 treats installation and execution compatibility as separate facts. A valid CRX, XPI, ZIP, or unpacked WebExtension is installed as a complete package after review. The compatibility percentage reports Aegis API/runtime coverage; it is not an installation-progress percentage.
+
+Chrome CRX identity is taken from the verified CRX signature before any Gecko identity embedded in a cross-browser manifest. Firefox/XPI packages continue to use their Gecko identity. Localized manifest placeholders such as `__MSG_name__` and `__MSG_description__` are resolved from package locale files for review and display.
+
+Aegis does not claim unsupported APIs work. Current engine limitations remain visible in the review so users can distinguish “installed successfully” from “every requested browser API behaves exactly like upstream Chrome or Firefox.”
