@@ -1469,6 +1469,29 @@ function wireIpc() {
       return {ok:true,tabId:tab.id,url};
     } catch (err) { return {ok:false,error:err.message}; }
   });
+  ipcMain.handle('adblock:pick-element', async (event) => {
+    if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};
+    const tab=activeTab();if(!tab?.view?.webContents||tab.view.webContents.isDestroyed())return {ok:false,error:'No active web page.'};
+    let host='';try{host=new URL(tab.url).hostname;}catch{return {ok:false,error:'Element picker requires an HTTP(S) page.'};}
+    try{
+      const selector=await tab.view.webContents.executeJavaScript(`new Promise((resolve)=>{
+        const old=document.getElementById('__aegis_picker_style');if(old)old.remove();
+        const st=document.createElement('style');st.id='__aegis_picker_style';st.textContent='.__aegis_pick{outline:3px solid #58c7ff!important;outline-offset:2px!important;cursor:crosshair!important}';document.documentElement.appendChild(st);
+        let last=null,done=false;
+        const css=(el)=>{if(el.id&&/^[A-Za-z][\\w-]{0,80}$/.test(el.id))return '#'+CSS.escape(el.id);let p=el.tagName.toLowerCase();const cls=[...el.classList].filter(x=>!x.startsWith('__aegis_')&&x.length<50).slice(0,3);if(cls.length)p+='.'+cls.map(CSS.escape).join('.');if(el.parentElement){const same=[...el.parentElement.children].filter(x=>x.tagName===el.tagName);if(same.length>1)p+=':nth-of-type('+(same.indexOf(el)+1)+')';}return p;};
+        const clean=()=>{done=true;if(last)last.classList.remove('__aegis_pick');st.remove();document.removeEventListener('mousemove',move,true);document.removeEventListener('click',click,true);document.removeEventListener('keydown',key,true);};
+        const move=e=>{if(done)return;if(last)last.classList.remove('__aegis_pick');last=e.target;last.classList.add('__aegis_pick');};
+        const click=e=>{e.preventDefault();e.stopPropagation();const s=css(e.target);clean();resolve(s);};
+        const key=e=>{if(e.key==='Escape'){e.preventDefault();clean();resolve('');}};
+        document.addEventListener('mousemove',move,true);document.addEventListener('click',click,true);document.addEventListener('keydown',key,true);
+      })`,true);
+      if(!selector)return {ok:false,canceled:true};
+      const rule=host+'##'+String(selector).slice(0,500);
+      settings.customFilterRules=(settings.customFilterRules?settings.customFilterRules.trimEnd()+'\n':'')+rule;
+      settings=sanitizeSettings(settings);filterRules=parseFilterRules(settings.customFilterRules||'');saveSettings();await applyCosmeticFiltering(tab);emitState();
+      return {ok:true,rule};
+    }catch(err){return {ok:false,error:'Element picker failed: '+err.message};}
+  });
   ipcMain.handle('enterprise:export-events', async (event) => {
     if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};
     const pick=await dialog.showSaveDialog(mainWindow,{title:'Export Aegis security evidence',defaultPath:'aegis-security-events.json',filters:[{name:'JSON',extensions:['json']}]});
