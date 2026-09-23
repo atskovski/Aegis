@@ -100,13 +100,6 @@ function buildPagePrivacyScript({ maximum = false, privacyApiGuard = true, block
 
     if (MAXIMUM) {
       try { undef(globalThis, 'OfflineAudioContext'); undef(globalThis, 'webkitOfflineAudioContext'); } catch {}
-      try {
-        const nativeEval = globalThis.eval;
-        globalThis.eval = function(code) {
-          if (typeof code === 'string') throw new EvalError('Dynamic eval blocked by Aegis Maximum protection');
-          return nativeEval(code);
-        };
-      } catch {}
     }
   })();`;
 }
