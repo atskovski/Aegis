@@ -1,6 +1,6 @@
 {
   "name": "aegis-privacy-browser",
-  "version": "1.1.0-beta.2",
+  "version": "1.1.0-beta.3",
   "private": true,
   "description": "A hardened privacy browser with per-tab security compartments, Tor-verified anonymous mode, isolated ephemeral sessions, native filtering, anti-fingerprinting, safety intelligence and runtime verification.",
   "main": "src/main.js",
