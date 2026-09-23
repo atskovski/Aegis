@@ -1,98 +1,74 @@
-# Aegis Extension Runtime 5
+# Aegis Chrome Extension Runtime 6
 
-Aegis Runtime 5 installs complete Chrome and Firefox WebExtension packages while keeping execution inside an Aegis-owned compatibility runtime. Package installation and browser-API compatibility are deliberately reported as two separate facts.
+Aegis now uses one extension model: **Chrome extensions**. Runtime 6 removes the split Chrome/Firefox product surface and concentrates compatibility work on Chromium extension semantics.
 
 ## Supported installation sources
 
-- Chrome Web Store listing URLs and 32-character Chrome extension IDs.
-- Local Chrome CRX2 and CRX3 packages.
-- Firefox Add-ons listing URLs.
-- Local Firefox XPI packages.
-- Direct HTTPS CRX, XPI and ZIP package URLs.
-- Unpacked WebExtension folders for development and testing.
+- Chrome Web Store listing URLs.
+- 32-character Chrome extension IDs.
+- Local CRX2 and CRX3 packages.
+- Direct HTTPS CRX and ZIP package URLs.
+- Unpacked Chrome extension folders for development and testing.
 
-Chrome Web Store installs are resolved through Chromium's update service. Aegis parses CRX2/CRX3 headers, derives the signed Chrome extension ID from package cryptographic material, verifies the developer signature, and fails closed if the downloaded package identity does not match the requested store ID.
+Chrome Web Store installs are resolved through Chromium's update service. Aegis parses CRX2/CRX3 headers, derives the signed Chrome extension ID from package cryptographic material, verifies the developer signature, and fails closed when the downloaded package identity does not match the requested store ID.
 
-Firefox Add-ons installs resolve the current package through Mozilla's Add-ons API and verify that the package's Gecko identity matches the add-on GUID returned by Mozilla. Runtime 5 detects Mozilla signature metadata inside XPI files but does not claim independent cryptographic verification of arbitrary XPI signatures.
+## Runtime 6 reference extension: Privacy Badger
 
-## Why Aegis does not use Electron's built-in extension loader
+Runtime 6 uses the Chrome build of Privacy Badger 2026.9.15 as a compatibility reference because it exercises a demanding combination of Manifest V2 background pages, storage, tabs, cookies, privacy settings, scripting, WebNavigation, WebRequest, WebRequestBlocking, browser actions, alarms and all-frame document-start content scripts.
 
-Aegis normal browsing tabs intentionally use non-persistent, per-tab Chromium sessions. Electron's native extension loader only loads unpacked extensions into persistent sessions and explicitly supports only a subset of Chrome extension APIs. Switching normal Aegis tabs to persistent shared sessions just to use that loader would weaken the current tab-compartment model.
+The previous `js/utils.js:26` failure was consistent with Privacy Badger receiving an incomplete manifest during early background startup: its `hasOwn()` helper was called with an undefined manifest field. Large manifests are no longer transported in Electron command-line arguments. Background pages synchronously request their authenticated bootstrap data from the Aegis browser process before extension page code runs.
 
-Runtime 5 therefore extracts and validates the package itself, stores it in owner-only local storage, hosts extension background/popup/options contexts in sandboxed extension windows, and injects supported content scripts into dedicated per-extension isolated worlds. Extension code receives no Node.js access.
+Runtime 6 also makes read-only cookie queries safe before the first private tab exists, implements Chrome reserved i18n messages such as `@@ui_locale` and `@@extension_id`, verifies the background page sees a complete manifest, and records renderer stack traces in extension health diagnostics.
+
+## Why Aegis uses its own extension runtime
+
+Normal Aegis browsing tabs use isolated, non-persistent Chromium sessions. Runtime 6 preserves that compartment model while hosting extension background pages, popups, options pages and content scripts in Aegis-controlled sandboxed contexts with no Node.js access.
 
 ## Installation and update flow
 
-1. The user selects a local package, unpacked folder, Chrome Web Store page, Firefox Add-ons page, Chrome extension ID or direct HTTPS package URL.
+1. The user selects a CRX/ZIP package, unpacked folder, Chrome Web Store page, Chrome extension ID or direct HTTPS package URL.
 2. Aegis enforces compressed-package, expanded-size, file-count and path-safety limits.
 3. CRX headers and package identity are parsed before installation; Chrome Web Store CRX signatures must verify.
-4. manifest.json must be WebExtensions manifest v2 or v3.
-5. Localized manifest labels are resolved and static source inspection detects requested browser/chrome API namespaces.
-6. Aegis computes a SHA-256 package digest and builds a permission, host-access, signature and compatibility review.
-7. The review explicitly shows **100% package installable** separately from the API/runtime compatibility percentage.
-8. Installation only proceeds after explicit user approval and enterprise extension policy checks.
-9. Installed background contexts, content scripts, toolbar actions, options pages and supported APIs become active.
-10. Store-installed extensions keep their original source. **Check update** downloads the current package from that same source, re-runs identity/signature/permission/compatibility review, and requires approval before replacement.
-11. Updates preserve the installed extension identity, resource token, install timestamp and enabled/disabled state.
+4. `manifest.json` must be Manifest V2 or V3.
+5. Localized manifest labels are resolved and static source inspection detects requested Chrome API namespaces.
+6. Aegis computes a SHA-256 package digest and builds a permission, host-access, signature and runtime review.
+7. Installation proceeds only after explicit user approval and enterprise extension policy checks.
+8. Installed background contexts, content scripts, toolbar actions, options pages and supported APIs become active.
+9. Store-installed extensions retain their original source for explicit update checks.
 
-## Implemented WebExtension surfaces
+## Implemented Chrome extension surfaces
 
-Runtime 5 currently implements or emulates the following major surfaces:
+Runtime 6 implements or safely emulates the major surfaces currently needed by the reference workload:
 
 - runtime: manifest/URL/platform/browser metadata, messaging, long-lived Ports, reload, contexts and options opening.
-- storage: local, session, local compatibility sync and read-only managed.
-- tabs: query/get/create/update/reload/remove/sendMessage, including frame-targeted messaging, plus executeScript, CSS insertion/removal, zoom and visible-tab capture.
-- windows: basic current-window and window metadata operations used by extension UIs.
-- cookies: host-scoped access tied to extension host permissions and visible private tabs.
+- storage: local, session, sync compatibility storage and read-only managed storage.
+- tabs: query/get/create/update/reload/remove/sendMessage, frame-targeted messaging, executeScript, CSS insertion/removal, zoom and visible-tab capture.
+- windows: current-window metadata operations used by extension UI.
+- cookies: host-scoped access across Aegis private-tab stores, including safe empty reads before tabs exist.
 - permissions: declared-permission inspection.
-- i18n: manifest/default-locale message lookup.
+- i18n: locale lookup plus Chrome reserved messages.
 - alarms and commands.
-- scripting: packaged file/code execution in the top frame or targeted subframes (`frameIds` / `allFrames`), including MAIN-world injection; CSS insertion/removal is currently top-frame-only.
-- webNavigation observation.
-- webRequest observation plus bounded MV2 blocking listeners for cancel/redirect and privacy-strengthening Cookie/Set-Cookie, referrer, cache-validator, DNT and GPC header handling.
-- declarativeNetRequest static/dynamic/session rules for block, allow, redirect and upgradeScheme decisions, plus constrained privacy-strengthening `modifyHeaders` removals for cookies, referrers and cache/tracking identifiers.
-- privacy read/query compatibility surfaces controlled by Aegis policy.
-- notifications rendered through Aegis browser chrome.
-- menus/contextMenus integrated into Aegis context menus.
-- action, browserAction and pageAction popup/click/badge/title/icon state.
-- MV2 background scripts, MV3 service-worker code through a sandboxed persistent background-host emulation, and custom background pages.
-- packaged extension resources through the private aegis-extension:// resource origin.
+- scripting: registered content scripts, packaged file/code execution, frameIds/allFrames and MAIN/ISOLATED worlds.
+- webNavigation observation with subframe metadata.
+- webRequest observation plus bounded Manifest V2 blocking listeners for cancel/redirect and privacy-strengthening header changes.
+- declarativeNetRequest static/dynamic/session block, allow, redirect, upgradeScheme and constrained privacy-strengthening header removal.
+- privacy query/set compatibility governed by Aegis security policy.
+- notifications through Aegis browser chrome.
+- menus/contextMenus.
+- action/browserAction/pageAction popup, click, badge, title and icon state.
+- Manifest V2 background pages and scripts, plus Manifest V3 service-worker code through Aegis's sandboxed host.
+- packaged extension resources through the private `aegis-extension://` origin.
 
-## Known compatibility boundaries
+## Runtime integrity
 
-Runtime 5 does not claim universal Chrome or Firefox API parity.
+Large extension manifests and locale data are delivered through authenticated synchronous IPC instead of process command-line arguments. Runtime 6 verifies that a background page can read a complete Chrome manifest before considering the host started.
 
-- Aegis remains the final network-policy owner. MV2 `webRequestBlocking` listeners can cancel or redirect requests and make privacy-strengthening header changes, but they cannot override an Aegis firewall block or weaken protected security headers. MV3 extensions should prefer the supported declarativeNetRequest path.
-- declarativeNetRequest `modifyHeaders` can remove privacy-sensitive request/response headers such as Cookie, Set-Cookie, Referer, ETag and related cache identifiers. Header sets/appends and removal of security-critical headers remain blocked, and matched-rule telemetry is reduced.
-- proxy replacement, native messaging, browsing-history database access, extension management, debugger APIs and DevTools extension pages are withheld.
-- optional_permissions and optional_host_permissions are detected and reviewed, but runtime permission-request/removal prompts are not yet implemented.
-- manifest and dynamically registered `content_scripts.all_frames` are injected into loaded subframes through Aegis's sandboxed iframe bridge, including `match_about_blank` origin fallback. Programmatic `scripting.executeScript()` supports `frameIds` and `allFrames`, including MAIN-world execution. Exact `document_start` ordering can still differ from upstream Chrome/Firefox.
-- document_start uses Aegis early-navigation isolated-world injection, but exact Firefox/Chromium pre-page-script ordering is not guaranteed on every navigation.
-- MV3 service workers run in a persistent sandboxed host rather than Chromium's suspend/resume lifecycle.
-- function-object scripting injection is not transferred across Aegis IPC; packaged files or code strings are supported.
-- notifications, context menus and some browser chrome integrations are intentionally reduced compared with upstream browser UI.
-
-These boundaries remain visible in the compatibility review and health diagnostics instead of being silently reported as working.
-
-## Runtime health and repair
-
-Each extension has runtime health evidence for manifest parsing, compatibility bootstrap compilation, referenced package resources, API compatibility, background-host state and recorded runtime errors. The Add-ons manager exposes Health check, Repair runtime, Reload, Enable/Disable, Check update and Remove controls.
-
-Repair can restart an expected background context when it has stopped. It does not pretend an unsupported API is fixed.
+Extension-page and background unhandled errors are reported back to the browser process with stack context. Health checks retain enough of that stack to identify the failing extension file and line rather than only reporting a generic runtime failure.
 
 ## Security boundaries
 
-- no Node.js in extension content scripts, background hosts, popups or options pages;
-- isolated per-extension execution worlds;
-- extension IPC validates extension identity and the sending renderer;
-- private aegis-extension:// resource tokens prevent exposing local filesystem paths;
-- host permissions gate extension network and tab access;
-- extensions are excluded from hardened and anonymous compartments;
-- extensions cannot disable the renderer sandbox, privacy firewall, HTTPS-first policy, routing configuration or Security Kernel;
-- package extraction rejects traversal paths and symlinks and enforces file/size limits;
-- Chrome Web Store identity/signature mismatches fail closed;
-- enterprise allowlist/block-unlisted policy is enforced before installation.
+Chrome extensions cannot replace Aegis routing, disable the privacy firewall, weaken hardened/anonymous compartments, use Node.js/native messaging, manage other extensions, attach the Chrome debugger, or remove Aegis security-critical headers. These are browser security boundaries rather than installation failures.
 
-## Engine direction
+## Known compatibility boundaries
 
-Aegis can keep expanding Runtime 5 compatibility, but exact arbitrary-Chrome-extension or arbitrary-Firefox-XPI behavior eventually requires a browser engine with upstream extension semantics rather than an Electron compatibility layer. Runtime 5's goal is to install packages completely, execute a broad safe subset faithfully, and make every remaining incompatibility explicit.
+Runtime 6 does not claim that every Chrome extension API is identical to upstream Chrome. The remaining compatibility report is about runtime behavior, not whether a package was only partially installed. Unsupported privileged surfaces remain explicit instead of being silently faked.
