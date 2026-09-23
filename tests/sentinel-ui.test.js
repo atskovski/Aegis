@@ -36,8 +36,10 @@ test('one-click Harden this site restores shields and blocks sensitive site perm
   assert.match(html, /id="hardenSite"/);
   assert.match(js, /window\.aegis\.send\('site:harden'\)/);
   assert.match(main, /ipcMain\.on\('site:harden'/);
-  assert.match(main, /tab\.compatibilityMode = false/);
-  assert.match(main, /tab\.allowHttp = false/);
+  assert.match(main, /hardenTabState\(tab\)/);
+  assert.match(main, /SENSITIVE_PERMISSION_KEYS/);
+  assert.match(main, /clearData\(\{ dataTypes:/);
+  assert.match(main, /replaceTabView\(tab, true\)/);
 });
 
 
