@@ -179,3 +179,9 @@ body[data-text-scale="xlarge"]{font-size:17px}
 .settings-content,.privacy-panel{font-size:max(14px,1em)}
 .setting-row small,.select-row small,.info-callout,.suite-copy small,.assurance-copy small,.addon-details small,.intelligence-help{font-size:max(11.5px,.76em)}
 @media(max-width:760px){.addon-hero{align-items:stretch;flex-direction:column}.addon-hero .primary{width:100%}.addon-details{grid-template-columns:1fr}.assurance-row{grid-template-columns:84px minmax(0,1fr)}.assurance-row em{grid-column:2;text-align:left}}
+
+.runtime-evidence{display:grid;gap:7px}.runtime-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.runtime-row i{width:8px;height:8px;border-radius:50%}.runtime-ok{background:var(--good);box-shadow:0 0 0 4px color-mix(in srgb,var(--good) 12%,transparent)}.runtime-bad{background:var(--danger);box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 10%,transparent)}
+.runtime-row span{display:grid;gap:2px}.runtime-row b{font-size:11.5px}.runtime-row small{font-size:10.5px;color:var(--muted);line-height:1.4}.runtime-row em{font-size:8.5px;font-style:normal;font-weight:800;letter-spacing:.08em;color:var(--muted)}
+.runtime-errors{display:grid;gap:3px;padding:10px 11px;border-radius:10px;border:1px solid color-mix(in srgb,var(--danger) 25%,var(--line));background:color-mix(in srgb,var(--danger) 6%,var(--surface))}
+.runtime-errors b{font-size:11px;color:var(--danger)}.runtime-errors small{font-size:10.5px;line-height:1.45;color:var(--muted)}
