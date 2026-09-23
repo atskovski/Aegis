@@ -55,10 +55,10 @@ test('each extension receives a stable isolated world id', () => {
 });
 
 
-test('custom background pages remain explicitly unsupported', () => {
+test('Firefox background pages are explicitly hosted in the sandboxed compatibility runtime', () => {
   const report=compatibility({manifest_version:2,name:'T',version:'1',background:{page:'background.html'}});
-  assert.equal(report.background,'unsupported-page');
-  assert.ok(report.unsupported.some((x)=>x.api==='background.page'));
+  assert.equal(report.background,'sandboxed-page');
+  assert.ok(report.warnings.some((x)=>x.api==='background.page'));
 });
 
 
@@ -127,4 +127,19 @@ test('extensions cannot enumerate or control hardened/anonymous tabs', () => {
   assert.equal(extensionVisibleTab({securityDomain:'hardened',disableExtensions:true}),false);
   assert.equal(extensionVisibleTab({securityDomain:'anonymous',disableExtensions:true}),false);
   assert.equal(extensionVisibleTab({securityDomain:'private',disableExtensions:true}),false);
+});
+
+
+test('toolbar actions scripting alarms commands and navigation are recognized capabilities', () => {
+  const report=compatibility({
+    manifest_version:3,name:'T',version:'1',
+    permissions:['storage','tabs','scripting','alarms','webNavigation'],
+    action:{default_title:'Run',default_popup:'popup.html'},
+    commands:{run:{description:'Run'}}
+  });
+  for (const api of ['storage','tabs','scripting','alarms','webNavigation','action','commands']) {
+    assert.ok(report.supported.includes(api), api + ' should be supported');
+  }
+  assert.equal(report.features.popup,true);
+  assert.equal(report.features.commands,1);
 });
