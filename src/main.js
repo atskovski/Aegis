@@ -945,10 +945,9 @@ async function applySponsorProtection(tab) {
 
 function wireTabView(tab, view) {
   view.webContents.setWindowOpenHandler(({ url }) => {
-    tab.stats.blockedPopups += 1;
-    emitState();
-    if (isAllowedNavigation(url)) createTab(url, true);
-    return { action: 'deny' };
+    const effective=tabSettings(tab);const rule=matchFilterRules(url,filterRules,{topUrl:tab.url||url,resourceType:'popup'});
+    if(rule==='block'||!isAllowedNavigation(url)){tab.stats.blockedPopups+=1;scheduleStateEmit();return {action:'deny'};}
+    createTab(url,true);return {action:'deny'};
   });
 
   view.webContents.on('context-menu', (_event, params) => showTabContextMenu(tab, params));
