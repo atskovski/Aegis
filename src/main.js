@@ -22,6 +22,15 @@ const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
 
 app.setName('Aegis Privacy Browser');
+
+// Aegis never offers a click-through for invalid TLS certificates. Certificate
+// errors fail closed in the network process; the page receives the normal local
+// error surface rather than a user-bypass path.
+app.on('certificate-error', (event, _webContents, url, error, _certificate, callback) => {
+  try { event.preventDefault(); } catch {}
+  console.warn('Blocked invalid TLS certificate:', String(url || '').slice(0, 300), String(error || 'certificate-error'));
+  callback(false);
+});
 // Keep the wire-level User-Agent generic. Product branding belongs in browser chrome, not in requests sites can fingerprint.
 app.userAgentFallback = buildGenericUA(process.versions.chrome);
 
