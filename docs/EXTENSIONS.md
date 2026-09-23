@@ -6,7 +6,7 @@ Aegis supports installing Firefox-style WebExtension packages (.xpi) through an 
 
 Aegis normal tabs intentionally use non-persistent Chromium sessions. Electron's built-in Chrome-extension support is limited to unpacked extensions on persistent sessions and implements only a subset of extension APIs. Using it as if it were Firefox XPI support would either weaken Aegis's tab-isolation model or create misleading compatibility claims.
 
-The Aegis Extension Runtime therefore treats an XPI as an untrusted WebExtension package, validates it, extracts it into owner-only local storage, analyzes its manifest and permissions, and runs supported content scripts inside a dedicated isolated JavaScript world. Add-on code receives no Node.js access.
+The Aegis Extension Runtime therefore treats an XPI as an untrusted WebExtension package, validates it, extracts it into owner-only local storage, analyzes its manifest and permissions, and runs supported content scripts inside a dedicated per-extension isolated JavaScript world. Add-on code receives no Node.js access.
 
 ## Installation flow
 
@@ -17,7 +17,7 @@ The Aegis Extension Runtime therefore treats an XPI as an untrusted WebExtension
 5. A permission review shows high-risk host/API permissions.
 6. A compatibility report identifies unsupported APIs before installation.
 7. Only after explicit approval is the extension copied into Aegis's local extension directory.
-8. Matching content scripts are injected into isolated world 1004 after a remote document loads.
+8. Matching content scripts are injected into a dedicated per-extension isolated world after a remote document loads.
 9. The extension may use the supported Aegis browser API bridge.
 10. Disabling/removing an extension reloads active tabs so old content scripts do not continue running.
 
@@ -54,3 +54,5 @@ Aegis should not describe the Electron compatibility runtime as full Firefox com
 - privileged unsupported APIs fail rather than being emulated unsafely;
 - extensions cannot disable Aegis's renderer sandbox, private-session model, permission firewall, HTTPS-first policy, or routing configuration;
 - XPI source is local-only and is not uploaded by Aegis.
+
+Each installed extension is assigned its own isolated-world ID. The renderer preload binds the IPC bridge to that extension identity, so one content-script world cannot request storage or APIs as another extension merely by changing an ID argument. Installing, enabling, disabling, or removing an extension rebuilds active tab renderers so the new privilege map is applied before extension scripts execute.
