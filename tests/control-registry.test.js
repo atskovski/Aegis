@@ -21,7 +21,7 @@ test('document controls report degraded until preload is confirmed', () => {
 
 test('session firewall controls report enforced when handlers are installed', () => {
   const settings={blockTrackers:true,blockThirdPartyCookies:true};
-  const tab={permissionFirewallReady:true};
+  const tab={privacySessionReady:true};
   const rows=controlAssurance(settings,tab);
   assert.equal(rows.find((x)=>x.key==='blockTrackers').status,'enforced');
   assert.equal(rows.find((x)=>x.key==='blockThirdPartyCookies').status,'enforced');
