@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const { normalizeInput, stripTrackingParams, cleanNavigationUrl, registrableLike, isAllowedNavigation, shouldUpgradeHttp, upgradeToHttps } = require('./core/url');
 const { configurePrivacySession, makeTabStats, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, buildGenericUA } = require('./core/privacy');
 const { buildAntiFingerprintScript } = require('./core/fingerprint');
+const { policyFor: fingerprintPolicyFor, policyEvidence: fingerprintPolicyEvidence } = require('./core/fingerprint-policy');
 const { sanitizeSettings, searchTemplateFor, profileDefaults, cloneDefaults, SEARCH_ENGINES } = require('./core/settings');
 const { navigationUrl, navigationIsMainFrame, shouldAllowInternalNavigation, failedHttpsCanOfferHttp } = require('./core/navigation');
 const { applyProxyToSession: applyProxyCore, runConnectivityTest, verifyTorRoute } = require('./core/network');
@@ -734,32 +735,33 @@ function relayout() {
 function chromiumMajor() { return String(process.versions.chrome || '152').split('.')[0]; }
 
 async function installFingerprintDefenses(tab) {
-  const effective = tabSettings(tab);
+  
   const dbg = tab?.view?.webContents?.debugger;
-  tab.fingerprintStatus = { debugger:false, page:false, timezone:false, locale:false, fingerprintPreload:false, privacyPreload:false, sentinelPreload:false, errors:[] };
+  const effective = tabSettings(tab);
+  tab.fingerprintStatus = { debugger:false, page:false, timezone:false, locale:false, fingerprintPreload:false, privacyPreload:false, sentinelPreload:false, errors:[], policy:fingerprintPolicyEvidence(fingerprintPolicyFor({profile:effective.privacyLevel,anonymousMode:effective.anonymousRouteRequired===true,disableWebRtc:effective.disableWebRtc===true,chromiumMajor:chromiumMajor()})) };
   if (!dbg) { tab.fingerprintStatus.errors.push('Debugger interface unavailable.'); return false; }
   const step = async (name, fn, required = false) => {
     try { await fn(); tab.fingerprintStatus[name] = true; return true; }
     catch (err) { tab.fingerprintStatus.errors.push(name + ': ' + err.message); if (required) console.error('Required privacy preload step failed:', name, err.message); else console.warn('Optional privacy preload step failed:', name, err.message); return false; }
   };
   try {
-    if (!dbg.isAttached()) dbg.attach('1.3');
+    if (!dbg.isAttached()) browserEngine.attachDebugger(tab.view,'1.3');
     tab.fingerprintStatus.debugger = true;
   } catch (err) {
     tab.fingerprintStatus.errors.push('debugger: ' + err.message);
     return false;
   }
 
-  await step('page', () => withTimeout(dbg.sendCommand('Page.enable'), 1800, 'Fingerprint Page.enable'), true);
-  await step('runtime', () => withTimeout(dbg.sendCommand('Runtime.enable'), 1800, 'Privacy Runtime.enable'));
+  await step('page', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Page.enable'), 1800, 'Fingerprint Page.enable'), true);
+  await step('runtime', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Runtime.enable'), 1800, 'Privacy Runtime.enable'));
 
   if (effective.privacyLevel !== 'standard') {
-    await step('timezone', () => withTimeout(dbg.sendCommand('Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense'));
-    await step('locale', () => withTimeout(dbg.sendCommand('Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense'));
+    await step('timezone', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense'));
+    await step('locale', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense'));
   }
 
   const fpSource = buildAntiFingerprintScript({ seed: identitySeed + ':' + tab.seed, chromiumMajor: chromiumMajor(), profile: effective.privacyLevel, disableServiceWorkers: effective.disableServiceWorkers, globalPrivacyControl: effective.globalPrivacyControl, doNotTrack: effective.doNotTrack, anonymousMode: effective.anonymousRouteRequired === true, disableWebRtc: effective.disableWebRtc === true });
-  await step('fingerprintPreload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: fpSource }), 1800, 'Fingerprint preload'), true);
+  await step('fingerprintPreload', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: fpSource }), 1800, 'Fingerprint preload'), true);
 
   const privacySource = buildPagePrivacyScript({
     maximum: effective.privacyLevel === 'maximum',
@@ -767,12 +769,12 @@ async function installFingerprintDefenses(tab) {
     blockTrackingBeacons: effective.blockTrackingBeacons !== false,
     globalPrivacyControl: effective.globalPrivacyControl !== false
   });
-  await step('privacyPreload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: privacySource }), 1800, 'Page privacy preload'), true);
+  await step('privacyPreload', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: privacySource }), 1800, 'Page privacy preload'), true);
 
   if (effective.siteIntelligence !== false) {
     const bindingName = '__aegisAudit_' + tab.seed.slice(0, 12);
     tab.auditBinding = bindingName;
-    const bindingReady = await step('sentinelBinding', () => withTimeout(dbg.sendCommand('Runtime.addBinding', { name: bindingName }), 1400, 'Sentinel binding'));
+    const bindingReady = await step('sentinelBinding', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Runtime.addBinding', { name: bindingName }), 1400, 'Sentinel binding'));
     if (bindingReady) {
       if (!tab.auditMessageHandler && typeof dbg.on === 'function') {
         tab.auditMessageHandler = (_event, method, params) => {
@@ -781,7 +783,7 @@ async function installFingerprintDefenses(tab) {
         };
         dbg.on('message', tab.auditMessageHandler);
       }
-      await step('sentinelPreload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName }) }), 1800, 'Sentinel preload'));
+      await step('sentinelPreload', () => withTimeout(browserEngine.debuggerCommand(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName }) }), 1800, 'Sentinel preload'));
     }
   }
 
