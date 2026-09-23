@@ -12,7 +12,7 @@ function evaluateUrl(url,settings={}){
  if(!settings.enterpriseMode)return {allowed:true,reason:'enterprise-disabled'};
  const e=settings.enterprise||{}, allow=e.urlAllowlist||[], block=e.urlBlocklist||[];
  if(allow.length&&!allow.some(p=>matches(p,url)))return {allowed:false,reason:'not-on-enterprise-allowlist'};
- if(block.some(p=>matches(p,url))&&!allow.some(p=>matches(p,url)))return {allowed:false,reason:'enterprise-blocklist'};
+ if(block.some(p=>matches(p,url)))return {allowed:false,reason:'enterprise-blocklist'};
  return {allowed:true,reason:'enterprise-policy'};
 }
 function extensionAllowed(id,settings={}){
