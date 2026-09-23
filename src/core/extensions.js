@@ -226,21 +226,70 @@ function getKeys(store,keys){
 class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
-    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.suspensionReasons=new Set();
+    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest)})}catch{}}}
   save(){writeStore(this.indexFile,[...this.items.values()].map(({manifest,compatibility,...r})=>r))}
-  list(){return [...this.items.values()].map((e)=>({id:e.id,name:e.manifest.name,version:e.manifest.version,enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),compatibility:e.compatibility,risk:installRisk(e.manifest)}))}
+  publicRecord(e){
+    const action=extensionAction(e.manifest);
+    const icon=iconPath(e.manifest);
+    const options=optionsPage(e.manifest);
+    const state=this.actionState.get(e.id)||{};
+    return {
+      id:e.id,name:e.manifest.name,version:e.manifest.version,description:String(e.manifest.description||''),
+      manifestVersion:Number(e.manifest.manifest_version||0),enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),
+      compatibility:e.compatibility,risk:installRisk(e.manifest),installedAt:e.installedAt||'',updatedAt:e.updatedAt||'',
+      source:e.source||'xpi',digest:e.digest||'',permissions:permissions(e.manifest),hostPermissions:hostPermissions(e.manifest),
+      optionalPermissions:[...(Array.isArray(e.manifest.optional_permissions)?e.manifest.optional_permissions:[]),...(Array.isArray(e.manifest.optional_host_permissions)?e.manifest.optional_host_permissions:[])],
+      action:action?{...action,title:String(state.title||action.title),badgeText:String(state.badgeText||''),iconUrl:icon?extensionResourceUrl(e,icon):''}:null,
+      optionsPage:options?extensionResourceUrl(e,options):'',
+      features:manifestFeatures(e.manifest)
+    };
+  }
+  list(){return [...this.items.values()].map((e)=>this.publicRecord(e))}
   bridgeArguments(){return this.enabled().map((e)=>'--aegis-extension-world='+encodeURIComponent(e.id)+':'+String(e.worldId||extensionWorldId(e.id)))}
-  async inspect(file){const x=await inspectXpi(file,path.join(this.rootDir,'extension-staging'));try{return {name:x.manifest.name,version:x.manifest.version,description:String(x.manifest.description||''),compatibility:x.compatibility,risk:x.risk,signature:x.signature}}finally{try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}}}
+  async inspect(file){
+    const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    const x=await inspectXpi(file,path.join(this.rootDir,'extension-staging'));
+    try{
+      const id=extensionId(x.manifest,digest);
+      return {
+        id,name:x.manifest.name,version:x.manifest.version,description:String(x.manifest.description||''),
+        manifestVersion:Number(x.manifest.manifest_version||0),compatibility:x.compatibility,risk:x.risk,signature:x.signature,
+        digest,permissions:permissions(x.manifest),hostPermissions:hostPermissions(x.manifest),
+        optionalPermissions:[...(Array.isArray(x.manifest.optional_permissions)?x.manifest.optional_permissions:[]),...(Array.isArray(x.manifest.optional_host_permissions)?x.manifest.optional_host_permissions:[])],
+        action:extensionAction(x.manifest),optionsPage:optionsPage(x.manifest),features:manifestFeatures(x.manifest)
+      };
+    }finally{try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}}
+  }
+  async stage(file){
+    const summary=await this.inspect(file);
+    const token=crypto.randomUUID();
+    const expiresAt=Date.now()+5*60*1000;
+    this.pendingInstalls.set(token,{file:String(file),summary,expiresAt});
+    for(const [key,value] of this.pendingInstalls) if(value.expiresAt<Date.now())this.pendingInstalls.delete(key);
+    return {token,summary,expiresAt:new Date(expiresAt).toISOString()};
+  }
+  cancelStage(token){return this.pendingInstalls.delete(String(token||''))}
+  async installStaged(token){
+    const staged=this.pendingInstalls.get(String(token||''));
+    if(!staged||staged.expiresAt<Date.now()){this.pendingInstalls.delete(String(token||''));throw new Error('Extension review expired. Select the package again.');}
+    this.pendingInstalls.delete(String(token||''));
+    return this.install(staged.file);
+  }
   async install(file){
     const digest=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'), x=await inspectXpi(file,path.join(this.rootDir,'extension-staging')), id=extensionId(x.manifest,digest), dest=path.join(this.installDir,id);
+    const previous=this.items.get(id);
+    this.stopBackground(id);
     fs.rmSync(dest,{recursive:true,force:true}); fs.renameSync(x.root,dest); if(x.tmp!==x.root)try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}
-    const e={id,path:dest,worldId:extensionWorldId(id),resourceToken:crypto.randomBytes(18).toString('hex'),enabled:true,source:'xpi',digest,installedAt:new Date().toISOString(),manifest:x.manifest,compatibility:x.compatibility}; this.items.set(id,e);this.save();await this.startBackground(e);return this.list().find((i)=>i.id===id);
+    const now=new Date().toISOString();
+    const e={id,path:dest,worldId:extensionWorldId(id),resourceToken:previous?.resourceToken||crypto.randomBytes(18).toString('hex'),enabled:previous?.enabled!==false,source:'xpi',digest,installedAt:previous?.installedAt||now,updatedAt:now,manifest:x.manifest,compatibility:x.compatibility};
+    this.items.set(id,e);this.save();if(e.enabled)await this.startBackground(e);this.emitEvent(e,'runtime.onInstalled',[{reason:previous?'update':'install',previousVersion:previous?.manifest?.version||undefined}]);return this.publicRecord(e);
   }
-  async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled)await this.startBackground(e);else this.stopBackground(id);return this.list().find((i)=>i.id===id)}
-  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.items.delete(id);this.sessionStores.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}return true}
+  async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled){await this.startBackground(e);this.emitEvent(e,'runtime.onStartup',[]);}else this.stopBackground(id);return this.publicRecord(e)}
+  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.actionState.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
   enabled(){return [...this.items.values()].filter((e)=>e.enabled!==false)}
   resolveResource(token, rel){
     const ext=[...this.items.values()].find((e)=>e.enabled!==false && e.resourceToken===String(token||''));
