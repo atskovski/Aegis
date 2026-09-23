@@ -18,9 +18,9 @@ const DENIED_ROOTS = Object.freeze({
   nativeMessaging:'Native messaging is disabled.',
   history:'Aegis deliberately does not keep a browsing-history database.',
   management:'Extensions cannot manage other extensions.',
-  debugger:'The Chrome debugger API is not exposed to add-ons.',
+  debugger:'The Chrome debugger API is not exposed to extensions.',
   devtools:'DevTools extension pages are not supported by the Aegis shell.',
-  experiments:'Firefox experiment APIs are not supported.',
+  experiments:'Non-Chrome experiment APIs are not supported.',
   telemetry:'Browser telemetry APIs are not exposed.'
 });
 
@@ -55,10 +55,8 @@ function localizeManifest(root,manifest){
   return clone;
 }
 function packageEcosystem(manifest,packageInfo={}){
-  const format=String(packageInfo?.format||'').toLowerCase();
-  if(format==='crx2'||format==='crx3')return 'chrome';
-  if(format==='xpi'||manifest?.browser_specific_settings?.gecko||manifest?.applications?.gecko)return 'firefox';
-  return 'webextension';
+  void manifest; void packageInfo;
+  return 'chrome';
 }
 function permissions(m){ return [...new Set([...(Array.isArray(m.permissions)?m.permissions:[]),...(Array.isArray(m.host_permissions)?m.host_permissions:[])])]; }
 function hostPermissions(m){
@@ -185,9 +183,8 @@ function parseCrxBuffer(buffer){
 function extensionId(m,digest,packageInfo={}){
   const format=String(packageInfo?.format||'').toLowerCase();
   const signedChromeId=/^crx[23]$/.test(format)?String(packageInfo?.id||'').trim():'';
-  const geckoId=String(m?.browser_specific_settings?.gecko?.id||m?.applications?.gecko?.id||'').trim();
-  const id=signedChromeId||geckoId||packageInfo?.id||chromeIdFromManifestKey(m)||('webext-'+digest.slice(0,32));
-  return String(id).toLowerCase().replace(/[^a-z0-9@._-]/g,'-').slice(0,120);
+  const id=signedChromeId||packageInfo?.id||chromeIdFromManifestKey(m)||('chromeext-'+digest.slice(0,32));
+  return String(id).toLowerCase().replace(/[^a-z0-9._-]/g,'-').slice(0,120);
 }
 function apiRoots(m){
   const roots=new Set();
@@ -352,8 +349,10 @@ async function zipEntries(file){
 }
 function preparePackageArchive(file,tmpRoot){
   const input=fs.readFileSync(file);if(input.length>64*1024*1024)throw new Error('Extension package must be smaller than 64 MB.');
+  const ext=path.extname(file).toLowerCase();
+  if(ext==='.xpi')throw new Error('Firefox XPI packages are no longer supported. Aegis Runtime 6 uses Chrome CRX, ZIP, or unpacked extensions only.');
   const crx=parseCrxBuffer(input);
-  if(!crx)return {archive:file,packageInfo:{format:path.extname(file).toLowerCase()==='.xpi'?'xpi':'zip',id:'',signatureMetadata:false,verified:false},ownedArchive:false};
+  if(!crx)return {archive:file,packageInfo:{format:'zip',id:'',signatureMetadata:false,verified:false},ownedArchive:false};
   const archive=path.join(tmpRoot,'crx-payload-'+crypto.randomUUID()+'.zip');
   fs.mkdirSync(tmpRoot,{recursive:true,mode:0o700});fs.writeFileSync(archive,input.subarray(crx.zipOffset),{mode:0o600});
   return {archive,packageInfo:crx,ownedArchive:true};
@@ -384,13 +383,13 @@ function validateExtractedTree(root){
   const walk=(dir)=>{
     for(const name of fs.readdirSync(dir)){
       const full=path.join(dir,name); const stat=fs.lstatSync(full);
-      if(stat.isSymbolicLink()) throw new Error('XPI symlinks are not allowed: '+name);
+      if(stat.isSymbolicLink()) throw new Error('Extension package symlinks are not allowed: '+name);
       if(stat.isDirectory()) { walk(full); continue; }
-      if(!stat.isFile()) throw new Error('Unsupported XPI filesystem entry: '+name);
+      if(!stat.isFile()) throw new Error('Unsupported extension package filesystem entry: '+name);
       count += 1; total += stat.size;
-      if(stat.size > 16*1024*1024) throw new Error('XPI contains a file larger than 16 MB: '+name);
-      if(total > 128*1024*1024) throw new Error('Expanded XPI exceeds the 128 MB safety limit.');
-      if(count > 5000) throw new Error('Expanded XPI exceeds the file-count limit.');
+      if(stat.size > 16*1024*1024) throw new Error('Extension package contains a file larger than 16 MB: '+name);
+      if(total > 128*1024*1024) throw new Error('Expanded extension package exceeds the 128 MB safety limit.');
+      if(count > 5000) throw new Error('Expanded extension package exceeds the file-count limit.');
     }
   };
   walk(root); return {files:count,bytes:total};
@@ -462,7 +461,7 @@ class AegisExtensionRuntime{
       id:e.id,name:e.manifest.name,version:e.manifest.version,description:String(e.manifest.description||''),
       manifestVersion:Number(e.manifest.manifest_version||0),ecosystem:packageEcosystem(e.manifest,{format:e.source}),installability:{status:'installed',packageCoverage:100},enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),
       compatibility:e.compatibility,risk:installRisk(e.manifest),installedAt:e.installedAt||'',updatedAt:e.updatedAt||'',
-      source:e.source||'webextension',sourceUrl:e.sourceUrl||'',digest:e.digest||'',permissions:permissions(e.manifest),hostPermissions:hostPermissions(e.manifest),
+      source:e.source||'chrome-extension',sourceUrl:e.sourceUrl||'',digest:e.digest||'',permissions:permissions(e.manifest),hostPermissions:hostPermissions(e.manifest),
       optionalPermissions:[...(Array.isArray(e.manifest.optional_permissions)?e.manifest.optional_permissions:[]),...(Array.isArray(e.manifest.optional_host_permissions)?e.manifest.optional_host_permissions:[])],
       detectedApis:Array.isArray(e.detectedApis)?e.detectedApis:[],
       runtime:{backgroundExpected,backgroundRunning:backgroundExpected?Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed()):false,status:e.enabled===false?'disabled':(health.errors.length?'degraded':(backgroundExpected?(this.backgroundHosts.has(e.id)?'running':'stopped'):'ready')),errors:[...health.errors],lastStartedAt:health.lastStartedAt,lastInjectionAt:health.lastInjectionAt,lastDiagnostic:health.lastDiagnostic},
@@ -809,7 +808,7 @@ class AegisExtensionRuntime{
     const checks=[];
     const add=(id,label,status,evidence)=>checks.push({id,label,status,evidence});
     try{normalizeManifest(e.manifest);add('manifest','Manifest','pass','Manifest V'+e.manifest.manifest_version+' parsed successfully.')}catch(err){add('manifest','Manifest','fail',err.message)}
-    try{new Function(this.backgroundBootstrap(e));add('bootstrap','Compatibility bootstrap','pass','Aegis WebExtension compatibility bootstrap compiles.')}catch(err){add('bootstrap','Compatibility bootstrap','fail',err.message)}
+    try{new Function(this.backgroundBootstrap(e));add('bootstrap','Compatibility bootstrap','pass','Aegis Chrome extension compatibility bootstrap compiles.')}catch(err){add('bootstrap','Compatibility bootstrap','fail',err.message)}
     const refs=new Set();
     const addRef=(value)=>{const rel=safeRel(value);if(rel)refs.add(rel)};
     const bg=e.manifest?.background||{};addRef(bg.page);addRef(bg.service_worker);for(const x of Array.isArray(bg.scripts)?bg.scripts:[])addRef(x);
