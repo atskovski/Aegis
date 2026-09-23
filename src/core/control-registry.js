@@ -22,7 +22,12 @@ const CONTROL_DEFINITIONS = Object.freeze([
   ['blockRiskyDownloads','Risky download guard','download-policy'],
   ['cookieAutoDelete','Cookie/site-data auto-delete','session-lifecycle'],
   ['threatProtection','Local destination risk analysis','navigation'],
-  ['siteIntelligence','Sentinel page intelligence','sentinel']
+  ['siteIntelligence','Sentinel page intelligence','sentinel'],
+  ['blockThirdPartyRequests','All third-party request isolation','network-firewall'],
+  ['letterbox','Viewport letterboxing','view-geometry'],
+  ['disableWebRtc','WebRTC exposure shutdown','document-preload'],
+  ['blockPrivateNetwork','Local/private-network isolation','network-firewall'],
+  ['blockAllDownloads','Download shutdown','download-policy']
 ]);
 
 function controlAssurance(settings, tab) {
@@ -42,7 +47,7 @@ function controlAssurance(settings, tab) {
     if (key === 'cosmeticFiltering') {
       enforced = cosmeticReady; status = enforced ? 'enforced' : 'degraded';
       evidence = enforced ? 'User-origin cosmetic CSS is active in this document.' : 'Cosmetic filtering is enabled but the current document has not confirmed user-origin CSS.';
-    } else if (['privacyApiGuard','blockTrackingBeacons','disableServiceWorkers'].includes(key)) {
+    } else if (['privacyApiGuard','blockTrackingBeacons','disableServiceWorkers','disableWebRtc'].includes(key)) {
       enforced = documentReady; status = enforced ? 'enforced' : 'degraded';
       evidence = enforced ? 'The new-document privacy preload is active for this tab.' : 'This control requires the new-document privacy preload, which is not confirmed for this tab.';
     } else if (key === 'globalPrivacyControl' || key === 'doNotTrack') {
@@ -56,7 +61,7 @@ function controlAssurance(settings, tab) {
     } else if (key === 'siteIntelligence') {
       enforced = sentinelReady; status = enforced ? 'enforced' : 'degraded';
       evidence = enforced ? 'Sentinel audit binding and new-document observer are installed.' : 'Sentinel is enabled, but its page observer is not confirmed in this tab.';
-    } else if (['blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','blockFingerprintingScripts','blockThirdPartyCookies','stripCrossSiteReferrers','etagProtection','publicCdnIsolation'].includes(key)) {
+    } else if (['blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','blockFingerprintingScripts','blockThirdPartyCookies','blockThirdPartyRequests','blockPrivateNetwork','stripCrossSiteReferrers','etagProtection','publicCdnIsolation'].includes(key)) {
       enforced = sessionReady; status = enforced ? 'enforced' : 'degraded';
       evidence = enforced ? 'Private-session request/response handlers are installed and read this setting at request time.' : 'The private-session network handlers are not confirmed.';
     } else if (key === 'heuristicTrackingProtection') {
@@ -66,8 +71,10 @@ function controlAssurance(settings, tab) {
       evidence = 'Origin cleanup is scheduled by the tab lifecycle after cross-origin navigation, except for fireproofed sites.';
     } else if (key === 'stripTrackingParams' || key === 'unwrapTrackingLinks' || key === 'threatProtection') {
       evidence = 'The navigation pipeline reads this setting on every navigation.';
-    } else if (key === 'blockRiskyDownloads') {
-      evidence = 'The tab session will-download policy reads this setting for every download.';
+    } else if (key === 'blockRiskyDownloads' || key === 'blockAllDownloads') {
+      evidence = 'The tab session will-download policy reads this effective compartment setting for every download.';
+    } else if (key === 'letterbox') {
+      evidence = 'The active WebContentsView is quantized and centered using the effective per-tab privacy policy.';
     }
 
     return { key,label,layer,enabled:true,enforced,status,evidence };
