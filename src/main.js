@@ -269,10 +269,12 @@ async function runNetworkTest() {
   // prevents a proxy reset from interrupting a page the user is viewing.
   const ses = electronSession.fromPartition(`aegis-diagnostic-${crypto.randomUUID()}`, { cache: false });
   try {
+    const diagnosticMode = effective.proxy?.mode || 'system';
     const route = await applyProxyCore(ses, effective.proxy || {},  {
-      failClosedFixedProxy: false,
-      freshSession: (effective.proxy?.mode || 'system') === 'system'
+      failClosedFixedProxy: !['system','direct'].includes(diagnosticMode),
+      freshSession: diagnosticMode === 'system'
     });
+    if (!route?.ok) throw new Error((route?.warnings || []).join(' | ') || 'Network route could not be applied.');
     const result = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: effective.proxy?.mode || 'system' });
     result.routeWarnings = route.warnings || [];
     result.usedDisposableSession = true;
@@ -420,10 +422,12 @@ async function runSecuritySuite() {
   let connectivity = null;
   let publicIp = { ok: false, status: 'not-tested', ip: '', provider: '', error: 'Not tested.' };
   try {
+    const diagnosticMode = effective.proxy?.mode || 'system';
     route = await applyProxyCore(ses, effective.proxy || {},  {
-      failClosedFixedProxy: false,
-      freshSession: (effective.proxy?.mode || 'system') === 'system'
+      failClosedFixedProxy: !['system','direct'].includes(diagnosticMode),
+      freshSession: diagnosticMode === 'system'
     });
+    if (!route?.ok) throw new Error((route?.warnings || []).join(' | ') || 'Network route could not be applied.');
     const routeStatus = routePrivacyStatus(effective.proxy?.mode || 'system', route);
     checks.push(makeCheck('network-route', 'IP routing posture', routeStatus.status, routeStatus.evidence, 'runtime-policy'));
 
