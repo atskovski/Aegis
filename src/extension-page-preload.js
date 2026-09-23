@@ -65,7 +65,7 @@ function localMessage(key, substitutions) {
 const runtime = {
   id: extensionId,
   getManifest: () => manifest,
-  getURL: (p='') => 'aegis-extension://ext/' + resourceToken + '/' + String(p).replace(/^\/+/, ''),
+  getURL: (p='') => 'aegis-extension://' + resourceToken + '/' + String(p).replace(/^\/+/, ''),
   getPlatformInfo: () => call('runtime.getPlatformInfo'),
   getBrowserInfo: () => call('runtime.getBrowserInfo'),
   openOptionsPage: () => call('runtime.openOptionsPage'),
