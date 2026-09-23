@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const { webExtensionBootstrap, localeMessages, commandList } = require('./extension-shim');
 
 const execFileAsync = promisify(execFile);
 const SUPPORTED_ROOTS = new Set([
@@ -212,10 +213,7 @@ async function inspectXpi(file,tmpRoot){
     return {root,tmp,manifest,compatibility:compatibility(manifest),risk:installRisk(manifest),signature:{metadataPresent:signatureMetadata,verified:false}};
   }catch(err){try{fs.rmSync(tmp,{recursive:true,force:true});}catch{} throw err;}
 }
-function bootstrap(ext){
-  const id=JSON.stringify(ext.id), token=JSON.stringify(ext.resourceToken), manifest=JSON.stringify(ext.manifest);
-  return "(()=>{'use strict';const ID="+id+",TOKEN="+token+",M=Object.freeze("+manifest+"),B=globalThis.__aegisExtensionBridge;if(!B)return;const L=[],call=(m,...a)=>B.call(m,a);globalThis.__aegisReceiveMessage=async(msg)=>{for(const f of [...L]){try{const r=await f(msg,{tab:{url:location.href}},()=>{});if(r!==undefined)return r}catch{}}};B.onMessage((p)=>globalThis.__aegisReceiveMessage(p.message));const area=(n)=>({get:(k)=>call('storage.'+n+'.get',k),set:(v)=>call('storage.'+n+'.set',v),remove:(k)=>call('storage.'+n+'.remove',k),clear:()=>call('storage.'+n+'.clear')});const runtime={id:ID,getManifest:()=>M,getURL:(p='')=>'aegis-extension://ext/'+TOKEN+'/'+String(p).replace(/^\\/+/,''),getPlatformInfo:()=>call('runtime.getPlatformInfo'),sendMessage:(...a)=>call('runtime.sendMessage',...a),onMessage:{addListener:(f)=>{if(typeof f==='function'&&!L.includes(f))L.push(f)},removeListener:(f)=>{const i=L.indexOf(f);if(i>=0)L.splice(i,1)},hasListener:(f)=>L.includes(f)}};const api={runtime,extension:{getURL:runtime.getURL},storage:{local:area('local'),session:area('session')},tabs:{query:(q)=>call('tabs.query',q||{}),create:(p)=>call('tabs.create',p||{}),update:(...a)=>call('tabs.update',...a),remove:(ids)=>call('tabs.remove',ids),sendMessage:(id,msg)=>call('tabs.sendMessage',id,msg)},permissions:{contains:(p)=>call('permissions.contains',p||{})},i18n:{getUILanguage:()=> 'en-US'}};Object.defineProperty(globalThis,'browser',{value:api});if(!globalThis.chrome)Object.defineProperty(globalThis,'chrome',{value:api});})();";
-}
+function bootstrap(ext){ return webExtensionBootstrap(ext,'__aegisExtensionBridge'); }
 function readStore(file){try{return readJson(file)}catch{return {}}}
 function writeStore(file,v){fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});fs.writeFileSync(file,JSON.stringify(v,null,2),{mode:0o600})}
 function getKeys(store,keys){
@@ -374,10 +372,7 @@ class AegisExtensionRuntime{
     if(bg.service_worker)list.push(bg.service_worker);
     return list.map(safeRel).filter(Boolean);
   }
-  backgroundBootstrap(ext){
-    const id=JSON.stringify(ext.id), token=JSON.stringify(ext.resourceToken), manifest=JSON.stringify(ext.manifest);
-    return "(()=>{'use strict';const ID="+id+",TOKEN="+token+",M=Object.freeze("+manifest+"),B=globalThis.__aegisBackgroundBridge;if(!B)return;const L=[],call=(m,...a)=>B.call(m,a),area=(n)=>({get:(k)=>call('storage.'+n+'.get',k),set:(v)=>call('storage.'+n+'.set',v),remove:(k)=>call('storage.'+n+'.remove',k),clear:()=>call('storage.'+n+'.clear')});const runtime={id:ID,getManifest:()=>M,getURL:(p='')=>'aegis-extension://ext/'+TOKEN+'/'+String(p).replace(/^\\/+/,''),getPlatformInfo:()=>call('runtime.getPlatformInfo'),sendMessage:(...a)=>call('runtime.sendMessage',...a),onMessage:{addListener:(f)=>{if(typeof f==='function'&&!L.includes(f))L.push(f)},removeListener:(f)=>{const i=L.indexOf(f);if(i>=0)L.splice(i,1)},hasListener:(f)=>L.includes(f)}};const api={runtime,extension:{getURL:runtime.getURL},storage:{local:area('local'),session:area('session')},tabs:{query:(q)=>call('tabs.query',q||{}),create:(p)=>call('tabs.create',p||{}),update:(...a)=>call('tabs.update',...a),remove:(ids)=>call('tabs.remove',ids),sendMessage:(id,msg)=>call('tabs.sendMessage',id,msg)},permissions:{contains:(p)=>call('permissions.contains',p||{})},i18n:{getUILanguage:()=> 'en-US'}};Object.defineProperty(globalThis,'browser',{value:api});if(!globalThis.chrome)Object.defineProperty(globalThis,'chrome',{value:api});B.onMessage(async(p)=>{let response;for(const fn of [...L]){try{const r=await fn(p.message,p.sender||{},()=>{});if(r!==undefined){response=r;break}}catch{}}B.respond(p.messageId,response)});})();";
-  }
+  backgroundBootstrap(ext){ return webExtensionBootstrap(ext,'__aegisBackgroundBridge'); }
   async startBackground(ext){
     this.stopBackground(ext.id);
     if(this.suspensionReasons.size)return false;
