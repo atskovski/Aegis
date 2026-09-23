@@ -16,9 +16,14 @@ Chrome Web Store installs are resolved through Chromium's update service. Aegis 
 
 Runtime 6 uses the Chrome build of Privacy Badger 2026.9.15 as a compatibility reference because it exercises a demanding combination of Manifest V2 background pages, storage, tabs, cookies, privacy settings, scripting, WebNavigation, WebRequest, WebRequestBlocking, browser actions, alarms and all-frame document-start content scripts.
 
-The previous `js/utils.js:26` failure was consistent with Privacy Badger receiving an incomplete manifest during early background startup: its `hasOwn()` helper was called with an undefined manifest field. Large manifests are no longer transported in Electron command-line arguments. Background pages synchronously request their authenticated bootstrap data from the Aegis browser process before extension page code runs.
+The previous `js/utils.js:26` failure had two concrete Runtime 5 failure paths, both caused by Privacy Badger's `hasOwn()` helper receiving an undefined object:
 
-Runtime 6 also makes read-only cookie queries safe before the first private tab exists, implements Chrome reserved i18n messages such as `@@ui_locale` and `@@extension_id`, verifies the background page sees a complete manifest, and records renderer stack traces in extension health diagnostics.
+- an incomplete `chrome.runtime.getManifest()` payload could omit `manifest.background` during early background startup;
+- Aegis did not expose Chrome's `webRequest.OnResponseStartedOptions`, which Privacy Badger probes before registering its response-started heuristic listener.
+
+Runtime 6 fixes both paths. Large manifests are no longer transported in Electron command-line arguments; background pages synchronously request authenticated bootstrap data from the browser process before extension page code runs. The WebRequest bridge now exposes the Chrome option constants Privacy Badger probes and forwards `onResponseStarted` events into the extension runtime.
+
+Runtime 6 also makes read-only cookie queries safe before the first private tab exists, implements Chrome reserved i18n messages such as `@@ui_locale` and `@@extension_id`, preserves `matchOriginAsFallback` for Privacy Badger's dynamically registered MAIN-world DNT script, supports HTTP(S) plus WebSocket request observation for `<all_urls>`, permits same-extension surrogate redirects only to declared web-accessible resources, maintains browser-action badge/icon state per tab, verifies the background page sees a complete manifest, and records renderer stack traces in extension health diagnostics.
 
 ## Why Aegis uses its own extension runtime
 
