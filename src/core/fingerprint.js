@@ -1,9 +1,11 @@
 'use strict';
+const { policyFor } = require('./fingerprint-policy');
 
 function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'strict', disableServiceWorkers = true, globalPrivacyControl = true, doNotTrack = true, anonymousMode = false, disableWebRtc = false }) {
   const ua = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromiumMajor}.0.0.0 Safari/537.36`;
-  const strict = profile === 'strict' || profile === 'maximum';
-  const maximum = profile === 'maximum';
+  const policy=policyFor({profile,anonymousMode,disableWebRtc,chromiumMajor});
+  const strict = policy.name === 'strict' || policy.name === 'maximum';
+  const maximum = policy.name === 'maximum';
 
   return `(() => {
     'use strict';
@@ -21,7 +23,7 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
     // Strict/Maximum/anonymous profiles use a cohort seed, not a per-user seed. This makes
     // perturbation deterministic across Aegis users at the same first party instead
     // of creating a stable, user-specific randomized fingerprint.
-    const COHORT = 'aegis-cohort-v1';
+    const COHORT = "aegis-cohort-v2";
     const input = (STRICT || ANONYMOUS ? COHORT : BASE) + '|' + host;
     for (let i = 0; i < input.length; i++) { h ^= input.charCodeAt(i); h = Math.imul(h, 16777619); }
     const randByte = (index) => {
@@ -112,7 +114,7 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
 
     try {
       const pnow = performance.now.bind(performance);
-      performance.now = () => Math.round(pnow() * (MAXIMUM ? 1 : 2)) / (MAXIMUM ? 1 : 2);
+      performance.now = () => { const q=MAXIMUM?10:2; return Math.round(pnow()/q)*q; };
     } catch {}
 
     if (DISABLE_SW && STRICT) {
@@ -134,6 +136,24 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
 
     if (STRICT) {
       try { if (globalThis.speechSynthesis) speechSynthesis.getVoices = () => []; } catch {}
+      try { undef(navProto,'getInstalledRelatedApps'); } catch {}
+      try { undef(navProto,'getGamepads'); } catch {}
+      try { undef(navProto,'keyboard'); } catch {}
+      try { undef(navProto,'mediaCapabilities'); } catch {}
+      try { undef(navProto,'storageBuckets'); } catch {}
+      try { undef(globalThis,'IdleDetector'); } catch {}
+      try { undef(globalThis,'EyeDropper'); } catch {}
+      try { undef(globalThis,'LaunchQueue'); } catch {}
+      try { undef(globalThis,'PressureObserver'); } catch {}
+      try { undef(globalThis,'ComputePressureObserver'); } catch {}
+      try { undef(globalThis,'getScreenDetails'); } catch {}
+      try { undef(globalThis,'showOpenFilePicker'); undef(globalThis,'showSaveFilePicker'); undef(globalThis,'showDirectoryPicker'); } catch {}
+      try {
+        if (globalThis.matchMedia) {
+          const nativeMM=globalThis.matchMedia.bind(globalThis);
+          globalThis.matchMedia=(q)=>{const s=String(q||'');if(/prefers-color-scheme|prefers-contrast|forced-colors|dynamic-range|video-dynamic-range|inverted-colors/i.test(s)){const r=nativeMM('(width: 0px)');try{Object.defineProperty(r,'matches',{configurable:true,value:false});Object.defineProperty(r,'media',{configurable:true,value:s});}catch{}return r;}return nativeMM(s);};
+        }
+      } catch {}
       if (ANONYMOUS || DISABLE_WEBRTC) {
         for (const key of ['RTCPeerConnection','webkitRTCPeerConnection','mozRTCPeerConnection','RTCDataChannel']) {
           try { Object.defineProperty(globalThis, key, { configurable:true, enumerable:false, value:undefined, writable:false }); } catch {}
