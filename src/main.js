@@ -1563,30 +1563,83 @@ function wireIpc() {
     }catch(err){return {ok:false,error:'Could not import policy: '+err.message};}
   });
   ipcMain.handle('extensions:list', (event) => assertUiSender(event) && extensionRuntime ? extensionRuntime.list() : []);
-  ipcMain.handle('extensions:install', async (event) => {
+  ipcMain.handle('extensions:pick-package', async (event) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
-    const pick = await dialog.showOpenDialog(mainWindow, { title:'Install Firefox WebExtension (.xpi)', properties:['openFile'], filters:[{name:'Firefox WebExtension',extensions:['xpi']}] });
+    const pick = await dialog.showOpenDialog(mainWindow, {
+      title:'Select a WebExtension package',
+      properties:['openFile'],
+      filters:[{name:'WebExtension package',extensions:['xpi','zip']}]
+    });
     if (pick.canceled || !pick.filePaths?.[0]) return { ok:false, canceled:true };
     try {
-      const summary = await extensionRuntime.inspect(pick.filePaths[0]);
-      const unsupported = summary.compatibility.unsupported.map((x) => x.api).join(', ') || 'None';
-      const risky = summary.risk.filter((x) => x.level === 'high').map((x) => x.permission).join(', ') || 'None';
-      const signatureNote = summary.signature?.metadataPresent ? 'Mozilla signature metadata: present (not cryptographically verified by this beta).' : 'Mozilla signature metadata: not detected.';
-      const answer = await dialog.showMessageBox(mainWindow, { type:'warning', buttons:['Cancel','Install'], defaultId:0, cancelId:0, title:'Review extension permissions', message:summary.name + ' ' + summary.version, detail:'Aegis compatibility: ' + summary.compatibility.score + '%\nHigh-risk permissions: ' + risky + '\nUnsupported APIs: ' + unsupported + '\n' + signatureNote + '\n\nAegis runs content scripts in an extension-specific isolated world and does not grant Node.js access.' });
-      if (answer.response !== 1) return { ok:false, canceled:true, summary };
-      if(!extensionAllowed(summary.id, settings)) return {ok:false,error:'Extension blocked by enterprise allowlist policy.',summary};
-      const installed = await extensionRuntime.install(pick.filePaths[0]);
-      await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
-      emitState(); return { ok:true, extension:installed };
+      const staged = await extensionRuntime.stage(pick.filePaths[0]);
+      return { ok:true, ...staged };
     } catch (err) { return { ok:false, error:err.message }; }
+  });
+  ipcMain.handle('extensions:cancel-install', (event, token) => {
+    if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
+    return { ok:extensionRuntime.cancelStage(String(token||'')) };
+  });
+  ipcMain.handle('extensions:install-staged', async (event, token) => {
+    if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
+    try {
+      const summary=extensionRuntime.reviewStage(String(token||''));
+      if(!summary) return {ok:false,error:'Extension review expired. Select the package again.'};
+      if(!extensionAllowed(summary.id, settings)) return {ok:false,error:'Extension blocked by enterprise allowlist policy.',summary};
+      const installed=await extensionRuntime.installStaged(String(token||''));
+      await Promise.allSettled([...tabs.values()].map((tab)=>replaceTabView(tab,tab.javascriptEnabled)));
+      securityEvents.add('extension-installed','success',{id:installed.id,name:installed.name,version:installed.version,compatibility:installed.compatibility?.score||0});
+      emitState();return {ok:true,extension:installed};
+    } catch (err) { return {ok:false,error:err.message}; }
+  });
+  // Compatibility path for older Aegis UI builds.
+  ipcMain.handle('extensions:install', async (event) => {
+    if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
+    const pick = await dialog.showOpenDialog(mainWindow,{title:'Install WebExtension package',properties:['openFile'],filters:[{name:'WebExtension package',extensions:['xpi','zip']}]});
+    if(pick.canceled||!pick.filePaths?.[0])return {ok:false,canceled:true};
+    try{
+      const staged=await extensionRuntime.stage(pick.filePaths[0]);
+      if(!extensionAllowed(staged.summary.id,settings)){extensionRuntime.cancelStage(staged.token);return {ok:false,error:'Extension blocked by enterprise allowlist policy.',summary:staged.summary};}
+      const installed=await extensionRuntime.installStaged(staged.token);
+      await Promise.allSettled([...tabs.values()].map((tab)=>replaceTabView(tab,tab.javascriptEnabled)));
+      emitState();return {ok:true,extension:installed,summary:staged.summary};
+    }catch(err){return {ok:false,error:err.message};}
   });
   ipcMain.handle('extensions:set-enabled', async (event, payload) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
-    try { const extension=await extensionRuntime.setEnabled(String(payload?.id||''), Boolean(payload?.enabled)); await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))); emitState(); return { ok:true, extension }; } catch (err) { return { ok:false, error:err.message }; }
+    try {
+      const extension=await extensionRuntime.setEnabled(String(payload?.id||''),Boolean(payload?.enabled));
+      await Promise.allSettled([...tabs.values()].map((tab)=>replaceTabView(tab,tab.javascriptEnabled)));
+      emitState();return {ok:true,extension};
+    } catch (err) { return {ok:false,error:err.message}; }
   });
-  ipcMain.handle('extensions:remove', (event, id) => {
+  ipcMain.handle('extensions:reload', async (event, id) => {
+    if (!assertUiSender(event) || !extensionRuntime) return {ok:false,error:'IPC sender denied'};
+    try {
+      const extension=extensionRuntime.extensionFor(String(id||''));
+      extensionRuntime.stopBackground(extension.id);
+      await extensionRuntime.startBackground(extension);
+      await Promise.allSettled([...tabs.values()].map((tab)=>replaceTabView(tab,tab.javascriptEnabled)));
+      emitState();return {ok:true};
+    } catch (err) { return {ok:false,error:err.message}; }
+  });
+  ipcMain.handle('extensions:open-action', async (event, id) => {
+    if (!assertUiSender(event) || !extensionRuntime) return {ok:false,error:'IPC sender denied'};
+    try { await extensionRuntime.openAction(String(id||''),mainWindow);emitState();return {ok:true}; }
+    catch(err){return {ok:false,error:err.message};}
+  });
+  ipcMain.handle('extensions:open-options', async (event, id) => {
+    if (!assertUiSender(event) || !extensionRuntime) return {ok:false,error:'IPC sender denied'};
+    try { await extensionRuntime.openOptions(String(id||''),mainWindow);return {ok:true}; }
+    catch(err){return {ok:false,error:err.message};}
+  });
+  ipcMain.handle('extensions:remove', async (event, id) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
-    const ok=extensionRuntime.remove(String(id||'')); Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled))).then(emitState); return { ok };
+    const ext=extensionRuntime.list().find((x)=>x.id===String(id||''));
+    const ok=extensionRuntime.remove(String(id||''));
+    if(ok)securityEvents.add('extension-removed','warning',{id:String(id||''),name:ext?.name||''});
+    await Promise.allSettled([...tabs.values()].map((tab)=>replaceTabView(tab,tab.javascriptEnabled)));
+    emitState();return {ok};
   });
   ipcMain.handle('extension:call', (event, payload) => extensionRuntime ? extensionRuntime.call(event.sender, payload) : Promise.reject(new Error('Extension runtime unavailable.')));
   ipcMain.on('extension:message-response', (event, payload) => { if (extensionRuntime) extensionRuntime.handleBackgroundResponse(event.sender, payload); });
@@ -1898,6 +1951,7 @@ app.whenReady().then(async () => {
     BrowserWindow,
     electronSession: { fromPartition:(partition,options)=>browserRuntime.session(partition,options) },
     registerProtocols: registerInternalProtocol,
+    browserVersion: app.getVersion(),
     createTab,
     updateTab: async (id, props = {}) => { const tab=tabs.get(Number(id)); if(!tab) throw new Error('Tab not found'); if(props.url) await navigateTab(tab, props.url); if(props.active) activateTab(tab.id); return serializeTab(tab); },
     removeTab: (id) => closeTab(id)
