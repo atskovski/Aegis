@@ -1245,6 +1245,23 @@ function wireIpc() {
   ipcMain.handle('settings:get', (event) => assertUiSender(event) ? settings : null);
   ipcMain.on('ui:layer', (event, payload) => { if (assertUiSender(event)) applyUiLayer(payload); });
   ipcMain.handle('network:test', (event) => assertUiSender(event) ? runNetworkTest() : { ok: false, error: 'IPC sender denied' });
+  ipcMain.handle('network:test-tor', async (event, payload = {}) => {
+    if (!assertUiSender(event)) return { ok:false, verified:false, error:'IPC sender denied' };
+    const partition = 'aegis-tor-proof-' + crypto.randomUUID();
+    const ses = electronSession.fromPartition(partition, { cache:false });
+    const server = String(payload?.torProxy || settings.anonymity?.torProxy || '127.0.0.1:9050').trim().slice(0,180);
+    try {
+      const route = await applyProxyCore(ses, { mode:'socks5', server, bypassLocal:false, failClosedFixedProxy:true }, { failClosedFixedProxy:true, freshSession:true });
+      if (!route?.ok) return { ok:false, verified:false, error:(route?.warnings || []).join(' | ') || 'Tor proxy setup failed.' };
+      return await verifyTorRoute(ses);
+    } catch (err) {
+      return { ok:false, verified:false, error:err.message };
+    } finally {
+      try { await ses.clearData(); } catch {}
+      try { await ses.clearCache(); } catch {}
+      try { await ses.closeAllConnections(); } catch {}
+    }
+  });
   ipcMain.handle('security-suite:run', (event) => assertUiSender(event) ? runSecuritySuite() : { testedAt: new Date().toISOString(), checks: [], summary: { pass: 0, warning: 0, info: 0, fail: 0, 'not-tested': 0, total: 0 }, error: 'IPC sender denied' });
   ipcMain.handle('extensions:list', (event) => assertUiSender(event) && extensionRuntime ? extensionRuntime.list() : []);
   ipcMain.handle('extensions:install', async (event) => {
@@ -1405,14 +1422,15 @@ function wireIpc() {
     }
   });
 
-  ipcMain.on('settings:profile', (event, level) => {
+  ipcMain.on('settings:profile', async (event, level) => {
     if (!assertUiSender(event) || !['standard', 'strict', 'maximum'].includes(level)) return;
     settings = sanitizeSettings({ ...settings, ...profileDefaults(level) });
     saveSettings();
     relayout();
-    awaitCosmeticRefresh();
+    await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
+    await awaitCosmeticRefresh();
     emitState();
-    toast(`${level[0].toUpperCase() + level.slice(1)} privacy profile applied. Live filtering updated; open a new tab for all fingerprint changes.`, 'success');
+    toast(`${level[0].toUpperCase() + level.slice(1)} privacy profile applied to every active tab.`, 'success');
   });
 
   ipcMain.on('settings:reset', async (event) => {
@@ -1421,7 +1439,7 @@ function wireIpc() {
     filterRules = parseFilterRules(settings.customFilterRules || '');
     saveSettings();
     relayout();
-    await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session)));
+    await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session, {}, tab)));
     await awaitCosmeticRefresh();
     emitState();
     toast('Aegis settings restored to hardened defaults.', 'success');
@@ -1435,6 +1453,7 @@ function wireIpc() {
       ...settings,
       ...patch,
       proxy: { ...settings.proxy, ...(patch.proxy || {}) },
+      anonymity: { ...settings.anonymity, ...(patch.anonymity || {}) },
       permissionDefaults: { ...settings.permissionDefaults, ...(patch.permissionDefaults || {}) },
       appearance: { ...settings.appearance, ...(patch.appearance || {}) },
       sitePermissions: settings.sitePermissions
@@ -1442,11 +1461,12 @@ function wireIpc() {
     filterRules = parseFilterRules(settings.customFilterRules || '');
     saveSettings();
     relayout();
-    const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session)));
+    const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session, {}, tab)));
     const proxyFailures = proxyResults.filter((result) => result.status === 'rejected').length;
     await awaitCosmeticRefresh();
     const preloadKeys = ['privacyLevel','privacyApiGuard','blockTrackingBeacons','globalPrivacyControl','doNotTrack','disableServiceWorkers','siteIntelligence'];
-    const preloadChanged = preloadKeys.some((key) => previousSettings[key] !== settings[key]);
+    const anonymityChanged = JSON.stringify(previousSettings.anonymity || {}) !== JSON.stringify(settings.anonymity || {});
+    const preloadChanged = preloadKeys.some((key) => previousSettings[key] !== settings[key]) || anonymityChanged;
     if (preloadChanged) {
       await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
     }
