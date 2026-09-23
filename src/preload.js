@@ -7,7 +7,7 @@ const allowedSend = new Set([
   'site-permission:set','site-permission:reset','site:harden','tab:new-anonymous','data:clear-tab','data:clear-all','permission:respond',
   'compatibility:set','ui:layer','bookmark:toggle','bookmark:open','bookmark:remove','downloads:clear','download:cancel','download:reveal'
 ]);
-const allowedInvoke = new Set(['state:get','settings:get','network:test','network:test-tor','security-suite:run','security-test:open','enterprise:import-policy','enterprise:export-events','adblock:pick-element','adblock:lists','adblock:refresh-lists','extensions:list','extensions:pick-package','extensions:cancel-install','extensions:install-staged','extensions:install','extensions:set-enabled','extensions:reload','extensions:open-action','extensions:open-options','extensions:remove']);
+const allowedInvoke = new Set(['state:get','settings:get','network:test','network:test-tor','security-suite:run','security-test:open','enterprise:import-policy','enterprise:export-events','adblock:pick-element','adblock:lists','adblock:refresh-lists','extensions:list','extensions:pick-package','extensions:cancel-install','extensions:install-staged','extensions:install','extensions:set-enabled','extensions:diagnose','extensions:reload','extensions:open-action','extensions:open-options','extensions:remove']);
 const allowedReceive = new Set(['state','toast','permission:prompt','permission:closed','ui:open']);
 
 contextBridge.exposeInMainWorld('aegis', {
