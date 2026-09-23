@@ -1620,8 +1620,8 @@ function wireIpc() {
     }else{
       let parsed;try{parsed=new URL(input)}catch{return {ok:false,error:'Enter a valid HTTPS extension URL, Chrome Web Store URL, or 32-character Chrome extension ID.'}}
       if(parsed.protocol!=='https:')return {ok:false,error:'Extension downloads must use HTTPS.'};
-      if(parsed.hostname==='chromewebstore.google.com'){
-        const match=parsed.pathname.match(/\/detail\/(?:[^/]+\/)?([a-p]{32})(?:\/|$)/);
+      if(parsed.hostname==='chromewebstore.google.com'||parsed.hostname==='chrome.google.com'){
+        const match=parsed.pathname.match(/\/(?:webstore\/)?detail\/(?:[^/]+\/)?([a-p]{32})(?:\/|$)/);
         if(!match)return {ok:false,error:'Could not find a Chrome extension ID in that Web Store URL.'};
         expectedChromeId=match[1];
       }else{
