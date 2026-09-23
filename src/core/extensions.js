@@ -243,16 +243,27 @@ class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
     this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;
-    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.browserVersion=String(browserVersion||'1.1');
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.browserVersion=String(browserVersion||'1.1');
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
   save(){writeStore(this.indexFile,[...this.items.values()].map(({manifest,compatibility,...r})=>r))}
+  healthFor(id){
+    if(!this.runtimeHealth.has(id))this.runtimeHealth.set(id,{errors:[],lastStartedAt:'',lastInjectionAt:''});
+    return this.runtimeHealth.get(id);
+  }
+  noteRuntimeError(id,scope,error){
+    const health=this.healthFor(id),message=String(error?.message||error||'Unknown extension runtime error').slice(0,500);
+    health.errors.unshift({scope:String(scope||'runtime'),message,at:new Date().toISOString()});health.errors=health.errors.slice(0,8);
+  }
+  clearRuntimeErrors(id,scope=''){
+    const health=this.healthFor(id);health.errors=scope?health.errors.filter((x)=>x.scope!==scope):[];
+  }
   publicRecord(e){
     const action=extensionAction(e.manifest);
     const icon=iconPath(e.manifest);
     const options=optionsPage(e.manifest);
-    const state=this.actionState.get(e.id)||{};
+    const state=this.actionState.get(e.id)||{},health=this.healthFor(e.id),backgroundExpected=Boolean(e.manifest?.background&&(e.manifest.background.page||e.manifest.background.service_worker||(Array.isArray(e.manifest.background.scripts)&&e.manifest.background.scripts.length)));
     return {
       id:e.id,name:e.manifest.name,version:e.manifest.version,description:String(e.manifest.description||''),
       manifestVersion:Number(e.manifest.manifest_version||0),enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),
@@ -260,6 +271,7 @@ class AegisExtensionRuntime{
       source:e.source||'xpi',digest:e.digest||'',permissions:permissions(e.manifest),hostPermissions:hostPermissions(e.manifest),
       optionalPermissions:[...(Array.isArray(e.manifest.optional_permissions)?e.manifest.optional_permissions:[]),...(Array.isArray(e.manifest.optional_host_permissions)?e.manifest.optional_host_permissions:[])],
       detectedApis:Array.isArray(e.detectedApis)?e.detectedApis:[],
+      runtime:{backgroundExpected,backgroundRunning:backgroundExpected?Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed()):false,status:e.enabled===false?'disabled':(health.errors.length?'degraded':(backgroundExpected?(this.backgroundHosts.has(e.id)?'running':'stopped'):'ready')),errors:[...health.errors],lastStartedAt:health.lastStartedAt,lastInjectionAt:health.lastInjectionAt},
       action:action?{...action,title:String(state.title||action.title),badgeText:String(state.badgeText||''),iconUrl:icon?extensionResourceUrl(e,icon):''}:null,
       optionsPage:options?extensionResourceUrl(e,options):'',
       features:manifestFeatures(e.manifest)
@@ -307,7 +319,7 @@ class AegisExtensionRuntime{
     this.items.set(id,e);this.save();if(e.enabled)await this.startBackground(e);this.emitEvent(e,'runtime.onInstalled',[{reason:previous?'update':'install',previousVersion:previous?.manifest?.version||undefined}]);return this.publicRecord(e);
   }
   async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled){await this.startBackground(e);this.emitEvent(e,'runtime.onStartup',[]);}else this.stopBackground(id);return this.publicRecord(e)}
-  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.actionState.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
+  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.actionState.delete(id);this.runtimeHealth.delete(id);this.activeGrants.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
   enabled(){return [...this.items.values()].filter((e)=>e.enabled!==false)}
   extensionFor(id){const e=this.items.get(String(id||''));if(!e||e.enabled===false)throw new Error('Extension disabled or missing');return e}
   tabById(id){return this.getTabs().find((t)=>t.id===Number(id))}
@@ -459,14 +471,14 @@ class AegisExtensionRuntime{
         }
         let scriptOk=scripts.length===1;
         if(scripts.length>1){
-          try{await tab.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),scripts,false);scriptOk=true;done.push(e.id)}catch{}
+          try{await tab.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),scripts,false);scriptOk=true;done.push(e.id);const health=this.healthFor(e.id);health.lastInjectionAt=new Date().toISOString();this.clearRuntimeErrors(e.id,'content-script')}catch(err){this.noteRuntimeError(e.id,'content-script',err)}
         }
         const cssParts=[];
         for(const rel of Array.isArray(entry.css)?entry.css:[]){
           const s=safeRel(rel),f=path.resolve(e.path,s);
           if(s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f))cssParts.push(rewriteCssUrls(fs.readFileSync(f,'utf8'),e,s));
         }
-        if(cssParts.length)try{await tab.view.webContents.insertCSS(cssParts.join('\n'),{cssOrigin:'author'});done.push(e.id)}catch{}
+        if(cssParts.length)try{await tab.view.webContents.insertCSS(cssParts.join('\n'),{cssOrigin:'author'});done.push(e.id)}catch(err){this.noteRuntimeError(e.id,'content-css',err)}
         if(scriptOk||cssParts.length)tab.extensionInjectionKeys.add(key);
       }
     }
@@ -607,7 +619,7 @@ class AegisExtensionRuntime{
       if(!target.startsWith(root)||!fs.existsSync(target)||!fs.statSync(target).isFile())return false;
       const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-page-preload.js'),additionalArguments:this.pageArguments(ext,'background')}});
       host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
-      try{await host.loadURL(extensionResourceUrl(ext,page));return true}catch(err){try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
+      try{await host.loadURL(extensionResourceUrl(ext,page));const health=this.healthFor(ext.id);health.lastStartedAt=new Date().toISOString();this.clearRuntimeErrors(ext.id,'background');return true}catch(err){this.noteRuntimeError(ext.id,'background',err);try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
     }
 
     if(!scripts.length)return false;
@@ -620,7 +632,7 @@ class AegisExtensionRuntime{
     fs.writeFileSync(wrapper,html,{mode:0o600});
     const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-host-preload.js'),additionalArguments:['--aegis-extension-id='+encodeURIComponent(ext.id)]}});
     host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
-    try{await host.loadFile(wrapper);return true}catch(err){try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
+    try{await host.loadFile(wrapper);const health=this.healthFor(ext.id);health.lastStartedAt=new Date().toISOString();this.clearRuntimeErrors(ext.id,'background');return true}catch(err){this.noteRuntimeError(ext.id,'background',err);try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
   }
   async startAll(){if(this.suspensionReasons.size)return;for(const ext of this.enabled()){await this.startBackground(ext);this.emitEvent(ext,'runtime.onStartup',[])}}
   suspendAll(reason='privacy-compartment'){
