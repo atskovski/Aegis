@@ -148,17 +148,45 @@ const declarativeNetRequest = {
   setExtensionActionOptions:(...args)=>call('declarativeNetRequest.setExtensionActionOptions',...args),
   onRuleMatchedDebug:event('declarativeNetRequest.onRuleMatchedDebug')
 };
+const webRequestMeta = new Map();
+function webRequestPatternMatches(url, pattern) {
+  const p=String(pattern||'');
+  if(p==='<all_urls>') return /^(?:https?|wss?):\/\//i.test(String(url||''));
+  const bs=String.fromCharCode(92),special='\\.^$+?()[]{}|';
+  const escaped=p.split('*').map((part)=>[...part].map((ch)=>special.includes(ch)?bs+ch:ch).join('')).join('.*');
+  try { return new RegExp('^'+escaped+'$','i').test(String(url||'')); } catch { return false; }
+}
+function webRequestFilterMatches(filter, details) {
+  const f=filter||{},urls=Array.isArray(f.urls)?f.urls:[];
+  if(urls.length&&!urls.some((pattern)=>webRequestPatternMatches(details?.url,pattern))) return false;
+  const types=Array.isArray(f.types)?f.types:[];
+  if(types.length&&!types.includes(String(details?.type||''))) return false;
+  if(Number.isFinite(Number(f.tabId))&&Number(f.tabId)!==Number(details?.tabId)) return false;
+  return true;
+}
+function webRequestEvent(name) {
+  return {
+    addListener(fn, filter={}, extraInfoSpec=[]) {
+      if(typeof fn!=='function') return;
+      eventList(name).add(fn);
+      webRequestMeta.set(fn,{name,filter:filter||{},extra:Array.isArray(extraInfoSpec)?extraInfoSpec.map(String):[]});
+    },
+    removeListener(fn) { eventList(name).delete(fn); webRequestMeta.delete(fn); },
+    hasListener(fn) { return eventList(name).has(fn); },
+    hasListeners() { return eventList(name).size>0; }
+  };
+}
 const webRequest = {
   OnBeforeRequestOptions:Object.freeze({ BLOCKING:'blocking', REQUEST_BODY:'requestBody' }),
   OnBeforeSendHeadersOptions:Object.freeze({ REQUEST_HEADERS:'requestHeaders', BLOCKING:'blocking', EXTRA_HEADERS:'extraHeaders' }),
   OnHeadersReceivedOptions:Object.freeze({ RESPONSE_HEADERS:'responseHeaders', BLOCKING:'blocking', EXTRA_HEADERS:'extraHeaders' }),
-  onBeforeRequest:event('webRequest.onBeforeRequest'),
-  onBeforeSendHeaders:event('webRequest.onBeforeSendHeaders'),
-  onSendHeaders:event('webRequest.onSendHeaders'),
-  onHeadersReceived:event('webRequest.onHeadersReceived'),
-  onResponseStarted:event('webRequest.onResponseStarted'),
-  onCompleted:event('webRequest.onCompleted'),
-  onErrorOccurred:event('webRequest.onErrorOccurred'),
+  onBeforeRequest:webRequestEvent('webRequest.onBeforeRequest'),
+  onBeforeSendHeaders:webRequestEvent('webRequest.onBeforeSendHeaders'),
+  onSendHeaders:webRequestEvent('webRequest.onSendHeaders'),
+  onHeadersReceived:webRequestEvent('webRequest.onHeadersReceived'),
+  onResponseStarted:webRequestEvent('webRequest.onResponseStarted'),
+  onCompleted:webRequestEvent('webRequest.onCompleted'),
+  onErrorOccurred:webRequestEvent('webRequest.onErrorOccurred'),
   handlerBehaviorChanged:(...args)=>call('webRequest.handlerBehaviorChanged',...args)
 };
 const tabs = {
@@ -297,7 +325,11 @@ ipcRenderer.on('extension:event', (_event, payload) => {
     return;
   }
   const set = eventList(type);
-  for (const fn of [...set]) { try { fn(...args); } catch {} }
+  for (const fn of [...set]) {
+    const meta=webRequestMeta.get(fn);
+    if(type.startsWith('webRequest.')&&meta?.extra?.includes('blocking')) continue;
+    try { fn(...args); } catch {}
+  }
 });
 
 async function dispatchRuntimeMessage(message, sender = {}) {
@@ -324,6 +356,30 @@ async function dispatchRuntimeMessage(message, sender = {}) {
   }
   return undefined;
 }
+
+ipcRenderer.on('extension:blocking-webrequest', async (_event, payload) => {
+  if (String(payload?.extensionId || '') !== extensionId || context !== 'background') return;
+  const type=String(payload?.type||''),details=payload?.details&&typeof payload.details==='object'?payload.details:{},merged={};
+  for(const fn of [...eventList(type)]) {
+    const meta=webRequestMeta.get(fn);
+    if(!meta||!meta.extra.includes('blocking')||!webRequestFilterMatches(meta.filter,details)) continue;
+    try {
+      let value=fn(details);
+      if(value&&typeof value.then==='function') value=await value;
+      if(!value||typeof value!=='object') continue;
+      if(value.cancel===true) merged.cancel=true;
+      const redirect=String(value.redirectUrl||value.redirectURL||'');
+      if(redirect&&!merged.redirectUrl) merged.redirectUrl=redirect;
+      if(Array.isArray(value.requestHeaders)) merged.requestHeaders=value.requestHeaders;
+      if(Array.isArray(value.responseHeaders)) merged.responseHeaders=value.responseHeaders;
+    } catch {}
+  }
+  ipcRenderer.send('extension:blocking-webrequest-response',{
+    extensionId,
+    requestId:String(payload?.requestId||''),
+    response:Object.keys(merged).length?merged:null
+  });
+});
 
 ipcRenderer.on('extension:runtime-message', async (_event, payload) => {
   if (String(payload?.extensionId || '') !== extensionId) return;
