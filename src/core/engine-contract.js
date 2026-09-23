@@ -1,13 +1,13 @@
 'use strict';
 const ENGINE_CAPABILITIES=Object.freeze([
- 'views','sessions','protocols','networkInterception','permissions','proxy','downloads',
+ 'views','sessions','protocols','networkInterception','permissions','devicePermissions','proxy','downloads',
  'devtoolsProtocol','isolatedWorlds','certificatePolicy','navigationPolicy','rendererLifecycle'
 ]);
 const REQUIRED=Object.freeze([
  'name','version','capabilities','createSession','createView','attachView','detachView','destroyView',
  'registerProtocol','fetch','getRuntimeVersions','installPermissionHandlers','onDownload',
  'attachDebugger','detachDebugger','debuggerCommand','executeJavaScript','executeIsolatedWorld',
- 'insertCSS','setWindowOpenPolicy','onCertificateError','isDestroyed','loadURL','getURL','on','reload','stop','focus','navigationHistory','sessionOf','clearSessionData','clearSessionCache','closeSessionConnections','removeInsertedCSS','closeView'
+ 'insertCSS','setWindowOpenPolicy','onCertificateError','isDestroyed','loadURL','getURL','on','reload','stop','focus','navigationHistory','sessionOf','clearSessionData','clearSessionCache','closeSessionConnections','removeInsertedCSS','closeView','installDevicePermissionHandlers','isDebuggerAttached','onDebuggerMessage','setZoomMode'
 ]);
 function assertEngineAdapter(engine){
  if(!engine||typeof engine!=='object')throw new TypeError('Browser engine adapter is required.');
