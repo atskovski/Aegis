@@ -1467,6 +1467,14 @@ function wireIpc() {
       return {ok:true,tabId:tab.id,url};
     } catch (err) { return {ok:false,error:err.message}; }
   });
+  ipcMain.handle('enterprise:export-events', async (event) => {
+    if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};
+    const pick=await dialog.showSaveDialog(mainWindow,{title:'Export Aegis security evidence',defaultPath:'aegis-security-events.json',filters:[{name:'JSON',extensions:['json']}]});
+    if(pick.canceled||!pick.filePath)return {ok:false,canceled:true};
+    const payload={schema:'aegis.security-events.v1',exportedAt:new Date().toISOString(),events:securityEvents.list()};
+    fs.writeFileSync(pick.filePath,JSON.stringify(payload,null,2),{mode:0o600});
+    return {ok:true,count:payload.events.length};
+  });
   ipcMain.handle('enterprise:import-policy', async (event) => {
     if(!assertUiSender(event)) return {ok:false,error:'IPC sender denied'};
     const key=process.env.AEGIS_POLICY_PUBLIC_KEY||'';
