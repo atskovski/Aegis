@@ -22,6 +22,10 @@ test('Chrome match patterns are applied conservatively', () => {
   assert.equal(matchPattern('https://news.example.com/a?b=1','*://*.example.com/*'), true);
   assert.equal(matchPattern('https://example.net/a','*://*.example.com/*'), false);
   assert.equal(matchPattern('https://example.com/a','<all_urls>'), true);
+  assert.equal(matchPattern('wss://socket.example.com/live','<all_urls>'), true);
+  assert.equal(matchPattern('ws://socket.example.com/live','ws://*.example.com/*'), true);
+  assert.equal(matchPattern('wss://socket.example.com/live','wss://*.example.com/*'), true);
+  assert.equal(matchPattern('wss://socket.example.com/live','*://*.example.com/*'), false);
 });
 
 test('matching content scripts honor include and exclude patterns', () => {
@@ -912,4 +916,11 @@ test('Privacy Badger browserAction badge state is isolated per tab', async () =>
     runtime.notifyTabRemoved(1,true);
     assert.equal(await runtime.call(sender,{extensionId:e.id,method:'browserAction.getBadgeText',args:[{tabId:1}]}),'');
   }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
+
+test('Privacy Badger all_urls host access includes WebSocket requests', () => {
+  const manifest={manifest_version:2,name:'Privacy Badger',version:'2026.9.15',permissions:['<all_urls>','webRequest','webRequestBlocking']};
+  assert.equal(networkAllowedByManifest(manifest,'ws://socket.example.test/live'),true);
+  assert.equal(networkAllowedByManifest(manifest,'wss://socket.example.test/live'),true);
 });
