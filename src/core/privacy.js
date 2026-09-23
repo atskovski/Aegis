@@ -70,6 +70,9 @@ function applyBlockingHeaderDecision(headers, candidate, phase='request') {
   return out;
 }
 
+const REQUEST_URLS = ['http://*/*','https://*/*','ws://*/*','wss://*/*'];
+const HTTP_URLS = ['http://*/*','https://*/*'];
+
 function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, onExtensionRequest, getExtensionNetworkDecision, getExtensionBlockingDecision, getExtensionHeaderModifications, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
   const genericUA = buildGenericUA(chromiumVersion);
   ses.setUserAgent(genericUA, 'en-US,en');
@@ -89,7 +92,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   if(engine?.installPermissionHandlers)engine.installPermissionHandlers(ses,{request:permissionRequest,check:permissionCheck});else{ses.setPermissionRequestHandler(permissionRequest);ses.setPermissionCheckHandler(permissionCheck);}
   if(engine?.installDevicePermissionHandlers) engine.installDevicePermissionHandlers(ses);
 
-  ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, async (details, callback) => {
+  ses.webRequest.onBeforeRequest({ urls: REQUEST_URLS }, async (details, callback) => {
     const settings = getSettings();
     if (settings.blockPrivateNetwork && isPrivateNetworkUrl(details.url)) {
       tab.stats.privateNetworkBlocks = (tab.stats.privateNetworkBlocks || 0) + 1;
@@ -159,7 +162,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
     callback({});
   });
 
-  ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, async (details, callback) => {
+  ses.webRequest.onBeforeSendHeaders({ urls: HTTP_URLS }, async (details, callback) => {
     if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onBeforeSendHeaders', details); } catch {} }
     const settings = getSettings();
     let h = { ...(details.requestHeaders || {}) };
@@ -206,7 +209,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
     callback({ requestHeaders: outgoingHeaders });
   });
 
-  ses.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, async (details, callback) => {
+  ses.webRequest.onHeadersReceived({ urls: HTTP_URLS }, async (details, callback) => {
     if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onHeadersReceived', details); } catch {} }
     const settings = getSettings(); let headers = { ...(details.responseHeaders || {}) }; const topUrl = tab.topUrl || tab.url || details.url; const thirdParty = isThirdParty(details.url, topUrl); const known = isKnownTracker(details.url); const cdn = thirdParty && settings.publicCdnIsolation && isPublicCdn(details.url);
     for (const k of Object.keys(headers)) {
@@ -230,17 +233,17 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   });
 
   try {
-    ses.webRequest.onResponseStarted({ urls: ['*://*/*'] }, (details) => {
+    ses.webRequest.onResponseStarted({ urls: HTTP_URLS }, (details) => {
       if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onResponseStarted', details); } catch {} }
     });
   } catch {}
   try {
-    ses.webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
+    ses.webRequest.onCompleted({ urls: REQUEST_URLS }, (details) => {
       if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onCompleted', details); } catch {} }
     });
   } catch {}
   try {
-    ses.webRequest.onErrorOccurred({ urls: ['*://*/*'] }, (details) => {
+    ses.webRequest.onErrorOccurred({ urls: REQUEST_URLS }, (details) => {
       if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onErrorOccurred', details); } catch {} }
     });
   } catch {}
