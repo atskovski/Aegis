@@ -117,7 +117,7 @@ function compatibility(m,detectedRoots=[]){
   }
   const features=manifestFeatures(m);
   const contentEntries=Array.isArray(m.content_scripts)?m.content_scripts:[];
-  if(contentEntries.some((e)=>e?.run_at==='document_start')) warnings.push({api:'content_scripts.run_at',reason:'document_start uses the earliest Electron DOM-ready compatible phase; exact Firefox pre-page-script timing is not guaranteed.'});
+  if(contentEntries.some((e)=>e?.run_at==='document_start')) warnings.push({api:'content_scripts.run_at',reason:'document_start uses Aegis early-navigation isolated-world injection; exact Firefox pre-page-script ordering is not guaranteed on every Chromium navigation.'});
   if(contentEntries.some((e)=>e?.all_frames)) warnings.push({api:'content_scripts.all_frames',reason:'Aegis currently injects into the top-level document only.'});
   if(Array.isArray(m.optional_permissions)&&m.optional_permissions.length) warnings.push({api:'optional_permissions',reason:'Optional permissions require explicit user approval in Aegis and are not auto-granted.'});
   if(Array.isArray(m.optional_host_permissions)&&m.optional_host_permissions.length) warnings.push({api:'optional_host_permissions',reason:'Optional host access requires explicit user approval in Aegis and is not auto-granted.'});
@@ -155,9 +155,7 @@ function matchPattern(url,p){
 function contentScriptPhase(entry){
   const runAt=String(entry?.run_at||'document_idle');
   if(runAt==='document_idle')return 'idle';
-  // Electron cannot inject this compatibility runtime before the page's own
-  // document-start scripts. document_start is therefore a documented,
-  // conservative DOM-ready fallback rather than a false compatibility claim.
+  if(runAt==='document_start')return 'start';
   return 'end';
 }
 function matchingContentScripts(m,url,phase=null){
@@ -502,10 +500,10 @@ class AegisExtensionRuntime{
     if(!target.startsWith(root)||!fs.existsSync(target)||!fs.statSync(target).isFile())return null;
     return {extensionId:ext.id,path:target,relative:safe};
   }
-  async inject(tab,phase='idle'){
+  async inject(tab,phase='idle',urlOverride=''){
     if(tab?.disableExtensions || tab?.securityDomain === 'anonymous' || tab?.securityDomain === 'hardened') return [];
     if(!tab?.view?.webContents||tab.view.webContents.isDestroyed())return [];
-    const url=tab.view.webContents.getURL(); if(!/^https?:\/\//.test(url))return [];
+    const url=String(urlOverride||tab.view.webContents.getURL()||''); if(!/^https?:\/\//.test(url))return [];
     if(!tab.extensionInjectionKeys)tab.extensionInjectionKeys=new Set();
     const done=[];
     for(const e of this.enabled()){
