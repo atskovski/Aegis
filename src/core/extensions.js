@@ -30,6 +30,9 @@ function safeRel(v){
   if(!v||v.startsWith('/')||v.includes('\0')||v.split('/').some((x)=>!x||x==='.'||x==='..')) return '';
   return v;
 }
+function extensionRel(v){
+  return safeRel(String(v||'').replace(/^\/+/, ''));
+}
 function normalizeManifest(m){
   if(!m||typeof m!=='object') throw new Error('Invalid manifest.json.');
   if(![2,3].includes(Number(m.manifest_version))) throw new Error('Only Chrome extension Manifest V2 or V3 is supported.');
@@ -205,19 +208,19 @@ function extensionAction(m){
   return {
     kind:m?.action?'action':(m?.browser_action?'browserAction':'pageAction'),
     title:String(value.default_title||m.name||'Extension').slice(0,160),
-    popup:safeRel(value.default_popup||''),
+    popup:extensionRel(value.default_popup||''),
     icon:value.default_icon||m.icons||null
   };
 }
 function optionsPage(m){
   const raw=m?.options_ui?.page||m?.options_page||'';
-  return safeRel(raw);
+  return extensionRel(raw);
 }
 function iconPath(m){
   const source=extensionAction(m)?.icon||m?.icons||null;
-  if(typeof source==='string')return safeRel(source);
+  if(typeof source==='string')return extensionRel(source);
   if(!source||typeof source!=='object')return '';
-  const ranked=Object.entries(source).map(([size,value])=>({size:Number(size)||0,value:safeRel(value)})).filter((x)=>x.value).sort((a,b)=>b.size-a.size);
+  const ranked=Object.entries(source).map(([size,value])=>({size:Number(size)||0,value:extensionRel(value)})).filter((x)=>x.value).sort((a,b)=>b.size-a.size);
   return ranked[0]?.value||'';
 }
 function manifestFeatures(m){
@@ -324,7 +327,7 @@ function matchingContentScripts(m,url,phase=null){
   });
 }
 function extensionResourceUrl(ext, rel){
-  const safe=safeRel(rel); if(!safe)return '';
+  const safe=extensionRel(rel); if(!safe)return '';
   return 'aegis-extension://'+ext.resourceToken+'/'+safe.split('/').map(encodeURIComponent).join('/');
 }
 function rewriteCssUrls(css, ext, cssRel=''){
@@ -1430,7 +1433,7 @@ class AegisExtensionRuntime{
     const list=[];
     if(Array.isArray(bg.scripts))list.push(...bg.scripts);
     if(bg.service_worker)list.push(bg.service_worker);
-    return list.map(safeRel).filter(Boolean);
+    return list.map(extensionRel).filter(Boolean);
   }
   backgroundBootstrap(ext){ return webExtensionBootstrap(ext,'__aegisBackgroundBridge'); }
   attachBackgroundDiagnostics(ext,host){
