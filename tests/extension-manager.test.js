@@ -16,11 +16,12 @@ const pagePreload=read('src/extension-page-preload.js');
 
 test('Add-ons manager exposes staged review and installed-extension controls',()=>{
   for(const id of [
-    'extensionActions','installXpi','addonUrlInput','installAddonUrl','addonRuntimeSummary','addonHealthyCount','addonDegradedCount',
+    'extensionActions','installXpi','loadUnpackedExtension','addonUrlInput','installAddonUrl','addonRuntimeSummary','addonHealthyCount','addonDegradedCount',
     'addonReview','addonReviewName','addonReviewScore','addonReviewPermissions','addonReviewHosts','addonReviewUnsupported','addonReviewFeatures',
     'addonReviewId','addonReviewDigest','confirmAddonInstall','cancelAddonInstall','addonSearch','addonFilter','refreshAddons','addonList','addonManagerStatus'
   ]) assert.match(html,new RegExp('id="'+id+'"'));
   assert.match(ui,/extensions:pick-package/);
+  assert.match(ui,/extensions:pick-unpacked/);
   assert.match(ui,/extensions:install-url/);
   assert.match(ui,/extensions:install-staged/);
   assert.match(ui,/extensions:diagnose/);
@@ -33,7 +34,7 @@ test('Add-ons manager exposes staged review and installed-extension controls',()
 
 test('extension manager IPC is allowlisted and implemented',()=>{
   for(const channel of [
-    'extensions:list','extensions:pick-package','extensions:install-url','extensions:cancel-install','extensions:install-staged',
+    'extensions:list','extensions:pick-package','extensions:pick-unpacked','extensions:install-url','extensions:cancel-install','extensions:install-staged',
     'extensions:set-enabled','extensions:diagnose','extensions:reload','extensions:open-action','extensions:open-options','extensions:remove'
   ]){
     assert.ok(preload.includes("'"+channel+"'"),channel+' missing from preload allowlist');
@@ -80,7 +81,7 @@ test('extension menus and notifications integrate through Aegis-owned chrome',()
 
 test('Runtime 3 manager and bridge expose health repair URL install and persistent Port messaging',()=>{
   assert.match(html,/AEGIS EXTENSION RUNTIME 3/);
-  assert.match(html,/Install from HTTPS package URL/);
+  assert.match(html,/Chrome Web Store, extension ID, or direct package URL/);
   assert.match(html,/What Aegis implements/);
   assert.match(ui,/function addonHealth/);
   assert.match(ui,/Health check/);
@@ -93,4 +94,18 @@ test('Runtime 3 manager and bridge expose health repair URL install and persiste
   assert.match(shim,/managed:area\('managed'\)/);
   assert.match(pagePreload,/runtimeConnect/);
   assert.match(pagePreload,/managed:area\('managed'\)/);
+});
+
+
+test('Chrome package manager exposes CRX Web Store and unpacked flows',()=>{
+  assert.match(html,/Choose CRX \/ XPI \/ ZIP/);
+  assert.match(html,/Load unpacked/);
+  assert.match(html,/CRX2\/CRX3, XPI, ZIP and unpacked/);
+  assert.match(main,/chromewebstore\.google\.com/);
+  assert.match(main,/clients2\.google\.com\/service\/update2\/crx/);
+  assert.match(main,/acceptformat=crx2,crx3/);
+  assert.match(runtime,/parseCrxBuffer/);
+  assert.match(runtime,/format:'crx3'/);
+  assert.match(runtime,/stageDirectory/);
+  assert.match(runtime,/installDirectory/);
 });
