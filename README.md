@@ -25,6 +25,23 @@ Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or T
 - Startup WebRTC non-proxied UDP restrictions plus behavioral ICE-candidate testing.
 - Maximum mode deliberately does **not** monkey-patch JavaScript `eval`; script shutdown belongs to the explicit anonymous/Safest-style compartment.
 
+### Native Adblock Engine
+
+Aegis now includes a browser-owned wide-spectrum content-blocking engine modeled on the strongest ideas from uBlock Origin, Brave adblock-rust, Ghostery and AdGuard rather than depending on a store extension.
+
+- Default cached community sources: **uBlock filters, uBlock Privacy, uBlock Unbreak, EasyList, EasyPrivacy and Peter Lowe**.
+- HTTPS filter-list updater with bounded downloads, atomic cache replacement, SHA-256 update evidence and manual/automatic refresh controls.
+- Indexed hostname matcher to avoid scanning the full hostname-rule set on every request.
+- ABP/uBO-style network patterns and exceptions.
+- Resource-type options including script, image, stylesheet, font, media, XHR, subdocument, WebSocket, ping, document and popup.
+- `third-party` / `first-party`, `domain=`, `important`, `match-case` and `removeparam=` handling.
+- Domain-scoped cosmetic filters and cosmetic exceptions.
+- Point-and-click **Pick page element** workflow that creates a local site-specific cosmetic rule.
+- Popup filtering, tracker/ad/cryptominer categories, tracking-parameter stripping, beacon defense and per-tab blocked-request evidence.
+- **My filters** editor for local custom rules.
+
+Aegis does not execute arbitrary third-party uBO scriptlets/procedural JavaScript from filter subscriptions. Unsupported syntax is ignored rather than evaluated as trusted code. This is a deliberate security boundary; uBO has a substantially larger filter-language/runtime surface, so Aegis does not claim byte-for-byte uBO compatibility.
+
 ### Tracking and storage defense
 - Native request filtering for ads, analytics, social trackers, attribution, telemetry, fingerprinting endpoints and cryptomining.
 - Third-party request/cookie controls, tracking-parameter removal, redirect-wrapper cleanup and cross-site referrer reduction.
