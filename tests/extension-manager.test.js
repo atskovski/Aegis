@@ -15,7 +15,7 @@ const shim=read('src/core/extension-shim.js');
 const pagePreload=read('src/extension-page-preload.js');
 const bridgePreload=read('src/extension-bridge-preload.js');
 
-test('Add-ons manager exposes staged review and installed-extension controls',()=>{
+test('Extensions manager exposes staged review and installed-extension controls',()=>{
   for(const id of [
     'extensionActions','installXpi','loadUnpackedExtension','addonUrlInput','installAddonUrl','addonRuntimeSummary','addonHealthyCount','addonDegradedCount',
     'addonReview','addonReviewName','addonReviewScore','addonReviewPermissions','addonReviewHosts','addonReviewUnsupported','addonReviewFeatures',
@@ -112,9 +112,9 @@ test('extension menus and notifications integrate through Aegis-owned chrome',()
 });
 
 
-test('Runtime 5 manager and bridge expose Chrome package health repair and persistent Port messaging',()=>{
-  assert.match(html,/AEGIS EXTENSION RUNTIME 5/);
-  assert.match(html,/Chrome Web Store, Firefox Add-ons, extension ID, or direct package URL/);
+test('Runtime 6 manager and bridge expose Chrome package health repair and persistent Port messaging',()=>{
+  assert.match(html,/AEGIS CHROME EXTENSION RUNTIME 6/);
+  assert.match(html,/Chrome Web Store, extension ID, or direct package URL/);
   assert.match(html,/What Aegis implements/);
   assert.match(ui,/function addonHealth/);
   assert.match(ui,/Health check/);
@@ -127,16 +127,21 @@ test('Runtime 5 manager and bridge expose Chrome package health repair and persi
   assert.match(shim,/managed:area\('managed'\)/);
   assert.match(pagePreload,/runtimeConnect/);
   assert.match(pagePreload,/managed:area\('managed'\)/);
+  assert.match(pagePreload,/extension:runtime-error/);
+  assert.match(main,/extension:runtime-error/);
+  assert.match(runtime,/recordRendererError/);
+  assert.match(pagePreload,/@@ui_locale/);
+  assert.match(shim,/@@ui_locale/);
 });
 
 
 test('Chrome package manager exposes CRX Web Store and unpacked flows',()=>{
-  assert.match(html,/Choose CRX \/ XPI \/ ZIP/);
+  assert.match(html,/Choose CRX \/ ZIP/);
   assert.match(html,/Load unpacked/);
-  assert.match(html,/CRX2\/CRX3, XPI, ZIP and unpacked/);
+  assert.match(html,/CRX2\/CRX3, ZIP and unpacked/);
   assert.match(main,/chromewebstore\.google\.com/);
   assert.match(main,/clients2\.google\.com\/service\/update2\/crx/);
-  assert.match(main,/addons\.mozilla\.org\/api\/v5\/addons\/addon/);
+  assert.doesNotMatch(main,/addons\.mozilla\.org/);
   assert.match(main,/acceptformat=crx2,crx3/);
   assert.match(runtime,/parseCrxBuffer/);
   assert.match(runtime,/format:'crx3'/);
