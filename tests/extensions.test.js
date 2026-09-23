@@ -701,3 +701,11 @@ test('DNR block rules are enforced through the Aegis network decision bridge', (
     assert.equal(decision?.ruleId,1);
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+
+
+test('MV2 webRequestBlocking is bounded and compatibility-hosted', () => {
+  const report=compatibility({manifest_version:2,name:'PB',version:'1',permissions:['webRequest','webRequestBlocking','<all_urls>'],background:{page:'background.html'}});
+  assert.equal(report.unsupported.some((x)=>x.api==='webRequestBlocking'),false);
+  assert.ok(report.supported.includes('webRequestBlocking'));
+  assert.ok(report.warnings.some((x)=>x.api==='webRequestBlocking'));
+});
