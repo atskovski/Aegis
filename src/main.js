@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, WebContentsView, ipcMain, protocol, clipboard, dialog, shell, Menu, session: electronSession } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, protocol, clipboard, dialog, shell, Menu, net, session: electronSession } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
@@ -11,6 +11,7 @@ const { sanitizeSettings, searchTemplateFor, profileDefaults, cloneDefaults, SEA
 const { navigationUrl, navigationIsMainFrame, shouldAllowInternalNavigation, failedHttpsCanOfferHttp } = require('./core/navigation');
 const { applyProxyToSession: applyProxyCore, runConnectivityTest, verifyTorRoute } = require('./core/network');
 const { parseFilterRules, cosmeticSelectorsForHost } = require('./core/filter-rules');
+const { CATALOG: FILTER_LIST_CATALOG, readEnabled: readFilterLists, refresh: refreshFilterLists } = require('./core/filter-lists');
 const { cosmeticCss, buildPagePrivacyScript } = require('./core/content-filter');
 const { TrackerLearner } = require('./core/tracker-learning');
 const { analyzeUrl } = require('./core/safety');
@@ -68,6 +69,7 @@ app.commandLine.appendSwitch('disable-features', [
 const UI_DIR = path.join(__dirname, 'ui');
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 const BOOKMARKS_FILE = () => path.join(app.getPath('userData'), 'bookmarks.json');
+const FILTER_LIST_DIR = () => path.join(app.getPath('userData'), 'filter-lists');
 const TOOLBAR_H = 108;
 const LETTERBOX_STEP = 100;
 let mainWindow;
@@ -207,6 +209,15 @@ async function withTimeout(promise, ms, label) {
   }
 }
 
+function rebuildFilterRules(){
+  const subscribed=readFilterLists(FILTER_LIST_DIR(),settings.enabledFilterLists||[]);
+  filterRules=parseFilterRules([subscribed,settings.customFilterRules||''].filter(Boolean).join('\n'));
+}
+async function updateFilterLists(){
+  const results=await refreshFilterLists({dir:FILTER_LIST_DIR(),enabled:settings.enabledFilterLists||[],fetchImpl:(url,opts)=>net.fetch(url,{...opts,bypassCustomProtocolHandlers:true})});
+  rebuildFilterRules();securityEvents.add('filter-lists-refreshed',results.some(x=>!x.ok)?'warning':'success',{results});
+  await Promise.allSettled([...tabs.values()].map(tab=>applyCosmeticFiltering(tab)));emitState();return results;
+}
 function loadSettings() {
   try {
     const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE(), 'utf8'));
@@ -214,7 +225,7 @@ function loadSettings() {
   } catch {
     settings = sanitizeSettings(settings);
   }
-  filterRules = parseFilterRules(settings.customFilterRules || '');
+  rebuildFilterRules();
 }
 
 function saveSettings() {
@@ -1469,6 +1480,8 @@ function wireIpc() {
       return {ok:true,tabId:tab.id,url};
     } catch (err) { return {ok:false,error:err.message}; }
   });
+  ipcMain.handle('adblock:lists', async (event)=>{if(!assertUiSender(event))return [];return FILTER_LIST_CATALOG.map(x=>({...x,enabled:(settings.enabledFilterLists||[]).includes(x.id)}));});
+  ipcMain.handle('adblock:refresh-lists', async (event)=>{if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};const results=await updateFilterLists();return {ok:results.every(x=>x.ok),results};});
   ipcMain.handle('adblock:pick-element', async (event) => {
     if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};
     const tab=activeTab();if(!tab?.view?.webContents||tab.view.webContents.isDestroyed())return {ok:false,error:'No active web page.'};
@@ -1718,7 +1731,7 @@ function wireIpc() {
   ipcMain.on('settings:reset', async (event) => {
     if (!assertUiSender(event)) return;
     settings = sanitizeSettings(cloneDefaults());
-    filterRules = parseFilterRules(settings.customFilterRules || '');
+    rebuildFilterRules();
     saveSettings();
     relayout();
     await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session, {}, tab)));
@@ -1838,6 +1851,7 @@ async function createMainWindow() {
 app.whenReady().then(async () => {
   startupLog(`Electron ${process.versions.electron}; Chromium ${process.versions.chrome}; ${process.platform}/${process.arch}.`);
   loadSettings();
+  if(settings.filterListAutoUpdate) updateFilterLists().catch(err=>securityEvents.add('filter-list-update-failed','warning',{error:err.message}));
   saveSettings(); // persist schema migrations and sanitized network defaults
   loadBookmarks();
   extensionRuntime = new AegisExtensionRuntime({
