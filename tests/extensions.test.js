@@ -27,11 +27,13 @@ test('matching content scripts honor include and exclude patterns', () => {
   assert.equal(matchingContentScripts(manifest,'https://private.example.com/page').length,0);
 });
 
-test('compatibility report never claims unsupported privileged APIs work', () => {
+test('compatibility report distinguishes hosted APIs from protected browser takeover APIs', () => {
   const manifest={manifest_version:2,name:'T',version:'1',permissions:['storage','tabs','webRequest','proxy'],background:{scripts:['bg.js']}};
   const report=compatibility(manifest);
   assert.ok(report.supported.includes('storage'));
-  assert.ok(report.unsupported.some((x)=>x.api==='webRequest'));
+  assert.ok(report.supported.includes('webRequest'));
+  assert.equal(report.unsupported.some((x)=>x.api==='webRequest'),false);
+  assert.ok(report.warnings.some((x)=>x.api==='webRequest'));
   assert.ok(report.unsupported.some((x)=>x.api==='proxy'));
   assert.equal(report.background,'sandboxed-emulation');
   assert.ok(report.warnings.some((x)=>x.api==='background'));
