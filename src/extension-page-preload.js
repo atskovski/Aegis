@@ -126,6 +126,27 @@ const api = {
     onCompleted:event('webNavigation.onCompleted'),
     onErrorOccurred:event('webNavigation.onErrorOccurred')
   },
+  notifications: {
+    create:(...args)=>call('notifications.create',...args),
+    clear:(id)=>call('notifications.clear',id),
+    getAll:()=>call('notifications.getAll'),
+    onClicked:event('notifications.onClicked'),
+    onClosed:event('notifications.onClosed')
+  },
+  menus: {
+    create:(details={})=>call('menus.create',details),
+    update:(id,details={})=>call('menus.update',id,details),
+    remove:(id)=>call('menus.remove',id),
+    removeAll:()=>call('menus.removeAll'),
+    onClicked:event('menus.onClicked')
+  },
+  contextMenus: {
+    create:(details={})=>call('contextMenus.create',details),
+    update:(id,details={})=>call('contextMenus.update',id,details),
+    remove:(id)=>call('contextMenus.remove',id),
+    removeAll:()=>call('contextMenus.removeAll'),
+    onClicked:event('contextMenus.onClicked')
+  },
   action:actionApi('action'),
   browserAction:actionApi('browserAction'),
   pageAction:actionApi('pageAction')
