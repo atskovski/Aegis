@@ -1099,7 +1099,8 @@ function wireIpc() {
       const summary = await extensionRuntime.inspect(pick.filePaths[0]);
       const unsupported = summary.compatibility.unsupported.map((x) => x.api).join(', ') || 'None';
       const risky = summary.risk.filter((x) => x.level === 'high').map((x) => x.permission).join(', ') || 'None';
-      const answer = await dialog.showMessageBox(mainWindow, { type:'warning', buttons:['Cancel','Install'], defaultId:0, cancelId:0, title:'Review extension permissions', message:summary.name + ' ' + summary.version, detail:'Aegis compatibility: ' + summary.compatibility.score + '%\nHigh-risk permissions: ' + risky + '\nUnsupported APIs: ' + unsupported + '\n\nAegis runs content scripts in an isolated world and does not grant Node.js access.' });
+      const signatureNote = summary.signature?.metadataPresent ? 'Mozilla signature metadata: present (not cryptographically verified by this beta).' : 'Mozilla signature metadata: not detected.';
+      const answer = await dialog.showMessageBox(mainWindow, { type:'warning', buttons:['Cancel','Install'], defaultId:0, cancelId:0, title:'Review extension permissions', message:summary.name + ' ' + summary.version, detail:'Aegis compatibility: ' + summary.compatibility.score + '%\nHigh-risk permissions: ' + risky + '\nUnsupported APIs: ' + unsupported + '\n' + signatureNote + '\n\nAegis runs content scripts in an extension-specific isolated world and does not grant Node.js access.' });
       if (answer.response !== 1) return { ok:false, canceled:true, summary };
       const installed = await extensionRuntime.install(pick.filePaths[0]);
       await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
