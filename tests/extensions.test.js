@@ -174,3 +174,12 @@ test('background bootstrap preserves runtime.sendMessage response handling and u
   assert.ok(source.includes("'aegis-extension://'+TOKEN+'/'"));
   assert.ok(source.includes('B.respond?.(p.messageId,response)'));
 });
+
+
+test('notifications and context menus are supported with explicit reduced-surface warnings', () => {
+  const report=compatibility({manifest_version:2,name:'T',version:'1',permissions:['notifications','menus']});
+  assert.ok(report.supported.includes('notifications'));
+  assert.ok(report.supported.includes('menus'));
+  assert.ok(report.warnings.some((x)=>x.api==='notifications'));
+  assert.ok(report.warnings.some((x)=>x.api==='menus'));
+});
