@@ -131,4 +131,4 @@ function freshSeed() { return crypto.randomBytes(24).toString('hex'); }
 function safeDownloadName(name) { return String(name || 'download').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 180); }
 function isRiskyDownload(filename) { return /\.(?:dmg|pkg|app|exe|msi|scr|bat|cmd|com|ps1|vbs|js|jse|jar|sh|command|desktop|deb|rpm|apk|iso)$/i.test(filename || ''); }
 function defaultDownloadPath(app, filename) { return path.join(app.getPath('downloads'), 'Aegis Downloads', safeDownloadName(filename)); }
-module.exports = { makeTabStats, configurePrivacySession, buildGenericUA, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, permissionKeys, permissionAllowed, permissionDecision };
+module.exports = { makeTabStats, configurePrivacySession, buildGenericUA, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled };
