@@ -23,6 +23,7 @@ const CONTROL_DEFINITIONS = Object.freeze([
   ['cookieAutoDelete','Cookie/site-data auto-delete','session-lifecycle'],
   ['threatProtection','Local destination risk analysis','navigation'],
   ['siteIntelligence','Sentinel page intelligence','sentinel'],
+  ['bounceTrackingProtection','Bounce-tracker state cleanup','storage-isolation'],
   ['blockThirdPartyRequests','All third-party request isolation','network-firewall'],
   ['letterbox','Viewport letterboxing','view-geometry'],
   ['disableWebRtc','WebRTC exposure shutdown','document-preload'],
@@ -67,6 +68,9 @@ function controlAssurance(settings, tab) {
     } else if (key === 'heuristicTrackingProtection') {
       enforced = sessionReady; status = enforced ? 'enforced' : 'degraded';
       evidence = enforced ? 'The memory-only cross-site tracker learner is connected to the request firewall.' : 'The request firewall is not confirmed.';
+    } else if (key === 'bounceTrackingProtection') {
+      enforced = sessionReady;
+      evidence = enforced ? 'Cross-site main-frame navigation chains are monitored and short-lived intermediary origins have cookies/storage/service-worker state purged.' : 'Private-session storage enforcement is not confirmed.';
     } else if (key === 'cookieAutoDelete') {
       evidence = 'Origin cleanup is scheduled by the tab lifecycle after cross-origin navigation, except for fireproofed sites.';
     } else if (key === 'stripTrackingParams' || key === 'unwrapTrackingLinks' || key === 'threatProtection') {
