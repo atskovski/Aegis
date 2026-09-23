@@ -128,6 +128,33 @@ const runtime = {
   onInstalled: event('runtime.onInstalled'),
   onStartup: event('runtime.onStartup')
 };
+const privacySetting = (section,key) => ({
+  get:(...args)=>call('privacy.'+section+'.'+key+'.get',...args),
+  set:(...args)=>call('privacy.'+section+'.'+key+'.set',...args),
+  clear:(...args)=>call('privacy.'+section+'.'+key+'.clear',...args),
+  onChange:event('privacy.'+section+'.'+key+'.onChange')
+});
+const declarativeNetRequest = {
+  getDynamicRules:(...args)=>call('declarativeNetRequest.getDynamicRules',...args),
+  updateDynamicRules:(...args)=>call('declarativeNetRequest.updateDynamicRules',...args),
+  getSessionRules:(...args)=>call('declarativeNetRequest.getSessionRules',...args),
+  updateSessionRules:(...args)=>call('declarativeNetRequest.updateSessionRules',...args),
+  getEnabledRulesets:(...args)=>call('declarativeNetRequest.getEnabledRulesets',...args),
+  updateEnabledRulesets:(...args)=>call('declarativeNetRequest.updateEnabledRulesets',...args),
+  getMatchedRules:(...args)=>call('declarativeNetRequest.getMatchedRules',...args),
+  isRegexSupported:(...args)=>call('declarativeNetRequest.isRegexSupported',...args),
+  setExtensionActionOptions:(...args)=>call('declarativeNetRequest.setExtensionActionOptions',...args),
+  onRuleMatchedDebug:event('declarativeNetRequest.onRuleMatchedDebug')
+};
+const webRequest = {
+  onBeforeRequest:event('webRequest.onBeforeRequest'),
+  onBeforeSendHeaders:event('webRequest.onBeforeSendHeaders'),
+  onSendHeaders:event('webRequest.onSendHeaders'),
+  onHeadersReceived:event('webRequest.onHeadersReceived'),
+  onResponseStarted:event('webRequest.onResponseStarted'),
+  onCompleted:event('webRequest.onCompleted'),
+  onErrorOccurred:event('webRequest.onErrorOccurred')
+};
 const tabs = {
   query: (q={}, ...rest) => call('tabs.query', q, ...rest),
   get: (id, ...rest) => call('tabs.get', id, ...rest),
@@ -200,7 +227,14 @@ const api = {
     onCommitted:event('webNavigation.onCommitted'),
     onCompleted:event('webNavigation.onCompleted'),
     onErrorOccurred:event('webNavigation.onErrorOccurred')
-  },
+  },,
+  webRequest,
+  declarativeNetRequest,
+  privacy: {
+    network:{webRTCIPHandlingPolicy:privacySetting('network','webRTCIPHandlingPolicy'),networkPredictionEnabled:privacySetting('network','networkPredictionEnabled')},
+    services:{passwordSavingEnabled:privacySetting('services','passwordSavingEnabled'),autofillAddressEnabled:privacySetting('services','autofillAddressEnabled'),autofillCreditCardEnabled:privacySetting('services','autofillCreditCardEnabled')},
+    websites:{thirdPartyCookiesAllowed:privacySetting('websites','thirdPartyCookiesAllowed'),hyperlinkAuditingEnabled:privacySetting('websites','hyperlinkAuditingEnabled'),referrersEnabled:privacySetting('websites','referrersEnabled'),protectedContentEnabled:privacySetting('websites','protectedContentEnabled')}
+  }
   notifications: {
     create:(...args)=>call('notifications.create',...args),
     clear:(...args)=>call('notifications.clear',...args),
