@@ -68,6 +68,12 @@ test('extension runtime hosts the major WebExtension execution surfaces',()=>{
   assert.match(runtime,/requiresSubFramePreload/);
   assert.match(runtime,/injectAllSubframes/);
   assert.match(runtime,/sendTabMessage/);
+  assert.match(runtime,/blockingWebRequestDecision/);
+  assert.match(runtime,/handleBlockingWebRequestResponse/);
+  assert.match(main,/extension:blocking-webrequest-response/);
+  assert.match(bridgePreload,/extension:frame-message/);
+  assert.match(shim,/onBlockingRequest/);
+  assert.match(shim,/webRequestMeta/);
   assert.match(main,/nodeIntegrationInSubFrames: subframeBridge/);
   assert.match(main,/frame-created/);
   assert.match(main,/extension:frame-inject-result/);
