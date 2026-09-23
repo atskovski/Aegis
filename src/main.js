@@ -627,7 +627,8 @@ function relayout() {
   let x = 0;
   let y = TOOLBAR_H;
 
-  if (settings.letterbox && settings.privacyLevel !== 'standard') {
+  const effective = tabSettings(tab);
+  if (effective.letterbox && effective.privacyLevel !== 'standard') {
     w = Math.max(300, Math.floor(availableW / LETTERBOX_STEP) * LETTERBOX_STEP);
     h = Math.max(200, Math.floor(availableH / LETTERBOX_STEP) * LETTERBOX_STEP);
     x = Math.floor((availableW - w) / 2);
