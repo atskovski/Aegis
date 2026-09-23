@@ -387,10 +387,11 @@ function renderAddonInstallReview() {
   const compat = compatibilityLabel(summary);
   panel.classList.remove('hidden');
   $('#addonReviewName').textContent = summary.name + ' ' + summary.version;
-  $('#addonReviewMeta').textContent = 'Manifest V' + (summary.manifestVersion || '?') + ' · ' + compat.label + ' compatibility · review expires ' + new Date(pendingAddonInstall.expiresAt).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  const ecosystem = summary.ecosystem === 'chrome' ? 'Chrome package' : (summary.ecosystem === 'firefox' ? 'Firefox package' : 'WebExtension package');
+  $('#addonReviewMeta').textContent = '100% package installable · ' + ecosystem + ' · Manifest V' + (summary.manifestVersion || '?') + ' · API/runtime coverage ' + compat.score + '% · review expires ' + new Date(pendingAddonInstall.expiresAt).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
   $('#addonReviewDescription').textContent = summary.description || 'This extension does not provide a description.';
   const score = $('#addonReviewScore');
-  score.textContent = compat.score + '%';
+  score.textContent = 'API ' + compat.score + '%';
   score.className = 'addon-score compat-' + compat.status;
   $('#addonReviewId').textContent = summary.id || 'Generated after install';
   $('#addonReviewDigest').textContent = summary.digest || '—';
