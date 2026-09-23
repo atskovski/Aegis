@@ -203,6 +203,12 @@ test('generated WebExtension bootstrap exposes Runtime 3 APIs', () => {
     manifest:{manifest_version:2,name:'Runtime 3',version:'1',permissions:['storage','tabs','windows','cookies']}
   });
   assert.match(source,/sync:area\('sync'\)/);
+  assert.match(source,/managed:area\('managed'\)/);
+  assert.match(source,/getBytesInUse/);
+  assert.match(source,/getKeys/);
+  assert.match(source,/runtimeConnect/);
+  assert.match(source,/onConnect:event\('runtime\.onConnect'\)/);
+  assert.match(source,/tabs\.connect|connect:\(id,info/);
   assert.match(source,/const windows=/);
   assert.match(source,/const cookies=/);
   assert.match(source,/captureVisibleTab/);
@@ -215,6 +221,12 @@ test('extension popup preload exposes the same Runtime 3 API families', () => {
   const fs=require('node:fs'),path=require('node:path');
   const source=fs.readFileSync(path.join(__dirname,'..','src','extension-page-preload.js'),'utf8');
   assert.match(source,/sync:area\('sync'\)/);
+  assert.match(source,/managed:area\('managed'\)/);
+  assert.match(source,/getBytesInUse/);
+  assert.match(source,/getKeys/);
+  assert.match(source,/runtimeConnect/);
+  assert.match(source,/onConnect:/);
+  assert.match(source,/connect: \(id,info=/);
   assert.match(source,/windows:/);
   assert.match(source,/cookies:/);
   assert.match(source,/captureVisibleTab/);
@@ -240,5 +252,34 @@ test('installed extension diagnostics verify package resources and bootstrap hea
     assert.ok(result.checks.some((x)=>x.id==='manifest'&&x.status==='pass'));
     assert.ok(result.checks.some((x)=>x.id==='resources'&&x.status==='pass'));
     assert.ok(result.checks.some((x)=>x.id==='bootstrap'&&x.status==='pass'));
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
+
+test('runtime.connect Port messages route between a content context and background host', async () => {
+  const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-port-runtime-'));
+  try {
+    const sourceEvents=[],backgroundEvents=[];
+    const source={send:(channel,payload)=>sourceEvents.push({channel,payload})};
+    const background={send:(channel,payload)=>backgroundEvents.push({channel,payload})};
+    const host={isDestroyed:()=>false,webContents:background};
+    const tab={id:7,url:'https://example.com/',title:'Example',loading:false,securityDomain:'private',disableExtensions:false,view:{webContents:source}};
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[tab],getActiveId:()=>7,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const manifest={manifest_version:2,name:'Ports',version:'1',permissions:['tabs','https://example.com/*']};
+    runtime.items.set('ports@example',{id:'ports@example',path:root,resourceToken:'porttoken',worldId:extensionWorldId('ports@example'),enabled:true,manifest,detectedApis:['runtime','tabs'],compatibility:compatibility(manifest,['runtime','tabs'])});
+    runtime.backgroundHosts.set('ports@example',host);
+
+    await runtime.call(source,{extensionId:'ports@example',method:'runtime.portOpen',args:[{portId:'aegis-port-test123',name:'channel'}]});
+    assert.equal(backgroundEvents.at(-1).payload.type,'runtime.onConnect');
+    await runtime.call(source,{extensionId:'ports@example',method:'runtime.portPost',args:['aegis-port-test123',{hello:true}]});
+    assert.equal(backgroundEvents.at(-1).payload.type,'runtime.portMessage');
+    assert.deepEqual(backgroundEvents.at(-1).payload.args[1],{hello:true});
+    await runtime.call(background,{extensionId:'ports@example',method:'runtime.portPost',args:['aegis-port-test123',{reply:true}]});
+    assert.equal(sourceEvents.at(-1).payload.type,'runtime.portMessage');
+    assert.deepEqual(sourceEvents.at(-1).payload.args[1],{reply:true});
+    await runtime.call(source,{extensionId:'ports@example',method:'runtime.portDisconnect',args:['aegis-port-test123']});
+    assert.equal(sourceEvents.length >= 1,true);
+    assert.equal(runtime.ports.size,0);
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
