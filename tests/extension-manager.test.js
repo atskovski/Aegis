@@ -52,7 +52,7 @@ test('extension runtime hosts the major WebExtension execution surfaces',()=>{
 });
 
 test('shared shim and extension page preload expose matching WebExtension namespaces',()=>{
-  for(const api of ['runtime','storage','tabs','permissions','i18n','alarms','commands','scripting','webNavigation','action','browserAction','pageAction']){
+  for(const api of ['runtime','storage','tabs','permissions','i18n','alarms','commands','scripting','webNavigation','notifications','menus','contextMenus','action','browserAction','pageAction']){
     assert.ok(shim.includes(api),api+' missing from shared shim');
     assert.ok(pagePreload.includes(api),api+' missing from extension page preload');
   }
@@ -65,4 +65,12 @@ test('protected browser capabilities remain unavailable to extensions',()=>{
   assert.match(runtime,/debugger:'The Chrome debugger API is not exposed/);
   assert.match(runtime,/securityDomain!=='anonymous'/);
   assert.match(runtime,/securityDomain!=='hardened'/);
+});
+
+
+test('extension menus and notifications integrate through Aegis-owned chrome',()=>{
+  assert.match(runtime,/contextMenuTemplate\(/);
+  assert.match(runtime,/notifications\.create/);
+  assert.match(main,/extensionRuntime\?\.contextMenuTemplate\(tab, params\)/);
+  assert.match(main,/notifyExtension:/);
 });
