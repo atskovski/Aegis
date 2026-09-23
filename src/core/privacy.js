@@ -49,6 +49,27 @@ function applyExtensionHeaderRemovals(headers, operations = []) {
   return out;
 }
 
+function headersToWebRequestArray(headers = {}) {
+  const out=[];
+  for(const [name,raw] of Object.entries(headers||{})) for(const value of (Array.isArray(raw)?raw:[raw])) out.push({name:String(name),value:String(value??'')});
+  return out;
+}
+function applyBlockingHeaderDecision(headers, candidate, phase='request') {
+  const out={...(headers||{})};
+  const rows=Array.isArray(candidate)?candidate:[];
+  const desired=new Map();
+  for(const row of rows){const name=String(row?.name||'').trim(),lower=name.toLowerCase();if(!name||!lower)continue;if(!desired.has(lower))desired.set(lower,[]);desired.get(lower).push(String(row?.value??''));}
+  const removable=phase==='response'
+    ? new Set(['set-cookie','etag','last-modified','report-to','nel'])
+    : new Set(['cookie','referer','if-none-match','if-modified-since']);
+  for(const key of Object.keys(out)){const lower=String(key).toLowerCase();if(removable.has(lower)&&!desired.has(lower))delete out[key];}
+  if(phase==='request'){
+    const dnt=desired.get('dnt');if(dnt?.some((v)=>v==='1'))out.DNT='1';
+    const gpc=desired.get('sec-gpc');if(gpc?.some((v)=>v==='1'))out['Sec-GPC']='1';
+  }
+  return out;
+}
+
 function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, onExtensionRequest, getExtensionNetworkDecision, getExtensionBlockingDecision, getExtensionHeaderModifications, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
   const genericUA = buildGenericUA(chromiumVersion);
   ses.setUserAgent(genericUA, 'en-US,en');
@@ -138,7 +159,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
     callback({});
   });
 
-  ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+  ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, async (details, callback) => {
     if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onBeforeSendHeaders', details); } catch {} }
     const settings = getSettings();
     const h = { ...(details.requestHeaders || {}) };
@@ -168,6 +189,13 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
       const cookieKey = Object.keys(h).find((k) => k.toLowerCase() === 'cookie');
       if (cookieKey) { delete h[cookieKey]; tab.stats.thirdPartyCookiesBlocked += 1; if (cdn) tab.stats.cdnIsolations += 1; onStats(tab); }
     }
+    if (typeof getExtensionBlockingDecision === 'function') {
+      try {
+        const blockingDecision=await getExtensionBlockingDecision('webRequest.onBeforeSendHeaders',{...details,requestHeaders:headersToWebRequestArray(h)});
+        if(blockingDecision?.cancel)return callback({cancel:true});
+        if(Array.isArray(blockingDecision?.requestHeaders))Object.assign(h,applyBlockingHeaderDecision(h,blockingDecision.requestHeaders,'request'));
+      } catch {}
+    }
     const requestHeaderOps = typeof getExtensionHeaderModifications === 'function'
       ? getExtensionHeaderModifications({ ...details, requestHeaders:{ ...h } }, 'request')
       : [];
@@ -178,7 +206,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
     callback({ requestHeaders: outgoingHeaders });
   });
 
-  ses.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
+  ses.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, async (details, callback) => {
     if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onHeadersReceived', details); } catch {} }
     const settings = getSettings(); const headers = { ...(details.responseHeaders || {}) }; const topUrl = tab.topUrl || tab.url || details.url; const thirdParty = isThirdParty(details.url, topUrl); const known = isKnownTracker(details.url); const cdn = thirdParty && settings.publicCdnIsolation && isPublicCdn(details.url);
     for (const k of Object.keys(headers)) {
@@ -187,6 +215,13 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
       if (lower === 'accept-ch' && settings.privacyLevel !== 'standard') headers[k] = (headers[k] || []).map((v) => String(v).split(',').map((x) => x.trim()).filter((x) => !/ua-(arch|bitness|full-version|full-version-list|model|platform-version)/i.test(x)).join(', '));
       if ((lower === 'etag' || lower === 'last-modified') && thirdParty && settings.etagProtection && known) { delete headers[k]; tab.stats.etagProtections += 1; }
       if (lower === 'set-cookie' && ((thirdParty && settings.blockThirdPartyCookies && !tab.compatibilityMode) || cdn)) { const values = headers[k] || []; tab.stats.thirdPartyCookiesBlocked += Math.max(1, values.length); if (cdn) tab.stats.cdnIsolations += 1; delete headers[k]; onStats(tab); }
+    }
+    if (typeof getExtensionBlockingDecision === 'function') {
+      try {
+        const blockingDecision=await getExtensionBlockingDecision('webRequest.onHeadersReceived',{...details,responseHeaders:headersToWebRequestArray(headers)});
+        if(blockingDecision?.cancel)return callback({cancel:true});
+        if(Array.isArray(blockingDecision?.responseHeaders))Object.assign(headers,applyBlockingHeaderDecision(headers,blockingDecision.responseHeaders,'response'));
+      } catch {}
     }
     const responseHeaderOps = typeof getExtensionHeaderModifications === 'function'
       ? getExtensionHeaderModifications({ ...details, responseHeaders:{ ...headers } }, 'response')
