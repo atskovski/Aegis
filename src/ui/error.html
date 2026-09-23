@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Page unavailable</title>
+  <link rel="stylesheet" href="aegis://app/error.css">
+</head>
+<body>
+  <main class="error-shell">
+    <div class="error-mark">!</div>
+    <div class="eyebrow">AEGIS NETWORK</div>
+    <h1>That page didn’t load.</h1>
+    <p id="description">Aegis could not establish the connection.</p>
+    <div class="url-card" id="targetUrl"></div>
+    <div class="details"><span id="errorCode">Network error</span><span>Private tab remains isolated</span></div>
+    <div class="actions">
+      <a id="retry" class="primary" href="aegis://app/start.html">Retry securely</a>
+      <a id="httpRetry" class="secondary hidden" href="aegis://app/start.html">Try HTTP once</a>
+      <a class="secondary" href="aegis://app/start.html">New tab home</a>
+    </div>
+    <section>
+      <b>Things Aegis checks</b>
+      <p>System proxy/PAC routing, DNS resolution, TLS, redirect policy and the tab’s privacy filters. Open Settings → Diagnostics to run a local connectivity test.</p>
+    </section>
+  </main>
+  <script src="aegis://app/error.js"></script>
+</body>
+</html>

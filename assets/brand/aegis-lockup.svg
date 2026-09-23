@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" role="img" aria-label="Aegis Privacy Browser brand lockup">
+  <defs><linearGradient id="g" x1="30" y1="20" x2="200" y2="205" gradientUnits="userSpaceOnUse"><stop stop-color="#4ED9FF"/><stop offset=".55" stop-color="#4FE1C1"/><stop offset="1" stop-color="#8A72FF"/></linearGradient></defs>
+  <rect width="760" height="220" rx="32" fill="#070A12"/>
+  <path d="M114 28 190 55v55c0 50-29 83-76 102-47-19-76-52-76-102V55l76-27Z" fill="#0D1422" stroke="url(#g)" stroke-width="9" stroke-linejoin="round"/>
+  <path d="m114 62-45 103h23l10-25h24l10 25h23L114 62Zm0 39 13 33h-26l13-33Z" fill="url(#g)"/>
+  <circle cx="114" cy="134" r="6" fill="#F4F7FB"/>
+  <text x="228" y="108" fill="#F4F7FB" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="64" font-weight="760" letter-spacing="8">AEGIS</text>
+  <text x="230" y="149" fill="#9AAAC0" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="25" font-weight="600" letter-spacing="2">PRIVACY BROWSER</text>
+  <text x="230" y="180" fill="#4FE1C1" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="18" font-weight="600">Browse with proof.</text>
+</svg>

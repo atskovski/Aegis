@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Aegis shield mark</title><desc id="desc">A geometric shield with a stylized A and protected core.</desc>
+  <defs><linearGradient id="g" x1="36" y1="24" x2="214" y2="226" gradientUnits="userSpaceOnUse"><stop stop-color="#4ED9FF"/><stop offset=".55" stop-color="#4FE1C1"/><stop offset="1" stop-color="#8A72FF"/></linearGradient></defs>
+  <path d="M128 16 220 49v67c0 60-35 101-92 124-57-23-92-64-92-124V49l92-33Z" fill="#070A12" stroke="url(#g)" stroke-width="12" stroke-linejoin="round"/>
+  <path d="m128 56-55 124h28l12-29h30l12 29h28L128 56Zm0 47 17 42h-34l17-42Z" fill="url(#g)"/>
+  <circle cx="128" cy="145" r="8" fill="#F4F7FB"/>
+</svg>
