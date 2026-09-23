@@ -1,10 +1,30 @@
 <p align="center"><img src="assets/brand/aegis-lockup.svg" alt="Aegis Privacy Browser" width="430"></p>
 
-# Aegis Privacy Browser 1.2 — Security Kernel + WebExtension Runtime
+# Aegis Privacy Browser 1.3 — Security Kernel + Extension Runtime 4
 
 Aegis 1.1 is a local-first macOS privacy, security and managed-browser platform built on Electron/Chromium. Its design rule is simple: a security setting is not treated as protection merely because a toggle is enabled. Aegis couples policy, browser-process enforcement, behavioral runtime checks and user-visible evidence.
 
 Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or Tor Browser equivalence. It reduces attack surface and linkability, isolates high-risk activity, can fail closed for selected routes, and reports important residual exposure instead of converting limitations into green badges.
+
+## 1.3 — Chrome Extensions + Extension Runtime 4
+
+Aegis 1.3 adds first-class Chrome extension installation alongside Firefox-style WebExtensions.
+
+- Install local Chrome `.crx` packages, Firefox `.xpi`, compatible `.zip` packages, or unpacked developer extension folders.
+- Paste a current Chrome Web Store listing URL, a legacy Chrome Web Store URL, or a 32-character Chrome extension ID and Aegis resolves the package through Chromium's standard Web Store update endpoint.
+- Parse both CRX2 and CRX3 package headers and preserve the real Chrome extension ID across updates.
+- Verify CRX2 and CRX3 developer signatures. Chrome Web Store installs fail closed when package signature verification or requested-extension identity verification fails.
+- Stage every Chrome extension through the same Aegis permission, host-access, compatibility, digest and runtime-health review used for Firefox-style packages.
+- Support Manifest V2 and Manifest V3 packages, including Aegis-hosted MV3 service-worker compatibility contexts.
+- Add Chrome-style callback APIs alongside Promise APIs, including `chrome.runtime.lastError`, so older callback-based Chrome extensions and modern Promise-based extensions can use the same bridge.
+- Add synchronous Chrome-compatible IDs for `contextMenus.create()` / `menus.create()` while keeping the underlying browser menu owned by Aegis.
+- Runtime 4 continues to provide long-lived `runtime.connect` / `tabs.connect` Ports, storage.local/sync/session/managed, tabs, windows, host-scoped cookies, action/browserAction/pageAction, scripting, alarms, commands, webNavigation, notifications and context menus.
+- Add direct Chrome package source/trust reporting in the Add-ons manager, plus search, filters, health checks, repair, reload, enable/disable and removal controls.
+- Extend the macOS launch preflight to syntax-check the complete extension shim, bridge preload, background host preload and extension page preload before Aegis starts.
+
+Security boundary: Chrome extensions still cannot replace Aegis routing, disable the privacy firewall or Security Kernel, use native messaging, attach privileged debugger/devtools APIs, manage other extensions, or execute inside hardened/anonymous compartments.
+
+Compatibility boundary: installing a Chrome extension is now a first-class workflow, but Aegis does not claim 100% Chrome API parity. Browser-owned APIs that would conflict with Aegis security ownership—especially blocking `webRequest` and full `declarativeNetRequest` parity—remain explicitly reported as unsupported/restricted rather than being silently faked.
 
 ## 1.2 — Add-ons & WebExtensions Runtime 3
 
