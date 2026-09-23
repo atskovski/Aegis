@@ -27,7 +27,8 @@ try {
   if (value && typeof value === 'object') bootstrap = value;
 } catch (err) { reportRuntimeError('bootstrap-ipc',err); }
 const bootstrapManifest=bootstrap.manifest&&typeof bootstrap.manifest==='object'?bootstrap.manifest:null;
-const bootstrapValid=Boolean(extensionId&&bootstrap.resourceToken&&bootstrapManifest&&[2,3].includes(Number(bootstrapManifest.manifest_version))&&bootstrapManifest.name&&bootstrapManifest.version&&bootstrapManifest.background!==undefined);
+const bootstrapCoreValid=Boolean(extensionId&&bootstrap.resourceToken&&bootstrapManifest&&[2,3].includes(Number(bootstrapManifest.manifest_version))&&bootstrapManifest.name&&bootstrapManifest.version);
+const bootstrapValid=Boolean(bootstrapCoreValid&&(context!=='background'||bootstrapManifest.background!==undefined));
 if(!bootstrapValid)reportRuntimeError('bootstrap-integrity',new Error('Aegis did not receive a complete Chrome extension manifest before page execution.'));
 let resourceToken = String(bootstrap.resourceToken || '');
 const manifest = Object.freeze(bootstrapValid ? bootstrapManifest : {manifest_version:0,name:'Extension bootstrap unavailable',version:'0',background:{}});
