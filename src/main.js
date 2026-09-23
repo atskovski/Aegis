@@ -732,7 +732,7 @@ function relayout() {
   try { tab.view.setVisible(true); } catch {}
 }
 
-function chromiumMajor() { return String(process.versions.chrome || '152').split('.')[0]; }
+function chromiumMajor() { return String(browserEngine.version() || '152').split('.')[0]; }
 
 async function installFingerprintDefenses(tab) {
   
