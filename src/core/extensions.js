@@ -321,6 +321,7 @@ class AegisExtensionRuntime{
       if(args!==null&&args!==undefined)this.emitEvent(e,type,args);
     }
   }
+  clearActiveGrantForTab(tabId){for(const grants of this.activeGrants.values())grants.delete(Number(tabId))}
   notifyTabCreated(tab){this.emitEventAll('tabs.onCreated',(e)=>{const value=this.publicTab(e,tab);return value?[value]:null})}
   notifyTabActivated(tab){this.emitEventAll('tabs.onActivated',(e)=>this.publicTab(e,tab)?[{tabId:tab.id,windowId:1}]:null)}
   notifyTabUpdated(tab,changeInfo={}){
