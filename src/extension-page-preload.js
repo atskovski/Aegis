@@ -313,11 +313,19 @@ const api = {
     remove:(...args)=>call('contextMenus.remove',...args),
     removeAll:(...args)=>call('contextMenus.removeAll',...args),
     onClicked:event('contextMenus.onClicked')
-  },
-  action:actionApi('action'),
-  browserAction:actionApi('browserAction'),
-  pageAction:actionApi('pageAction')
+  }
 };
+if (Number(manifest.manifest_version) >= 3 && manifest.action) {
+  api.action = actionApi('action');
+}
+if (Number(manifest.manifest_version) === 2 && manifest.browser_action) {
+  api.browserAction = actionApi('browserAction');
+  delete api.browserAction.getUserSettings;
+}
+if (Number(manifest.manifest_version) === 2 && manifest.page_action) {
+  api.pageAction = actionApi('pageAction');
+  delete api.pageAction.getUserSettings;
+}
 
 contextBridge.exposeInMainWorld('browser', api);
 contextBridge.exposeInMainWorld('chrome', api);
