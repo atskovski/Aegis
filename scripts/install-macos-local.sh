@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="${0:A:h:h}"
 cd "$ROOT"
 
-"$ROOT/scripts/package-macos-local.sh"
+zsh "$ROOT/scripts/package-macos-local.sh"
 
 APP=""
 for candidate in   "$ROOT/dist/mac-arm64/Aegis Privacy Browser.app"   "$ROOT/dist/mac-x64/Aegis Privacy Browser.app"   "$ROOT/dist/mac/Aegis Privacy Browser.app"; do
