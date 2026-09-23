@@ -10,12 +10,11 @@ const { webExtensionBootstrap, localeMessages, commandList } = require('./extens
 const execFileAsync = promisify(execFile);
 const SUPPORTED_ROOTS = new Set([
   'runtime','storage','tabs','windows','cookies','permissions','i18n','activeTab',
-  'action','browserAction','pageAction','alarms','commands','scripting','webNavigation','notifications','menus','contextMenus'
+  'action','browserAction','pageAction','alarms','commands','scripting','webNavigation','notifications','menus','contextMenus',
+  'privacy','declarativeNetRequest','declarativeNetRequestWithHostAccess','webRequest'
 ]);
 const DENIED_ROOTS = Object.freeze({
-  webRequest:'Aegis owns the network firewall; blocking webRequest is not exposed.',
-  webRequestBlocking:'Aegis owns the network firewall; blocking webRequest is not exposed.',
-  declarativeNetRequest:'DNR import is not implemented yet.',
+  webRequestBlocking:'Aegis owns the network firewall; synchronous blocking webRequest listeners are not exposed; use declarativeNetRequest.',
   proxy:'Extensions cannot replace Aegis network routing.',
   nativeMessaging:'Native messaging is disabled.',
   history:'Aegis deliberately does not keep a browsing-history database.',
@@ -224,6 +223,9 @@ function compatibility(m,detectedRoots=[]){
   if(Array.isArray(m.optional_permissions)&&m.optional_permissions.length) warnings.push({api:'optional_permissions',reason:'Optional permissions require explicit user approval in Aegis and are not auto-granted.'});
   if(Array.isArray(m.optional_host_permissions)&&m.optional_host_permissions.length) warnings.push({api:'optional_host_permissions',reason:'Optional host access requires explicit user approval in Aegis and is not auto-granted.'});
   if(permissions(m).includes('notifications')) warnings.push({api:'notifications',reason:'Notifications are rendered as prominent Aegis browser-chrome notices; OS notification buttons and native notification-center persistence are not emulated.'});
+  if(permissions(m).includes('webRequest')) warnings.push({api:'webRequest',reason:'Aegis forwards request-observation events to extensions. Synchronous blocking listener responses remain owned by the Aegis network firewall; use declarativeNetRequest for blocking.'});
+  if(permissions(m).some((p)=>p==='declarativeNetRequest'||p==='declarativeNetRequestWithHostAccess')) warnings.push({api:'declarativeNetRequest',reason:'Aegis imports static, dynamic and session DNR rules for block, allow, redirect and upgradeScheme actions. modifyHeaders is intentionally not allowed to weaken Aegis security headers.'});
+  if(permissions(m).includes('privacy')) warnings.push({api:'privacy',reason:'Privacy settings are exposed through an Aegis-controlled compatibility surface. Extensions can query them; attempts to weaken Aegis-enforced protections are ignored.'});
   if(permissions(m).includes('menus')||permissions(m).includes('contextMenus')) warnings.push({api:'menus',reason:'Aegis hosts standard extension context-menu items; advanced Firefox menu surfaces and icons are reduced.'});
   const bg=m.background||{};
   let background='none', backgroundCredit=0;
