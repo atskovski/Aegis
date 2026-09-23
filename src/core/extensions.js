@@ -720,7 +720,7 @@ class AegisExtensionRuntime{
       if(!declared.has('menus')&&!declared.has('contextMenus'))throw new Error('Extension lacks menus/contextMenus permission.');
       const [,op]=m.split('.'),map=this.menuMap(e.id);
       if(op==='create'){
-        const item={...(a[0]||{})},id=item.id!==undefined?String(item.id):String(crypto.randomUUID()),originalId:item.id;
+        const item={...(a[0]||{})},originalId=item.id,id=originalId!==undefined?String(originalId):String(crypto.randomUUID());
         item.id=id;map.set(id,item);return item.originalId??id;
       }
       if(op==='update'){const id=String(a[0]||''),item=map.get(id);if(!item)return false;Object.assign(item,a[1]||{});return true}
