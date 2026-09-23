@@ -36,6 +36,8 @@ test('Add-ons manager exposes staged review and installed-extension controls',()
   assert.match(ui,/Update rejected because the downloaded package identity does not match/);
   assert.match(ui,/Already current at version/);
   assert.match(ui,/Add-on updated/);
+  assert.match(ui,/100% package installed/);
+  assert.match(ui,/Package installation is complete\. API\/runtime compatibility is reported separately\./);
   assert.doesNotMatch(ui,/confirm\('Remove '/);
 });
 
