@@ -981,11 +981,225 @@ class AegisExtensionRuntime{
     }
 
     if(m==='tabs.query'){
+      const q=a[0]||{},patterns=q.url==null?null:(Array.isArray(q.url)?q.url:[q.url]).map(String);
+      const urlMatches=(raw)=>{
+        if(!patterns)return true;const value=String(raw||'');
+        return patterns.some((pattern)=>{
+          if(pattern==='<all_urls>')return /^https?:\/\//i.test(value);
+          if(!pattern.includes('*'))return value===pattern;
+          const escaped=pattern.split('*').map((part)=>part.replace(/[.+?^$()|[\]\\]/g,'\\    if(m==='tabs.query'){
       const q=a[0]||{};return tabs.filter(extensionVisibleTab).filter((t)=>!q.active||t.id===this.getActiveId()).map((t)=>this.publicTab(e,t));
     }
     if(m==='tabs.get'){const t=this.tabById(a[0]);if(!extensionVisibleTab(t))throw new Error('Tab unavailable to extensions');return this.publicTab(e,t)}
     if(m==='tabs.getCurrent')return source?this.publicTab(e,source):null;
-    if(m==='tabs.create'){requireTabs();return this.publicTab(e,await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false))}
+    if(m==='tabs.create'){requireTabs();return this.publicTab(e,await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false))}')).join('.*');
+          try{return new RegExp('^'+escaped+'
+    if(m==='tabs.update'){
+      requireTabs();const id=typeof a[0]==='number'?a[0]:source?.id,target=this.tabById(id);if(!extensionVisibleTab(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');
+      await this.updateTab(id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
+      return this.publicTab(e,this.tabById(id));
+    }
+    if(m==='tabs.reload'){requireTabs();const target=tabArg(typeof a[0]==='number'?a[0]:undefined);if(!extensionVisibleTab(target))throw new Error('Tab unavailable to extensions');target.view.webContents.reload();return undefined}
+    if(m==='tabs.remove'){requireTabs();for(const id of (Array.isArray(a[0])?a[0]:[a[0]])){const target=this.tabById(id);if(!extensionVisibleTab(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');this.removeTab(Number(id))}return undefined}
+    if(m==='tabs.sendMessage'){const t=this.tabById(a[0]);if(!t||!extensionVisibleTab(t)||!this.canAccessTab(e,t,{inject:true}))throw new Error('Tab unavailable to this extension');return t.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+','+JSON.stringify({id:e.id})+'):undefined'}],false)}
+    if(m==='tabs.executeScript'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.executeExtensionScript(e,target,details)}
+    if(m==='tabs.insertCSS'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.insertExtensionCss(e,target,details)}
+    if(m==='tabs.removeCSS'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.removeExtensionCss(e,target,details)}
+    if(m==='tabs.getZoom'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined);if(!target||!extensionVisibleTab(target))throw new Error('Tab unavailable to extensions');return Number(target.view.webContents.getZoomFactor?.()||1)}
+    if(m==='tabs.setZoom'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),factor=Number(typeof a[0]==='number'?a[1]:a[0]);if(!target||!extensionVisibleTab(target)||!Number.isFinite(factor)||factor<0.5||factor>3)throw new Error('Invalid tab zoom request');target.view.webContents.setZoomFactor?.(factor);return undefined}
+    if(m==='tabs.captureVisibleTab'){requireTabs();const target=this.tabById(this.getActiveId());if(!target||!this.canAccessTab(e,target,{inject:true}))throw new Error('Extension lacks access to the active tab');const image=await target.view.webContents.capturePage();return image.toDataURL()}
+
+    if(m.startsWith('windows.')){
+      const visible=tabs.filter(extensionVisibleTab),active=this.tabById(this.getActiveId());
+      const record=()=>({id:1,focused:true,incognito:true,type:'normal',state:'normal',alwaysOnTop:false,tabs:visible.map((t)=>this.publicTab(e,t)).filter(Boolean)});
+      if(['windows.get','windows.getCurrent','windows.getLastFocused'].includes(m))return record();
+      if(m==='windows.getAll')return [record()];
+      if(m==='windows.update')return record();
+    }
+
+    if(m.startsWith('cookies.')){
+      if(!declared.has('cookies'))throw new Error('Extension lacks cookies permission.');
+      const details=a[0]||{},requested=String(details.url||'');
+      const candidates=tabs.filter(extensionVisibleTab).filter((t)=>this.canAccessTab(e,t));
+      let target=requested?candidates.find((t)=>{try{return new URL(t.url||'').origin===new URL(requested).origin}catch{return false}}):this.tabById(this.getActiveId());
+      if(!target||!extensionVisibleTab(target)||!this.canAccessTab(e,target))throw new Error('Cookie access requires a declared host permission for an open private tab.');
+      const ses=target.privateSession||target.view?.webContents?.session;if(!ses?.cookies)throw new Error('Cookie store unavailable.');
+      if(m==='cookies.get'){const rows=await ses.cookies.get({url:requested||target.url,name:String(details.name||'')});return rows[0]||null}
+      if(m==='cookies.getAll'){
+        const query={};if(requested)query.url=requested;if(details.name)query.name=String(details.name);if(details.domain)query.domain=String(details.domain);if(details.path)query.path=String(details.path);
+        return ses.cookies.get(query);
+      }
+      if(m==='cookies.set'){
+        const url=requested||target.url;if(!networkAllowedByManifest(e.manifest,url)&&!this.activeGrants.get(e.id)?.has(target.id))throw new Error('Cookie write is outside declared host access.');
+        const payload={...details,url};delete payload.storeId;await ses.cookies.set(payload);const rows=await ses.cookies.get({url,name:String(payload.name||'')});return rows[0]||null;
+      }
+      if(m==='cookies.remove'){const url=requested||target.url;const rows=await ses.cookies.get({url,name:String(details.name||'')});await ses.cookies.remove(url,String(details.name||''));return rows[0]?{url,name:String(details.name||''),storeId:'aegis-private-'+target.id}:null}
+      if(m==='cookies.getAllCookieStores')return [{id:'aegis-private-'+target.id,tabIds:[target.id],incognito:true}];
+    }
+
+    if(m==='scripting.executeScript'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.executeExtensionScript(e,target,a[0]||{})}
+    if(m==='scripting.insertCSS'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.insertExtensionCss(e,target,a[0]||{})}
+    if(m==='scripting.removeCSS'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.removeExtensionCss(e,target,a[0]||{})}
+    if(m==='scripting.registerContentScripts'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');return this.registerContentScripts(e,a[0]||[])}
+    if(m==='scripting.updateContentScripts'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');return this.updateRegisteredContentScripts(e,a[0]||[])}
+    if(m==='scripting.unregisterContentScripts'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');return this.unregisterContentScripts(e,a[0]||{})}
+    if(m==='scripting.getRegisteredContentScripts'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');return this.getRegisteredContentScripts(e,a[0]||{})}
+
+    if(m==='alarms.create'){if(!declared.has('alarms'))throw new Error('Extension lacks alarms permission.');return this.createAlarm(e,typeof a[0]==='string'?a[0]:'',typeof a[0]==='string'?(a[1]||{}):(a[0]||{}))}
+    if(m==='alarms.get'){return this.alarmTimers.get(this.alarmKey(e.id,a[0]))?.alarm||null}
+    if(m==='alarms.getAll')return this.alarmList(e.id);
+    if(m==='alarms.clear')return this.clearAlarm(e.id,a[0]);
+    if(m==='alarms.clearAll')return this.clearAllAlarms(e.id);
+    if(m==='commands.getAll')return commandList(e.manifest);
+
+    if(m==='notifications.create'){
+      if(!declared.has('notifications'))throw new Error('Extension lacks notifications permission.');
+      const id=typeof a[0]==='string'?a[0]:crypto.randomUUID(),details=(typeof a[0]==='string'?(a[1]||{}):(a[0]||{}));
+      const record={id,title:String(details.title||e.manifest.name).slice(0,160),message:String(details.message||'').slice(0,1000),createdAt:new Date().toISOString()};
+      if(!this.extensionNotifications.has(e.id))this.extensionNotifications.set(e.id,new Map());this.extensionNotifications.get(e.id).set(String(id),record);
+      this.notifyExtension?.({extensionId:e.id,name:e.manifest.name,title:record.title,message:record.message,tone:'default'});
+      return String(id);
+    }
+    if(m==='notifications.clear'){const map=this.extensionNotifications.get(e.id);return Boolean(map?.delete(String(a[0]||'')))}
+    if(m==='notifications.getAll')return Object.fromEntries(this.extensionNotifications.get(e.id)||[]);
+
+    if(/^(?:menus|contextMenus)\./.test(m)){
+      if(!declared.has('menus')&&!declared.has('contextMenus'))throw new Error('Extension lacks menus/contextMenus permission.');
+      const [,op]=m.split('.'),map=this.menuMap(e.id);
+      if(op==='create'){
+        const item={...(a[0]||{})},originalId=item.id,id=originalId!==undefined?String(originalId):String(crypto.randomUUID());
+        item.id=id;map.set(id,item);return item.originalId??id;
+      }
+      if(op==='update'){const id=String(a[0]||''),item=map.get(id);if(!item)return false;Object.assign(item,a[1]||{});return true}
+      if(op==='remove')return map.delete(String(a[0]||''));
+      if(op==='removeAll'){map.clear();return true}
+    }
+
+    if(/^(?:action|browserAction|pageAction)\./.test(m)){
+      const [,op]=m.split('.'),action=extensionAction(e.manifest);if(!action)throw new Error('Extension has no browser action.');
+      const state={...(this.actionState.get(e.id)||{})},details=a[0]||{};
+      if(op==='setTitle'){state.title=String(details.title||'').slice(0,160);this.actionState.set(e.id,state);return}
+      if(op==='getTitle')return String(state.title||action.title||e.manifest.name);
+      if(op==='setBadgeText'){state.badgeText=String(details.text||'').slice(0,12);this.actionState.set(e.id,state);return}
+      if(op==='getBadgeText')return String(state.badgeText||'');
+      if(op==='setBadgeBackgroundColor'){state.badgeColor=details.color||null;this.actionState.set(e.id,state);return}
+      if(op==='setBadgeTextColor'){state.badgeTextColor=details.color||null;this.actionState.set(e.id,state);return}
+      if(op==='getUserSettings')return {isOnToolbar:true};
+      if(op==='setPopup'){state.popup=safeRel(details.popup||'');this.actionState.set(e.id,state);return}
+      if(op==='getPopup')return String(state.popup!==undefined?state.popup:(action.popup||''));
+      if(op==='setIcon'){
+        let rel='';if(typeof details.path==='string')rel=safeRel(details.path);else if(details.path&&typeof details.path==='object'){rel=Object.values(details.path).map(safeRel).filter(Boolean).pop()||''}
+        if(rel){this.extensionFile(e,rel);state.iconUrl=extensionResourceUrl(e,rel)}this.actionState.set(e.id,state);return;
+      }
+      if(op==='enable'){state.enabled=true;this.actionState.set(e.id,state);return}
+      if(op==='disable'){state.enabled=false;this.actionState.set(e.id,state);return}
+      if(op==='isEnabled')return state.enabled!==false;
+      if(op==='openPopup'){if(state.enabled===false)return false;return this.openAction(e.id);}
+    }
+
+    throw new Error('Unsupported extension API: '+m);
+  }
+  backgroundScripts(ext){
+    const bg=ext?.manifest?.background||{};
+    if(bg.page)return [];
+    const list=[];
+    if(Array.isArray(bg.scripts))list.push(...bg.scripts);
+    if(bg.service_worker)list.push(bg.service_worker);
+    return list.map(safeRel).filter(Boolean);
+  }
+  backgroundBootstrap(ext){ return webExtensionBootstrap(ext,'__aegisBackgroundBridge'); }
+  attachBackgroundDiagnostics(ext,host){
+    if(!host?.webContents)return;
+    try{host.webContents.on('console-message',(_event,...args)=>{
+      let level=args[0],message=args[1],line=args[2],source=args[3];
+      if(args.length===1&&args[0]&&typeof args[0]==='object'){const d=args[0];level=d.level;message=d.message;line=d.lineNumber;source=d.sourceId}
+      const text=String(message||'');
+      const severe=Number(level)>=3||/^(?:Uncaught\s+)?(?:SyntaxError|ReferenceError|TypeError|RangeError|Error)\b/i.test(text)||/Uncaught\s+(?:in promise\s+)?/i.test(text);
+      if(severe)this.noteRuntimeError(ext.id,'background-console',text+(source?(' · '+source+(line?(':'+line):'')):''));
+    })}catch{}
+    try{host.webContents.on('render-process-gone',(_event,details)=>this.noteRuntimeError(ext.id,'background-process','Renderer exited: '+String(details?.reason||'unknown')))}catch{}
+    try{host.on('unresponsive',()=>this.noteRuntimeError(ext.id,'background-process','Extension background became unresponsive.'))}catch{}
+  }
+  async startBackground(ext){
+    this.stopBackground(ext.id);
+    if(this.suspensionReasons.size||ext.enabled===false||!this.BrowserWindow||!this.electronSession)return false;
+    const bg=ext?.manifest?.background||{},scripts=this.backgroundScripts(ext);
+    const ses=this.electronSession.fromPartition('aegis-extension-bg-'+crypto.createHash('sha256').update(ext.id).digest('hex').slice(0,24),{cache:false});
+    try{ses.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>callback({cancel:!networkAllowedByManifest(ext.manifest,details.url)}))}catch{}
+    if(typeof this.registerProtocols==='function')this.registerProtocols(ses.protocol,'extension '+ext.id);
+
+    if(bg.page){
+      const page=safeRel(bg.page);if(!page)return false;
+      const target=path.resolve(ext.path,page),root=path.resolve(ext.path)+path.sep;
+      if(!target.startsWith(root)||!fs.existsSync(target)||!fs.statSync(target).isFile())return false;
+      const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-page-preload.js'),additionalArguments:this.pageArguments(ext,'background')}});
+      host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);this.attachBackgroundDiagnostics(ext,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
+      try{await host.loadURL(extensionResourceUrl(ext,page));const health=this.healthFor(ext.id);health.lastStartedAt=new Date().toISOString();this.clearRuntimeErrors(ext.id,'background');return true}catch(err){this.noteRuntimeError(ext.id,'background',err);try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
+    }
+
+    if(!scripts.length)return false;
+    const valid=scripts.filter((rel)=>{try{this.extensionFile(ext,rel);return true}catch{return false}});
+    if(!valid.length)return false;
+    const wrapper=path.join(ext.path,'__aegis_background.html'),bootstrapFile=path.join(ext.path,'__aegis_background_bootstrap.js');
+    fs.writeFileSync(bootstrapFile,this.backgroundBootstrap(ext),{mode:0o600});
+    const serviceWorker=safeRel(bg.service_worker||''),moduleWorker=Boolean(serviceWorker&&String(bg.type||'').toLowerCase()==='module');
+    const tags=['<script src="__aegis_background_bootstrap.js"></script>',...valid.map((rel)=>'<script'+(moduleWorker&&rel===serviceWorker?' type="module"':'')+' src="'+rel.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></script>')].join('');
+    const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; connect-src https: http: aegis-extension:; img-src \'self\' data: aegis-extension:; style-src \'self\' \'unsafe-inline\'; object-src \'none\'">'+tags;
+    fs.writeFileSync(wrapper,html,{mode:0o600});
+    const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-host-preload.js'),additionalArguments:['--aegis-extension-id='+encodeURIComponent(ext.id)]}});
+    host.__aegisExtensionId=ext.id;this.backgroundHosts.set(ext.id,host);this.attachBackgroundDiagnostics(ext,host);host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
+    try{await host.loadFile(wrapper);const health=this.healthFor(ext.id);health.lastStartedAt=new Date().toISOString();this.clearRuntimeErrors(ext.id,'background');return true}catch(err){this.noteRuntimeError(ext.id,'background',err);try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
+  }
+  async startAll(){if(this.suspensionReasons.size)return;for(const ext of this.enabled()){await this.startBackground(ext);this.emitEvent(ext,'runtime.onStartup',[])}}
+  suspendAll(reason='privacy-compartment'){
+    this.suspensionReasons.add(String(reason));
+    for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);
+  }
+  async resumeAll(reason='privacy-compartment'){
+    this.suspensionReasons.delete(String(reason));
+    if(!this.suspensionReasons.size)await this.startAll();
+  }
+  stopBackground(id){const host=this.backgroundHosts.get(id);if(host&&!host.isDestroyed())try{host.destroy()}catch{}this.backgroundHosts.delete(id)}
+  sendRuntimeMessage(ext, sourceTab, message){
+    const host=this.backgroundHosts.get(ext.id);
+    if(!host||host.isDestroyed())return Promise.resolve(undefined);
+    const messageId=crypto.randomUUID(),visible=sourceTab&&!sourceTab.disableExtensions&&sourceTab.securityDomain!=='anonymous'&&sourceTab.securityDomain!=='hardened';
+    let sender;
+    if(visible){
+      const raw=String(sourceTab.url||'');let origin='null';try{origin=new URL(raw).origin}catch{}
+      sender={id:ext.id,tab:this.publicTab(ext,sourceTab)||{id:sourceTab.id,url:raw,title:sourceTab.title||'',incognito:true},frameId:0,url:raw,origin};
+    }else{
+      sender={id:ext.id,frameId:0,url:extensionResourceUrl(ext,''),origin:'aegis-extension://'+ext.resourceToken};
+    }
+    return new Promise((resolve)=>{
+      const timer=setTimeout(()=>{this.pendingMessages.delete(messageId);resolve(undefined)},30000);
+      this.pendingMessages.set(messageId,{extensionId:ext.id,resolve:(value)=>{clearTimeout(timer);resolve(value)}});
+      host.webContents.send('extension:runtime-message',{extensionId:ext.id,messageId,message,sender});
+    });
+  }
+  handleBackgroundResponse(sender,payload={}){
+    const id=String(payload.extensionId||''),pending=this.pendingMessages.get(String(payload.messageId||'')),host=this.backgroundHosts.get(id);
+    if(!pending||pending.extensionId!==id||!host||host.webContents!==sender)return false;
+    this.pendingMessages.delete(String(payload.messageId));pending.resolve(payload.response);return true;
+  }
+  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear();this.ports.clear()}
+}
+module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,localizeManifest,packageEcosystem,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,scanUsedApiRoots,validateExtractedTree,bootstrap,AegisExtensionRuntime};
+).test(value)}catch{return false}
+        });
+      };
+      return tabs.filter(extensionVisibleTab)
+        .filter((t)=>!q.active||t.id===this.getActiveId())
+        .filter((t)=>urlMatches(t.url))
+        .map((t)=>this.publicTab(e,t));
+    }
+    if(m==='tabs.get'){const t=this.tabById(a[0]);if(!extensionVisibleTab(t))throw new Error('Tab unavailable to extensions');return this.publicTab(e,t)}
+    if(m==='tabs.getCurrent')return source?this.publicTab(e,source):null;
+    if(m==='tabs.create'){
+      requireTabs();const raw=String(a[0]?.url||'aegis://app/start.html');let options={};
+      try{const u=new URL(raw);if(u.protocol==='aegis-extension:'&&u.hostname===e.resourceToken)options={extensionPageExtensionId:e.id}}catch{}
+      return this.publicTab(e,await this.createTab(raw,a[0]?.active!==false,false,options))
+    }
     if(m==='tabs.update'){
       requireTabs();const id=typeof a[0]==='number'?a[0]:source?.id,target=this.tabById(id);if(!extensionVisibleTab(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');
       await this.updateTab(id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
