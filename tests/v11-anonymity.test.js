@@ -11,7 +11,7 @@ const ext=fs.readFileSync(path.join(root,'src/core/extensions.js'),'utf8');
 const fp=fs.readFileSync(path.join(root,'src/core/fingerprint.js'),'utf8');
 
 test('anonymous compartment controls are present and wired',()=>{
-  for(const id of ['anonymousTab','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','testTorRoute','newAnonymousTabFromNetwork']) assert.match(html,new RegExp('id="'+id+'"'));
+  for(const id of ['anonymousTab','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','testTorRoute','newAnonymousTabFromNetwork']) assert.match(html,new RegExp('id="'+id+'"'));
   assert.match(app,/tab:new-anonymous/);
   assert.match(app,/network:test-tor/);
   assert.match(main,/createAnonymousTab/);
@@ -35,4 +35,13 @@ test('maximum fingerprinting uses a cohort rather than a per-user perturbation s
   assert.match(fp,/const COHORT = 'aegis-cohort-v1'/);
   assert.match(fp,/MAXIMUM \|\| ANONYMOUS \? COHORT : BASE/);
   assert.match(fp,/undef\(globalThis, 'RTCPeerConnection'\)/);
+});
+
+
+test('network hardening disables QUIC to avoid UDP route bypass',()=>{
+  assert.match(main,/appendSwitch\('disable-quic'\)/);
+});
+
+test('anonymous tabs default to JavaScript disabled',()=>{
+  assert.match(main,/securityDomain === 'anonymous'.*disableJavaScript/s);
 });
