@@ -797,10 +797,18 @@ function wireTabView(tab, view) {
     const url = navigationUrl(event, legacyDetails);
     const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
     if (!isMainFrame || !url || String(url).startsWith('aegis://')) return;
+    tab.extensionInjectionKeys = new Set();
+    tab.extensionIds = [];
     const nextOrigin = safeOrigin(url);
     if (tab.siteIntelligence?.url !== url) { resetSiteIntelligence(tab, url, nextOrigin); emitState(); }
   });
   view.webContents.on('did-start-loading', () => { tab.loading = true; emitState(); });
+  view.webContents.on('dom-ready', () => {
+    extensionRuntime?.inject(tab, 'end').then((ids) => {
+      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
+      emitState();
+    }).catch((err) => console.warn('Extension document-end injection failed:', err.message));
+  });
   view.webContents.on('did-stop-loading', () => { tab.loading = false; emitState(); });
   view.webContents.on('page-title-updated', (event, title) => {
     event.preventDefault();
@@ -813,7 +821,14 @@ function wireTabView(tab, view) {
     if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
     tab.httpStatus = { code: httpResponseCode, text: httpStatusText }; scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
   });
-  view.webContents.on('did-finish-load', () => { applyCosmeticFiltering(tab); applySponsorProtection(tab); extensionRuntime?.inject(tab).then((ids) => { tab.extensionIds = ids; emitState(); }).catch((err) => console.warn('Extension injection failed:', err.message)); });
+  view.webContents.on('did-finish-load', () => {
+    applyCosmeticFiltering(tab);
+    applySponsorProtection(tab);
+    extensionRuntime?.inject(tab, 'idle').then((ids) => {
+      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
+      emitState();
+    }).catch((err) => console.warn('Extension document-idle injection failed:', err.message));
+  });
   view.webContents.on('did-navigate-in-page', (_event, url) => { tab.url = url; emitState(); });
   view.webContents.on('did-fail-load', (_event, code, desc, url, isMainFrame) => {
     if (isMainFrame && code !== -3 && !String(url || '').startsWith('aegis://')) {
