@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const required = [
-  'src/main.js','src/preload.js','src/core/privacy.js','src/core/compartment.js','src/core/control-registry.js','src/core/url.js','src/core/blocklist.js',
+  'src/main.js','src/preload.js','src/extension-bridge-preload.js','src/extension-host-preload.js','src/extension-page-preload.js','src/core/extension-shim.js','src/core/extensions.js','src/core/privacy.js','src/core/compartment.js','src/core/control-registry.js','src/core/url.js','src/core/blocklist.js',
   'src/core/fingerprint.js','src/core/browser-runtime.js','src/core/engine-contract.js','src/core/security-kernel.js','src/engine/electron-adapter.js','src/core/security-events.js','src/core/bounce-tracking.js','src/core/settings.js','src/core/site-intelligence.js','src/core/security-suite.js','src/core/navigation.js','src/core/network.js','src/core/filter-rules.js','src/core/tracker-learning.js','src/core/safety.js','src/core/sponsor.js','src/ui/index.html','src/ui/start.html','src/ui/start.css','src/ui/start.js','src/ui/error.html','src/ui/error.js','src/ui/error.css','src/ui/styles.css','src/ui/app.js',
   'Run-Aegis.command','Repair-Aegis.command','Verify-Aegis.command','Diagnose-Aegis.command','Smoke-Test-Aegis.command'
 ];
