@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const required = [
-  'src/main.js','src/preload.js','src/core/privacy.js','src/core/url.js','src/core/blocklist.js',
+  'src/main.js','src/preload.js','src/core/privacy.js','src/core/compartment.js','src/core/control-registry.js','src/core/url.js','src/core/blocklist.js',
   'src/core/fingerprint.js','src/core/settings.js','src/core/site-intelligence.js','src/core/security-suite.js','src/core/navigation.js','src/core/network.js','src/core/filter-rules.js','src/core/tracker-learning.js','src/core/safety.js','src/core/sponsor.js','src/ui/index.html','src/ui/start.html','src/ui/start.css','src/ui/start.js','src/ui/error.html','src/ui/error.js','src/ui/error.css','src/ui/styles.css','src/ui/app.js',
   'Run-Aegis.command','Repair-Aegis.command','Verify-Aegis.command','Diagnose-Aegis.command','Smoke-Test-Aegis.command'
 ];
@@ -18,7 +18,7 @@ for (const token of [
   'setDevicePermissionHandler','disable-background-networking','force-webrtc-ip-handling-policy','site-per-process',
   "minVersion: 'tls1.2'",'blockThirdPartyCookies','clearData','closeAllConnections',
   'cache: false',"v8CacheOptions: 'none'",'javascript: Boolean(tab.javascriptEnabled)','permission:prompt','permission:respond',
-  "registerInternalProtocol(privateSession.protocol","registerInternalProtocol(protocol, 'default UI session')","setZoomMode('isolated')","navigationUrl(event, legacyDetails)","mode: 'system'","runConnectivityTest","heuristicTrackingProtection","cookieAutoDelete","https://duckduckgo.com/","freshSession: true","aegis-diagnostic-"
+  "registerInternalProtocol(privateSession.protocol","registerInternalProtocol(protocol, 'default UI session')","setZoomMode('isolated')","navigationUrl(event, legacyDetails)","mode: 'system'","runConnectivityTest","heuristicTrackingProtection","cookieAutoDelete","https://duckduckgo.com/","freshSession: true","aegis-diagnostic-","blockThirdPartyRequests","blockPrivateNetwork","blockAllDownloads","anonymousRouteRequired","onBeforeSendHeaders","Sec-GPC"
 ]) {
   if (!corpus.includes(token)) { console.error('Hardening token missing:', token); bad = true; }
 }
