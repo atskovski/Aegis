@@ -383,6 +383,11 @@ async function runSecuritySuite() {
         effective.blockPrivateNetwork ? 'localhost, .local, loopback, link-local and private IPv4/IPv6 literals are blocked in this compartment.' : 'Local/private-network blocking is disabled.', 'runtime-policy'));
       checks.push(makeCheck('anonymous-downloads', 'Anonymous download isolation', effective.blockAllDownloads ? 'pass' : 'warning',
         effective.blockAllDownloads ? 'Downloads are blocked so files cannot be casually opened outside the anonymous route.' : 'Downloads are allowed in the anonymous compartment.', 'runtime-policy'));
+      const anonymousJsOff = tab.javascriptEnabled === false;
+      checks.push(makeCheck('anonymous-javascript', 'Anonymous active-content isolation', effective.javascriptDefault === false ? (anonymousJsOff ? 'pass' : 'fail') : 'warning',
+        effective.javascriptDefault === false
+          ? (anonymousJsOff ? 'JavaScript is disabled in this anonymous renderer, sharply reducing active fingerprinting and script attack surface.' : 'Anonymous policy requests JavaScript shutdown, but the active renderer still reports JavaScript enabled.')
+          : 'JavaScript is intentionally enabled for anonymous browsing compatibility; this increases fingerprinting and active-content exposure.', 'runtime-policy'));
     }
   } else {
     for (const [id,label] of [
@@ -411,6 +416,15 @@ async function runSecuritySuite() {
   addControlCheck('blockCryptominers', 'cryptominer-blocking', 'Cryptominer filtering');
   addControlCheck('blockFingerprintingScripts', 'fingerprinting-script-blocking', 'Fingerprinting-script filtering');
   addControlCheck('blockTrackingBeacons', 'tracking-beacons', 'Tracking beacon guard');
+  if (tab?.securityDomain === 'hardened' || tab?.securityDomain === 'anonymous') {
+    addControlCheck('blockThirdPartyRequests', 'third-party-request-isolation', 'All third-party request isolation');
+    addControlCheck('letterbox', 'viewport-letterbox', 'Viewport letterboxing');
+  }
+  if (tab?.securityDomain === 'anonymous') {
+    addControlCheck('disableWebRtc', 'webrtc-shutdown', 'WebRTC exposure shutdown');
+    addControlCheck('blockPrivateNetwork', 'private-network-firewall', 'Private-network firewall');
+    addControlCheck('blockAllDownloads', 'download-shutdown', 'Anonymous download shutdown');
+  }
   checks.push(makeCheck('tls-fingerprint', 'TLS fingerprint visibility', 'info',
     'Sites can still observe Chromium TLS characteristics (for example JA3/JA4-style fingerprints). Aegis does not claim to rewrite the Chromium TLS stack.', 'known-limit'));
 
