@@ -24,7 +24,12 @@ function permissionKeys(permission, details = {}) {
   if (permission === 'media') { const types = Array.isArray(details.mediaTypes) ? [...details.mediaTypes] : []; if (details.mediaType && !types.includes(details.mediaType)) types.push(details.mediaType); const keys = []; if (types.includes('video')) keys.push('camera'); if (types.includes('audio')) keys.push('microphone'); return keys.length ? keys : ['camera','microphone']; }
   if (permission === 'geolocation') return ['geolocation']; if (permission === 'notifications') return ['notifications']; if (permission === 'clipboard-read') return ['clipboardRead']; if (permission === 'display-capture') return ['displayCapture']; if (permission === 'local-fonts') return ['localFonts']; if (permission === 'window-management') return ['windowManagement']; if (permission === 'idle-detection') return ['idleDetection']; if (permission === 'usb') return ['usb']; if (permission === 'serial') return ['serial']; if (permission === 'hid') return ['hid']; if (permission === 'midi' || permission === 'midiSysex') return ['midi']; return [];
 }
-function permissionDecision(settings, origin, key) { const site = settings.sitePermissions?.[origin]; if (site && ['allow','block'].includes(site[key])) return site[key]; return ['ask','block'].includes(settings.permissionDefaults?.[key]) ? settings.permissionDefaults[key] : 'block'; }
+function permissionDecision(settings, origin, key) {
+  if(settings.enterpriseMode){
+    if(key==='clipboardRead' && settings.enterprise?.disableClipboardRead!==false) return 'block';
+    if(key==='displayCapture' && settings.enterprise?.disableScreenCapture!==false) return 'block';
+  }
+  const site = settings.sitePermissions?.[origin]; if (site && ['allow','block'].includes(site[key])) return site[key]; return ['ask','block'].includes(settings.permissionDefaults?.[key]) ? settings.permissionDefaults[key] : 'block'; }
 function permissionAllowed(settings, origin, key) { return permissionDecision(settings, origin, key) === 'allow'; }
 function requestOrigin(webContents, details = {}) { for (const value of [details.requestingUrl,details.securityOrigin,details.requestingOrigin,details.embeddingOrigin]) { const origin = safeOrigin(value); if (origin) return origin; } try { return safeOrigin(webContents?.getURL?.()); } catch { return ''; } }
 function categoryEnabled(settings, category) {
