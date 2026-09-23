@@ -6,19 +6,19 @@ const os = require('node:os');
 const path = require('node:path');
 const { safeRel, normalizeManifest, localizeManifest, packageEcosystem, extensionId, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab, scanUsedApiRoots } = require('../src/core/extensions');
 
-test('XPI runtime rejects unsafe relative paths', () => {
+test('Chrome extension runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
   assert.equal(safeRel('/absolute'), '');
   assert.equal(safeRel('content/main.js'), 'content/main.js');
 });
 
-test('WebExtension manifest validation accepts v2/v3 and requires identity fields', () => {
+test('Chrome extension manifest validation accepts v2/v3 and requires identity fields', () => {
   assert.equal(normalizeManifest({manifest_version:2,name:'Test',version:'1.0'}).name, 'Test');
   assert.equal(normalizeManifest({manifest_version:3,name:'Test',version:'1.0'}).manifest_version, 3);
   assert.throws(() => normalizeManifest({manifest_version:1,name:'Old',version:'1'}));
 });
 
-test('Firefox match patterns are applied conservatively', () => {
+test('Chrome match patterns are applied conservatively', () => {
   assert.equal(matchPattern('https://news.example.com/a?b=1','*://*.example.com/*'), true);
   assert.equal(matchPattern('https://example.net/a','*://*.example.com/*'), false);
   assert.equal(matchPattern('https://example.com/a','<all_urls>'), true);
@@ -60,14 +60,14 @@ test('each extension receives a stable isolated world id', () => {
 });
 
 
-test('Firefox background pages are explicitly hosted in the sandboxed compatibility runtime', () => {
+test('Manifest V2 background pages are explicitly hosted in the sandboxed compatibility runtime', () => {
   const report=compatibility({manifest_version:2,name:'T',version:'1',background:{page:'background.html'}});
   assert.equal(report.background,'sandboxed-page');
   assert.ok(report.warnings.some((x)=>x.api==='background.page'));
 });
 
 
-test('generated content-script WebExtension bootstrap is valid JavaScript', () => {
+test('generated content-script Chrome extension bootstrap is valid JavaScript', () => {
   const ext={
     id:'compile-test@example',
     resourceToken:'0123456789abcdef0123456789abcdef',
@@ -76,7 +76,7 @@ test('generated content-script WebExtension bootstrap is valid JavaScript', () =
   assert.doesNotThrow(() => new Function(bootstrap(ext)));
 });
 
-test('generated background WebExtension bootstrap is valid JavaScript', () => {
+test('generated background Chrome extension bootstrap is valid JavaScript', () => {
   const root=require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(),'aegis-ext-compile-'));
   try {
     const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
@@ -600,7 +600,7 @@ test('runtime.connect Port messages route between a content context and backgrou
 });
 
 
-test('signed Chrome CRX identity wins over Firefox manifest identity', () => {
+test('signed Chrome CRX identity is authoritative even when cross-browser metadata exists', () => {
   const manifest={
     manifest_version:2,name:'Cross-browser',version:'1.0',
     browser_specific_settings:{gecko:{id:'jid1-MnnxcxisBPnSXQ@jetpack'}}
@@ -608,12 +608,12 @@ test('signed Chrome CRX identity wins over Firefox manifest identity', () => {
   assert.equal(extensionId(manifest,'a'.repeat(64),{format:'crx3',id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp',verified:true}),'pkehgijcmpdhfbdbbnkijodmdjhbjlgp');
 });
 
-test('Firefox and generic packages still preserve Gecko identity', () => {
+test('generic Chrome ZIP identity ignores Gecko-only ids and uses Chrome identity rules', () => {
   const manifest={
-    manifest_version:2,name:'Firefox package',version:'1.0',
+    manifest_version:2,name:'Cross-browser package',version:'1.0',
     browser_specific_settings:{gecko:{id:'jid1-MnnxcxisBPnSXQ@jetpack'}}
   };
-  assert.equal(extensionId(manifest,'b'.repeat(64),{format:'xpi',id:''}),'jid1-mnnxcxisbpnsxq@jetpack');
+  assert.equal(extensionId(manifest,'b'.repeat(64),{format:'zip',id:''}),'chromeext-'+('b'.repeat(32)));
 });
 
 
@@ -640,10 +640,10 @@ test('API scanner does not mistake URL host suffixes for chrome APIs', () => {
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
-test('package ecosystem distinguishes signed Chrome CRX from Firefox XPI', () => {
-  const firefox={manifest_version:2,name:'F',version:'1',browser_specific_settings:{gecko:{id:'f@example'}}};
-  assert.equal(packageEcosystem(firefox,{format:'xpi'}),'firefox');
-  assert.equal(packageEcosystem(firefox,{format:'crx3',id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp'}),'chrome');
+test('Runtime 6 reports one Chrome extension ecosystem', () => {
+  const manifest={manifest_version:2,name:'Cross-browser metadata',version:'1',browser_specific_settings:{gecko:{id:'f@example'}}};
+  assert.equal(packageEcosystem(manifest,{format:'zip'}),'chrome');
+  assert.equal(packageEcosystem(manifest,{format:'crx3',id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp'}),'chrome');
 });
 
 
