@@ -32,7 +32,7 @@ function controlAssurance(settings, tab) {
     let evidence = enabled ? 'Enabled and connected to its enforcement layer.' : 'Disabled by user setting.';
     if (key === 'cosmeticFiltering' && enabled) { enforced = Boolean(tab?.cosmeticFilteringReady); evidence = enforced ? 'User-origin cosmetic CSS is active in this document.' : 'Waiting for a remote document to confirm cosmetic CSS.'; }
     if (['privacyApiGuard','globalPrivacyControl','doNotTrack','disableServiceWorkers'].includes(key) && enabled) { enforced = Boolean(tab?.fingerprintReady); evidence = enforced ? 'New-document privacy preload is active.' : 'New-document privacy preload is not confirmed for this tab.'; }
-    if (['blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','blockFingerprintingScripts','blockThirdPartyCookies','stripCrossSiteReferrers','etagProtection','publicCdnIsolation'].includes(key) && enabled) { enforced = Boolean(tab?.permissionFirewallReady); evidence = enforced ? 'Private-session request/response handlers are installed.' : 'Session privacy handlers are not confirmed.'; }
+    if (['blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','blockFingerprintingScripts','blockThirdPartyCookies','stripCrossSiteReferrers','etagProtection','publicCdnIsolation'].includes(key) && enabled) { enforced = Boolean(tab?.privacySessionReady); evidence = enforced ? 'Private-session request/response handlers are installed and read this setting at request time.' : 'Session privacy handlers are not confirmed.'; }
     return { key,label,layer,enabled,enforced,status:enabled?(enforced?'enforced':'degraded'):'disabled',evidence };
   });
 }
