@@ -783,7 +783,7 @@ async function installFingerprintDefenses(tab) {
     tab.auditBinding = bindingName;
     const bindingReady = await step('sentinelBinding', () => withTimeout(browserRuntime.command(tab.view,'Runtime.addBinding', { name: bindingName }), 1400, 'Sentinel binding'));
     if (bindingReady) {
-      if (!tab.auditMessageHandler && typeof dbg.on === 'function') {
+      if (!tab.auditMessageHandler) {
         tab.auditMessageHandler = (_event, method, params) => {
           if (tabSettings(tab).siteIntelligence === false || method !== 'Runtime.bindingCalled' || params?.name !== tab.auditBinding) return;
           try { const payload = JSON.parse(String(params.payload || '{}')); if (recordSiteSignal(tab, payload)) emitState(); } catch {}
