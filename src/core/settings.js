@@ -158,10 +158,14 @@ function sanitizeSettings(raw = {}) {
   const legacyDefaultDirect = Number(raw.schemaVersion || 0) < 3 && raw.proxy?.mode === 'direct' && !raw.proxy?.server;
   const proxyMode = legacyDefaultDirect ? 'system' : choice(raw.proxy?.mode, ['system','direct','socks5','http','https'], d.proxy.mode);
   const migratedTheme = ['midnight','aurora'].includes(raw.appearance?.theme) ? 'nebula' : raw.appearance?.theme;
+  // Older Aegis builds used the internal start page as the default home page.
+  // Treat only that exact legacy default as a migration to the current DuckDuckGo
+  // default; explicit custom home pages remain untouched.
+  const migratedHomePage = raw.homePage === 'aegis://app/start.html' ? d.homePage : raw.homePage;
   return {
     schemaVersion: 8,
     privacyLevel: choice(migratedLevel, ['standard','strict','maximum'], d.privacyLevel),
-    homePage: sanitizeHomePage(raw.homePage),
+    homePage: sanitizeHomePage(migratedHomePage),
     searchEngine,
     customSearchTemplate: customSearchTemplate.includes('%s') ? customSearchTemplate : '',
     letterbox: bool(raw.letterbox, d.letterbox),
