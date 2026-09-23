@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { safeRel, normalizeManifest, extensionId, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab, scanUsedApiRoots } = require('../src/core/extensions');
+const { safeRel, normalizeManifest, localizeManifest, packageEcosystem, extensionId, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab, scanUsedApiRoots } = require('../src/core/extensions');
 
 test('XPI runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
@@ -335,4 +335,34 @@ test('Firefox and generic packages still preserve Gecko identity', () => {
     browser_specific_settings:{gecko:{id:'jid1-MnnxcxisBPnSXQ@jetpack'}}
   };
   assert.equal(extensionId(manifest,'b'.repeat(64),{format:'xpi',id:''}),'jid1-mnnxcxisbpnsxq@jetpack');
+});
+
+
+test('localized extension metadata resolves __MSG_ placeholders', () => {
+  const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-ext-locale-'));
+  try{
+    fs.mkdirSync(path.join(root,'_locales','en'),{recursive:true});
+    fs.writeFileSync(path.join(root,'_locales','en','messages.json'),JSON.stringify({name:{message:'Privacy Badger'},description:{message:'Blocks invisible trackers'}}));
+    const manifest=localizeManifest(root,{manifest_version:3,default_locale:'en',name:'__MSG_name__',description:'__MSG_description__',version:'1.0'});
+    assert.equal(manifest.name,'Privacy Badger');
+    assert.equal(manifest.description,'Blocks invisible trackers');
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
+test('API scanner does not mistake URL host suffixes for chrome APIs', () => {
+  const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-ext-scan-url-'));
+  try{
+    fs.writeFileSync(path.join(root,'background.js'),"const u='https://chrome.com/path'; chrome.runtime.getManifest();");
+    const roots=scanUsedApiRoots(root);
+    assert.ok(roots.includes('runtime'));
+    assert.equal(roots.includes('com'),false);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
+test('package ecosystem distinguishes signed Chrome CRX from Firefox XPI', () => {
+  const firefox={manifest_version:2,name:'F',version:'1',browser_specific_settings:{gecko:{id:'f@example'}}};
+  assert.equal(packageEcosystem(firefox,{format:'xpi'}),'firefox');
+  assert.equal(packageEcosystem(firefox,{format:'crx3',id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp'}),'chrome');
 });
