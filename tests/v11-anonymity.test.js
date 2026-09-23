@@ -55,3 +55,13 @@ test('protected compartments cannot be weakened by per-tab UI controls',()=>{
   assert.match(app,/protectedCompartment/);
   assert.match(app,/compartmentLocked/);
 });
+
+
+test('independent security test lab is allowlisted and opens hardened tabs',()=>{
+  for(const key of ['eff','ip','webrtc','canvas','webgl','tls','javascript']) assert.match(main,new RegExp(key+": 'https://"));
+  assert.match(main,/security-test:open/);
+  assert.match(main,/securityDomain:'hardened'/);
+  assert.match(app,/data-security-test/);
+  assert.match(html,/data-security-test="eff"/);
+  assert.match(html,/data-security-test="webrtc"/);
+});
