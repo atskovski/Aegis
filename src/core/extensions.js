@@ -271,6 +271,7 @@ class AegisExtensionRuntime{
     return {token,summary,expiresAt:new Date(expiresAt).toISOString()};
   }
   cancelStage(token){return this.pendingInstalls.delete(String(token||''))}
+  reviewStage(token){const staged=this.pendingInstalls.get(String(token||''));return staged&&staged.expiresAt>=Date.now()?staged.summary:null}
   async installStaged(token){
     const staged=this.pendingInstalls.get(String(token||''));
     if(!staged||staged.expiresAt<Date.now()){this.pendingInstalls.delete(String(token||''));throw new Error('Extension review expired. Select the package again.');}
