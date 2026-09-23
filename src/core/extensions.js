@@ -225,7 +225,7 @@ class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
     this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;
-    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest)})}catch{}}}
@@ -289,6 +289,96 @@ class AegisExtensionRuntime{
   async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled){await this.startBackground(e);this.emitEvent(e,'runtime.onStartup',[]);}else this.stopBackground(id);return this.publicRecord(e)}
   remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.actionState.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
   enabled(){return [...this.items.values()].filter((e)=>e.enabled!==false)}
+  extensionFor(id){const e=this.items.get(String(id||''));if(!e||e.enabled===false)throw new Error('Extension disabled or missing');return e}
+  tabById(id){return this.getTabs().find((t)=>t.id===Number(id))}
+  canAccessTab(e,tab,{inject=false}={}){
+    if(!extensionVisibleTab(tab))return false;
+    if(!inject)return permissions(e.manifest).includes('tabs')||networkAllowedByManifest(e.manifest,tab.url||'')||this.activeGrants.get(e.id)?.has(tab.id);
+    return networkAllowedByManifest(e.manifest,tab.url||'')||this.activeGrants.get(e.id)?.has(tab.id);
+  }
+  publicTab(e,tab){
+    if(!tab||!extensionVisibleTab(tab))return null;
+    const mayRead=this.canAccessTab(e,tab);
+    return {id:tab.id,index:Math.max(0,this.getTabs().filter(extensionVisibleTab).findIndex((x)=>x.id===tab.id)),windowId:1,url:mayRead?(tab.url||''):'',title:mayRead?(tab.title||''):'',active:tab.id===this.getActiveId(),highlighted:tab.id===this.getActiveId(),incognito:true,status:tab.loading?'loading':'complete',pinned:false,audible:false,mutedInfo:{muted:false}};
+  }
+  emitEvent(e,type,args=[]){
+    if(!e||e.enabled===false)return;
+    const payload={extensionId:e.id,type:String(type||''),args:Array.isArray(args)?args:[]};
+    const host=this.backgroundHosts.get(e.id);
+    if(host&&!host.isDestroyed())try{host.webContents.send('extension:event',payload)}catch{}
+    for(const tab of this.getTabs()){
+      if(!extensionVisibleTab(tab)||!tab?.view?.webContents||tab.view.webContents.isDestroyed())continue;
+      try{tab.view.webContents.send('extension:event',payload)}catch{}
+    }
+    for(const win of this.pageWindows){
+      if(win.__aegisExtensionId===e.id&&!win.isDestroyed())try{win.webContents.send('extension:event',payload)}catch{}
+    }
+  }
+  emitEventAll(type,argsForExtension){
+    for(const e of this.enabled()){
+      const args=typeof argsForExtension==='function'?argsForExtension(e):argsForExtension;
+      if(args!==null&&args!==undefined)this.emitEvent(e,type,args);
+    }
+  }
+  notifyTabCreated(tab){this.emitEventAll('tabs.onCreated',(e)=>{const value=this.publicTab(e,tab);return value?[value]:null})}
+  notifyTabActivated(tab){this.emitEventAll('tabs.onActivated',(e)=>this.publicTab(e,tab)?[{tabId:tab.id,windowId:1}]:null)}
+  notifyTabUpdated(tab,changeInfo={}){
+    this.emitEventAll('tabs.onUpdated',(e)=>{const value=this.publicTab(e,tab);return value?[tab.id,{...changeInfo},value]:null});
+  }
+  notifyTabRemoved(tabId,wasVisible=true){if(!wasVisible)return;this.emitEventAll('tabs.onRemoved',[Number(tabId),{windowId:1,isWindowClosing:false}])}
+  notifyNavigation(type,tab,url,error=''){
+    const eventName=String(type||'');
+    this.emitEventAll(eventName,(e)=>this.publicTab(e,tab)?[{tabId:tab.id,url:String(url||''),frameId:0,parentFrameId:-1,timeStamp:Date.now(),error:String(error||'')}]:null);
+  }
+  alarmKey(id,name){return String(id)+':'+String(name||'')}
+  alarmList(id){const prefix=String(id)+':';return [...this.alarmTimers.entries()].filter(([key])=>key.startsWith(prefix)).map(([,value])=>value.alarm)}
+  clearAlarm(id,name){const key=this.alarmKey(id,name),entry=this.alarmTimers.get(key);if(!entry)return false;clearTimeout(entry.timer);this.alarmTimers.delete(key);return true}
+  clearAllAlarms(id){let changed=false;for(const key of [...this.alarmTimers.keys()])if(key.startsWith(String(id)+':')){const entry=this.alarmTimers.get(key);clearTimeout(entry?.timer);this.alarmTimers.delete(key);changed=true}return changed}
+  createAlarm(e,name,info={}){
+    name=String(name||'');this.clearAlarm(e.id,name);
+    const delayMs=Number.isFinite(Number(info.when))?Math.max(0,Number(info.when)-Date.now()):Math.max(0,Number(info.delayInMinutes||0)*60000);
+    const periodMs=Number(info.periodInMinutes)>0?Math.max(60000,Number(info.periodInMinutes)*60000):0;
+    const alarm={name,scheduledTime:Date.now()+delayMs,periodInMinutes:periodMs?periodMs/60000:undefined};
+    const fire=()=>{if(!this.items.has(e.id)||e.enabled===false)return;alarm.scheduledTime=Date.now();this.emitEvent(e,'alarms.onAlarm',[{...alarm}]);if(periodMs){alarm.scheduledTime=Date.now()+periodMs;const timer=setTimeout(fire,periodMs);this.alarmTimers.set(this.alarmKey(e.id,name),{timer,alarm})}else this.alarmTimers.delete(this.alarmKey(e.id,name))};
+    const timer=setTimeout(fire,delayMs);this.alarmTimers.set(this.alarmKey(e.id,name),{timer,alarm});return undefined;
+  }
+  pageArguments(e,context='page'){
+    const enc=(value)=>Buffer.from(JSON.stringify(value),'utf8').toString('base64url');
+    return [
+      '--aegis-extension-id='+encodeURIComponent(e.id),
+      '--aegis-extension-token='+encodeURIComponent(e.resourceToken),
+      '--aegis-extension-context='+encodeURIComponent(context),
+      '--aegis-extension-manifest='+enc(e.manifest),
+      '--aegis-extension-messages='+enc(localeMessages(e))
+    ];
+  }
+  extensionSession(e){
+    if(this.pageSessions.has(e.id))return this.pageSessions.get(e.id);
+    const ses=this.electronSession.fromPartition('aegis-extension-page-'+crypto.createHash('sha256').update(e.id).digest('hex').slice(0,24),{cache:false});
+    try{ses.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>callback({cancel:!networkAllowedByManifest(e.manifest,details.url)}))}catch{}
+    if(typeof this.registerProtocols==='function')this.registerProtocols(ses.protocol,'extension page '+e.id);
+    this.pageSessions.set(e.id,ses);return ses;
+  }
+  async openExtensionPage(id,rel,{parent=null,title='',width=620,height=720,context='page'}={}){
+    const e=this.extensionFor(id),safe=safeRel(rel);if(!safe)throw new Error('Extension page is not configured.');
+    const target=path.resolve(e.path,safe),root=path.resolve(e.path)+path.sep;
+    if(!target.startsWith(root)||!fs.existsSync(target)||!fs.statSync(target).isFile())throw new Error('Extension page does not exist: '+safe);
+    const win=new this.BrowserWindow({
+      parent:parent&&!parent.isDestroyed?.()?parent:undefined,show:false,width:Math.max(360,Math.min(900,width)),height:Math.max(300,Math.min(900,height)),
+      minWidth:320,minHeight:240,title:title||e.manifest.name,backgroundColor:'#10141d',autoHideMenuBar:true,
+      webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:this.extensionSession(e),preload:path.join(__dirname,'..','extension-page-preload.js'),additionalArguments:this.pageArguments(e,context)}
+    });
+    win.__aegisExtensionId=e.id;this.pageWindows.add(win);win.on('closed',()=>this.pageWindows.delete(win));
+    await win.loadURL(extensionResourceUrl(e,safe));win.show();return true;
+  }
+  async openOptions(id,parent=null){const e=this.extensionFor(id),page=optionsPage(e.manifest);if(!page)throw new Error('This extension does not provide an options page.');return this.openExtensionPage(e.id,page,{parent,title:e.manifest.name+' — Options',width:760,height:760,context:'options'})}
+  async openAction(id,parent=null){
+    const e=this.extensionFor(id),action=extensionAction(e.manifest);if(!action)throw new Error('This extension does not expose a toolbar action.');
+    const active=this.tabById(this.getActiveId());if(active&&extensionVisibleTab(active)){if(!this.activeGrants.has(e.id))this.activeGrants.set(e.id,new Set());this.activeGrants.get(e.id).add(active.id)}
+    const state=this.actionState.get(e.id)||{},popup=safeRel(state.popup||action.popup||'');
+    if(popup)return this.openExtensionPage(e.id,popup,{parent,title:state.title||action.title,width:440,height:600,context:'popup'});
+    const tab=this.publicTab(e,active);if(tab){this.emitEvent(e,action.kind+'.onClicked',[tab]);if(action.kind!=='action')this.emitEvent(e,'action.onClicked',[tab])}return true;
+  }
   resolveResource(token, rel){
     const ext=[...this.items.values()].find((e)=>e.enabled!==false && e.resourceToken===String(token||''));
     const safe=safeRel(rel); if(!ext||!safe)return null;
