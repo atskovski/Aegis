@@ -172,7 +172,7 @@ class AegisExtensionRuntime{
     if(m==='permissions.contains'){const set=new Set(permissions(e.manifest));return [...(a[0]?.permissions||[]),...(a[0]?.origins||[])].every((x)=>set.has(x))}
     if(m.startsWith('storage.')){const [,area,op]=m.split('.'),file=path.join(this.dataDir,e.id,'storage.json'),store=area==='local'?readStore(file):(this.sessionStores.get(e.id)||{});this.sessionStores.set(e.id,store);if(op==='get')return getKeys(store,a[0]);if(op==='set')Object.assign(store,a[0]||{});if(op==='remove')for(const k of Array.isArray(a[0])?a[0]:[a[0]])delete store[k];if(op==='clear')for(const k of Object.keys(store))delete store[k];if(area==='local'&&op!=='get')writeStore(file,store);return;}
     const pub=(t)=>({id:t.id,url:t.url||'',title:t.title||'',active:t.id===this.getActiveId(),incognito:true,status:t.loading?'loading':'complete'});
-    if(m==='tabs.query')return tabs.filter((t)=>!a[0]?.active||t.id===source?.id).map(pub);
+    if(m==='tabs.query')return tabs.filter((t)=>!a[0]?.active||t.id===this.getActiveId()).map(pub);
     if(m==='tabs.create')return pub(await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false));
     if(m==='tabs.update')return this.updateTab(typeof a[0]==='number'?a[0]:source?.id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
     if(m==='tabs.remove'){for(const id of (Array.isArray(a[0])?a[0]:[a[0]]))this.removeTab(Number(id));return}
@@ -200,8 +200,10 @@ class AegisExtensionRuntime{
     const valid=scripts.filter((rel)=>{const file=path.resolve(ext.path,rel);return file.startsWith(path.resolve(ext.path)+path.sep)&&fs.existsSync(file)&&fs.statSync(file).isFile()});
     if(!valid.length)return false;
     const wrapper=path.join(ext.path,'__aegis_background.html');
-    const tags=valid.map((rel)=>'<script src="'+rel.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></script>').join('');
-    const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\' \'unsafe-inline\'; connect-src https: http: aegis-extension:; img-src \'self\' data: aegis-extension:; style-src \'self\' \'unsafe-inline\'; object-src \'none\'"><script>'+this.backgroundBootstrap(ext).replace(/<\\/script/gi,'<\\/script')+'</script>'+tags;
+    const bootstrapFile=path.join(ext.path,'__aegis_background_bootstrap.js');
+    fs.writeFileSync(bootstrapFile,this.backgroundBootstrap(ext),{mode:0o600});
+    const tags=['<script src="__aegis_background_bootstrap.js"></script>',...valid.map((rel)=>'<script src="'+rel.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></script>')].join('');
+    const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; connect-src https: http: aegis-extension:; img-src \'self\' data: aegis-extension:; style-src \'self\' \'unsafe-inline\'; object-src \'none\'">'+tags;
     fs.writeFileSync(wrapper,html,{mode:0o600});
     const ses=this.electronSession.fromPartition('aegis-extension-bg-'+crypto.createHash('sha256').update(ext.id).digest('hex').slice(0,24),{cache:false});
     if(typeof this.registerProtocols==='function')this.registerProtocols(ses.protocol,'extension '+ext.id);
