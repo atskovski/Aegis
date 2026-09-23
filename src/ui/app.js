@@ -444,7 +444,7 @@ function renderExtensionActions() {
   const bar = $('#extensionActions');
   if (!bar) return;
   bar.replaceChildren();
-  const addons = (state.extensions || []).filter((addon) => addon.enabled && addon.action);
+  const addons = (state.extensions || []).filter((addon) => addon.enabled && addon.action && addon.action.enabled !== false);
   bar.classList.toggle('hidden', addons.length === 0);
   addons.slice(0, 7).forEach((addon) => {
     const button = document.createElement('button');
@@ -490,28 +490,64 @@ function renderExtensionActions() {
   }
 }
 
+function addonHealth(addon) {
+  if (!addon?.enabled) return { status:'disabled', label:'Disabled' };
+  const diagnostic = addon?.runtime?.lastDiagnostic;
+  if (diagnostic?.status === 'fail' || addon?.runtime?.status === 'degraded' || addon?.runtime?.status === 'stopped') return { status:'fail', label:'Needs repair' };
+  if (diagnostic?.status === 'warning' || (addon?.compatibility?.unsupported || []).length) return { status:'warning', label:'Limited' };
+  return { status:'pass', label:'Healthy' };
+}
+
 function renderAddons() {
   const list = $('#addonList');
   if (!list) return;
-  const addons = state.extensions || [];
-  $('#addonInstalledCount').textContent = addons.length;
-  $('#addonEnabledCount').textContent = addons.filter((a) => a.enabled).length;
-  $('#addonActionCount').textContent = addons.filter((a) => a.enabled && a.action).length;
-  $('#addonCompatibilityCount').textContent = addons.filter((a) => Number(a.compatibility?.score || 0) >= 80).length;
-  $('#addonManagerStatus').textContent = addons.length ? (addons.filter((a) => a.enabled).length + ' enabled · isolated extension runtime active') : 'Runtime ready';
+  const all = state.extensions || [];
+  const healthy = all.filter((a) => addonHealth(a).status === 'pass').length;
+  const attention = all.filter((a) => ['fail','warning'].includes(addonHealth(a).status)).length;
+  $('#addonInstalledCount').textContent = all.length;
+  $('#addonEnabledCount').textContent = all.filter((a) => a.enabled).length;
+  $('#addonHealthyCount').textContent = healthy;
+  $('#addonDegradedCount').textContent = attention;
+  $('#addonCompatibilityCount').textContent = all.filter((a) => Number(a.compatibility?.score || 0) >= 80).length;
+  $('#addonManagerStatus').textContent = all.length
+    ? (healthy + ' healthy · ' + attention + ' need' + (attention === 1 ? 's' : '') + ' attention')
+    : 'Runtime ready';
   renderAddonInstallReview();
 
+  const query = String($('#addonSearch')?.value || '').trim().toLowerCase();
+  const filter = String($('#addonFilter')?.value || 'all');
+  const addons = all.filter((addon) => {
+    const health = addonHealth(addon);
+    const text = [addon.name,addon.description,addon.id,(addon.permissions||[]).join(' '),(addon.detectedApis||[]).join(' ')].join(' ').toLowerCase();
+    if (query && !text.includes(query)) return false;
+    if (filter === 'enabled' && !addon.enabled) return false;
+    if (filter === 'disabled' && addon.enabled) return false;
+    if (filter === 'healthy' && health.status !== 'pass') return false;
+    if (filter === 'attention' && !['warning','fail'].includes(health.status)) return false;
+    if (filter === 'limited' && Number(addon.compatibility?.score || 0) >= 70 && !(addon.compatibility?.unsupported || []).length) return false;
+    return true;
+  });
+
   list.replaceChildren();
-  if (!addons.length) {
+  if (!all.length) {
     const empty = document.createElement('div'); empty.className = 'suite-empty addon-empty';
     const b = document.createElement('b'); b.textContent = 'No add-ons installed';
-    const s = document.createElement('span'); s.textContent = 'Choose a Firefox WebExtension .xpi or .zip package. Aegis will inspect it before anything is installed.';
+    const s = document.createElement('span'); s.textContent = 'Choose a Firefox WebExtension .xpi/.zip or paste a direct HTTPS package URL. Aegis will inspect it before anything is installed.';
+    empty.append(b, s); list.append(empty); return;
+  }
+  if (!addons.length) {
+    const empty = document.createElement('div'); empty.className = 'suite-empty addon-empty';
+    const b = document.createElement('b'); b.textContent = 'No add-ons match this view';
+    const s = document.createElement('span'); s.textContent = 'Change the search text or filter to see installed extensions.';
     empty.append(b, s); list.append(empty); return;
   }
 
   addons.forEach((addon) => {
     const compat = compatibilityLabel(addon);
-    const card = document.createElement('article'); card.className = 'addon-card' + (addon.enabled ? '' : ' addon-disabled');
+    const health = addonHealth(addon);
+    const card = document.createElement('article');
+    card.className = 'addon-card' + (addon.enabled ? '' : ' addon-disabled');
+    card.dataset.health = health.status === 'disabled' ? '' : health.status;
 
     const head = document.createElement('div'); head.className = 'addon-card-head';
     const iconWrap = document.createElement('div'); iconWrap.className = 'addon-card-icon';
@@ -532,44 +568,57 @@ function renderAddons() {
     score.title = compat.label + ' Aegis compatibility';
     head.append(iconWrap, identity, score); card.append(head);
 
+    const healthRow = document.createElement('div'); healthRow.className = 'addon-health';
+    const healthBadge = document.createElement('span'); healthBadge.className = 'addon-health-badge ' + (health.status === 'disabled' ? 'warning' : health.status); healthBadge.textContent = health.label;
+    const runtimeBadge = document.createElement('span'); runtimeBadge.className = 'addon-health-badge ' + (addon.runtime?.backgroundExpected && !addon.runtime?.backgroundRunning && addon.enabled ? 'fail' : 'pass');
+    runtimeBadge.textContent = addon.runtime?.backgroundExpected ? (addon.runtime?.backgroundRunning ? 'Background running' : 'Background stopped') : 'No background needed';
+    healthRow.append(healthBadge, runtimeBadge);
+    if (addon.compatibility?.background) healthRow.append(makeAddonChip(addon.compatibility.background, 'quiet'));
+    card.append(healthRow);
+
     const features = document.createElement('div'); features.className = 'addon-chip-list addon-features';
     addonFeatureLabels(addon.features).forEach((item) => features.append(makeAddonChip(item, 'supported')));
+    ['storage.sync','windows','cookies','tabs.captureVisibleTab'].filter((name) => {
+      const root=name.split('.')[0];
+      return (addon.detectedApis||[]).includes(root) || (addon.permissions||[]).includes(root);
+    }).forEach((name) => features.append(makeAddonChip(name, 'supported')));
     card.append(features);
 
     const detailGrid = document.createElement('div'); detailGrid.className = 'addon-details';
-    const permissionCard = document.createElement('span');
-    const pb = document.createElement('b'); pb.textContent = 'Permissions';
-    const ps = document.createElement('small');
+    const makeDetail = (label,value) => {
+      const box=document.createElement('span'),b=document.createElement('b'),s=document.createElement('small');
+      b.textContent=label;s.textContent=value;box.append(b,s);return box;
+    };
     const risk = addon.risk || [];
-    ps.textContent = risk.length ? risk.map((x) => x.permission + ' (' + x.level + ')').join(', ') : 'No declared API permissions';
-    permissionCard.append(pb, ps);
+    detailGrid.append(
+      makeDetail('Permissions', risk.length ? risk.map((x) => x.permission + ' (' + x.level + ')').join(', ') : 'No declared API permissions'),
+      makeDetail('Host access', (addon.hostPermissions || []).join(', ') || 'No broad host access'),
+      makeDetail('Compatibility', (addon.compatibility?.unsupported || []).length ? ('Unsupported: ' + addon.compatibility.unsupported.map((x)=>x.api).join(', ')) : ((addon.compatibility?.warnings || []).length ? addon.compatibility.warnings.map((x)=>x.api).join(', ') + ' has compatibility notes' : 'No manifest-level incompatibilities detected')),
+      makeDetail('Runtime', [addon.runtime?.status || 'unknown', addon.action ? 'toolbar action' : '', addon.optionsPage ? 'options page' : ''].filter(Boolean).join(' · '))
+    );
+    card.append(detailGrid);
 
-    const hostCard = document.createElement('span');
-    const hb = document.createElement('b'); hb.textContent = 'Host access';
-    const hs = document.createElement('small'); hs.textContent = (addon.hostPermissions || []).join(', ') || 'No broad host access';
-    hostCard.append(hb, hs);
-
-    const compatibilityCard = document.createElement('span');
-    const cb = document.createElement('b'); cb.textContent = 'Compatibility notes';
-    const cs = document.createElement('small');
-    const unsupported = addon.compatibility?.unsupported || [], warnings = addon.compatibility?.warnings || [];
-    cs.textContent = unsupported.length ? ('Unsupported: ' + unsupported.map((x) => x.api).join(', ')) : (warnings.length ? warnings.map((x) => x.reason).join(' ') : 'No manifest-level incompatibilities detected');
-    compatibilityCard.append(cb, cs);
-
-    const runtimeCard = document.createElement('span');
-    const rb = document.createElement('b'); rb.textContent = 'Runtime';
-    const rs = document.createElement('small');
-    const runtimeState = addon.runtime || {};
-    const runtimeParts = [runtimeState.status || 'unknown', addon.compatibility?.background || 'no background', addon.action ? 'toolbar action available' : 'no toolbar action'];
-    if (addon.optionsPage) runtimeParts.push('options page');
-    if (runtimeState.errors?.length) runtimeParts.push(runtimeState.errors.length + ' runtime issue' + (runtimeState.errors.length === 1 ? '' : 's') + ': ' + runtimeState.errors[0].scope + ' — ' + runtimeState.errors[0].message);
-    rs.textContent = runtimeParts.join(' · ');
-    runtimeCard.append(rb, rs);
-    detailGrid.append(permissionCard, hostCard, compatibilityCard, runtimeCard); card.append(detailGrid);
+    const diagnostic = addon.runtime?.lastDiagnostic;
+    if (diagnostic?.checks?.length) {
+      const diag = document.createElement('div'); diag.className = 'addon-diagnostic';
+      diagnostic.checks.slice(0,6).forEach((check) => {
+        const row=document.createElement('div');row.className='addon-diagnostic-row';
+        const b=document.createElement('b');b.textContent=(check.status||'info').toUpperCase();
+        const s=document.createElement('span');s.textContent=(check.label||check.id)+': '+(check.evidence||'');
+        row.append(b,s);diag.append(row);
+      });
+      card.append(diag);
+    } else if (addon.runtime?.errors?.length) {
+      const diag = document.createElement('div'); diag.className = 'addon-diagnostic';
+      const row=document.createElement('div');row.className='addon-diagnostic-row';
+      const b=document.createElement('b');b.textContent='ERROR';
+      const s=document.createElement('span');s.textContent=addon.runtime.errors[0].scope+': '+addon.runtime.errors[0].message;
+      row.append(b,s);diag.append(row);card.append(diag);
+    }
 
     const actions = document.createElement('div'); actions.className = 'addon-actions';
     if (addon.action) {
-      const open = document.createElement('button'); open.className = 'secondary'; open.textContent = addon.action.popup ? 'Open' : 'Run action';
+      const open = document.createElement('button'); open.className = 'secondary'; open.textContent = addon.action.popup ? 'Open popup' : 'Run action'; open.disabled = addon.action.enabled === false;
       open.addEventListener('click', async () => {
         const result = await window.aegis.invoke('extensions:open-action', addon.id);
         if (!result?.ok) showToast({title:addon.name,message:result?.error || 'Could not open extension action.',tone:'danger'});
@@ -584,11 +633,36 @@ function renderAddons() {
       });
       actions.append(options);
     }
+
+    const healthButton = document.createElement('button'); healthButton.className = 'secondary'; healthButton.textContent = 'Health check';
+    healthButton.addEventListener('click', async () => {
+      healthButton.disabled=true;healthButton.textContent='Checking…';
+      try{
+        const result=await window.aegis.invoke('extensions:diagnose',{id:addon.id,repair:false});
+        if(result?.ok){showToast({title:addon.name,message:'Health check: '+String(result.diagnostic?.status||'unknown')+'. Review the inline evidence.',tone:result.diagnostic?.status==='fail'?'warning':'success'});await refreshExtensions();}
+        else showToast({title:addon.name,message:result?.error||'Health check failed.',tone:'danger'});
+      }catch(err){showToast({title:addon.name,message:err.message,tone:'danger'});}
+      finally{healthButton.disabled=false;healthButton.textContent='Health check';}
+    });
+    actions.append(healthButton);
+
+    const repair = document.createElement('button'); repair.className = health.status === 'fail' ? 'primary' : 'secondary'; repair.textContent = 'Repair runtime';
+    repair.addEventListener('click', async () => {
+      repair.disabled=true;repair.textContent='Repairing…';
+      try{
+        const result=await window.aegis.invoke('extensions:diagnose',{id:addon.id,repair:true});
+        if(result?.ok){showToast({title:addon.name,message:result.diagnostic?.status==='pass'?'Extension runtime repaired and verified.':'Repair completed; compatibility issues remain. Review the health evidence.',tone:result.diagnostic?.status==='fail'?'warning':'success'});await refreshExtensions();}
+        else showToast({title:addon.name,message:result?.error||'Could not repair extension runtime.',tone:'danger'});
+      }catch(err){showToast({title:addon.name,message:err.message,tone:'danger'});}
+      finally{repair.disabled=false;repair.textContent='Repair runtime';}
+    });
+    actions.append(repair);
+
     const reload = document.createElement('button'); reload.className = 'secondary'; reload.textContent = 'Reload';
     reload.addEventListener('click', async () => {
       reload.disabled = true; reload.textContent = 'Reloading…';
       const result = await window.aegis.invoke('extensions:reload', addon.id);
-      if (result?.ok) showToast({title:addon.name,message:'Extension runtime reloaded.',tone:'success'});
+      if (result?.ok) { showToast({title:addon.name,message:'Extension runtime reloaded.',tone:'success'}); await refreshExtensions(); }
       else showToast({title:addon.name,message:result?.error || 'Could not reload extension.',tone:'danger'});
       reload.disabled = false; reload.textContent = 'Reload';
     });
@@ -626,7 +700,6 @@ function renderAddons() {
     list.append(card);
   });
 }
-
 
 function renderRuntimeEvidence(tab) {
   const box = $('#sentinelRuntimeEvidence');
@@ -1362,6 +1435,26 @@ $('#installXpi').addEventListener('click', async () => {
   } catch (err) { showToast({title:'Package inspection failed',message:err.message,tone:'danger'}); }
   finally { button.disabled = false; button.textContent = 'Choose package'; }
 });
+$('#installAddonUrl').addEventListener('click', async () => {
+  const button=$('#installAddonUrl'),input=$('#addonUrlInput'),url=String(input.value||'').trim();
+  if(!url){showToast({title:'Extension URL required',message:'Paste a direct HTTPS .xpi or .zip package URL.',tone:'warning'});input.focus();return;}
+  button.disabled=true;button.textContent='Downloading…';
+  try{
+    const result=await window.aegis.invoke('extensions:install-url',url);
+    if(result?.ok){
+      pendingAddonInstall={token:result.token,summary:result.summary,expiresAt:result.expiresAt,sourceUrl:result.sourceUrl};
+      renderAddonInstallReview();
+      $('#addonReview').scrollIntoView({behavior:state.settings.appearance?.reduceMotion?'auto':'smooth',block:'nearest'});
+      showToast({title:'Package downloaded and inspected',message:'Review '+result.summary.name+' before installing.',tone:'default'});
+    }else showToast({title:'Extension download failed',message:result?.error||'Could not download extension package.',tone:'danger'});
+  }catch(err){showToast({title:'Extension download failed',message:err.message,tone:'danger'});}
+  finally{button.disabled=false;button.textContent='Inspect URL';}
+});
+$('#addonUrlInput').addEventListener('keydown',(e)=>{if(e.key==='Enter'){e.preventDefault();$('#installAddonUrl').click();}});
+$('#addonSearch').addEventListener('input',renderAddons);
+$('#addonFilter').addEventListener('change',renderAddons);
+$('#refreshAddons').addEventListener('click',async()=>{const b=$('#refreshAddons');b.disabled=true;b.textContent='Refreshing…';await refreshExtensions();b.disabled=false;b.textContent='Refresh';});
+
 $('#cancelAddonInstall').addEventListener('click', async () => {
   if (pendingAddonInstall?.token) {
     try { await window.aegis.invoke('extensions:cancel-install', pendingAddonInstall.token); } catch {}
