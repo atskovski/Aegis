@@ -842,7 +842,8 @@ class AegisExtensionRuntime{
     add('background','Background runtime',!expected?'pass':(running?'pass':'fail'),!expected?'No background runtime required.':(running?'Background runtime is running.':'Background runtime is expected but is not running.'));
     if(repair)add('repair','Runtime repair',reloadedTabs||!this.getTabs().some(extensionVisibleTab)?'pass':'warning',reloadedTabs?(reloadedTabs+' private tab'+(reloadedTabs===1?'':'s')+' reloaded so content scripts can start from a clean extension world.'):'No eligible private tabs were reloaded.');
     const health=this.healthFor(e.id);
-    add('runtime-errors','Runtime errors',health.errors.length?'warning':'pass',health.errors.length?(health.errors[0].scope+': '+health.errors[0].message):'No recorded extension runtime errors after this check.');
+    const fatalRuntimeError=health.errors.find((x)=>/^(?:background|bootstrap|extension-page-runtime)/.test(String(x.scope||'')));
+    add('runtime-errors','Runtime errors',health.errors.length?(fatalRuntimeError?'fail':'warning'):'pass',health.errors.length?(health.errors[0].scope+': '+health.errors[0].message):'No recorded extension runtime errors after this check.');
     const counts=checks.reduce((acc,x)=>{acc[x.status]=(acc[x.status]||0)+1;return acc},{pass:0,warning:0,fail:0});
     const status=counts.fail?'fail':(counts.warning?'warning':'pass');
     const diagnostic={testedAt:new Date().toISOString(),status,counts,checks};
