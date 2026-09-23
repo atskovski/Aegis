@@ -919,7 +919,7 @@ function scheduleOriginCleanup(tab, oldOrigin, newOrigin) {
 }
 
 async function applyCosmeticFiltering(tab) {
-  if (!tab?.view?.webContents || browserRuntime.destroyed(tab.view)) return false;
+  if (!tab?.view || browserRuntime.destroyed(tab.view)) return false;
   if (tab.cosmeticCssKey) {
     try { await browserRuntime.removeCSS(tab.view,tab.cosmeticCssKey); } catch {}
     tab.cosmeticCssKey = '';
@@ -1493,7 +1493,7 @@ function wireIpc() {
   ipcMain.handle('adblock:refresh-lists', async (event)=>{if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};const results=await updateFilterLists();return {ok:results.every(x=>x.ok),results};});
   ipcMain.handle('adblock:pick-element', async (event) => {
     if(!assertUiSender(event))return {ok:false,error:'IPC sender denied'};
-    const tab=activeTab();if(!tab?.view?.webContents||browserRuntime.destroyed(tab.view))return {ok:false,error:'No active web page.'};
+    const tab=activeTab();if(!tab?.view||browserRuntime.destroyed(tab.view))return {ok:false,error:'No active web page.'};
     let host='';try{host=new URL(tab.url).hostname;}catch{return {ok:false,error:'Element picker requires an HTTP(S) page.'};}
     try{
       const selector=await browserRuntime.evaluate(tab.view,`new Promise((resolve)=>{
