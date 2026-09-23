@@ -1817,6 +1817,9 @@ function wireIpc() {
       event.returnValue=extensionRuntime.pageBootstrapData(event.sender,String(payload?.extensionId||''),String(payload?.context||'page'));
     }catch{event.returnValue=null;}
   });
+  ipcMain.on('extension:runtime-error', (event, payload) => {
+    try { extensionRuntime?.recordRendererError(event.sender,payload||{}); } catch {}
+  });
   ipcMain.handle('extension:call', async (event, payload) => {
     if(!extensionRuntime) throw new Error('Extension runtime unavailable.');
     const result=await extensionRuntime.call(event.sender,payload,event.senderFrame);
