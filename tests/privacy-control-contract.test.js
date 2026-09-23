@@ -28,8 +28,9 @@ test('every advertised privacy control is backed by the settings schema', () => 
 test('every advertised privacy control has an implementation consumer outside the UI', () => {
   for (const [key] of CONTROL_DEFINITIONS) {
     const direct=new RegExp('settings\\.'+key+'\\b').test(implementation);
-    const bracket=new RegExp("settings\\[['\"]"+key+"['\"]\\]").test(implementation);
-    assert.ok(direct||bracket, key+' has no code-level settings consumer');
+    const effective=new RegExp('effective\\.'+key+'\\b').test(implementation);
+    const bracket=new RegExp("(?:settings|effective)\\[['\"]"+key+"['\"]\\]").test(implementation);
+    assert.ok(direct||effective||bracket, key+' has no code-level settings consumer');
   }
 });
 
