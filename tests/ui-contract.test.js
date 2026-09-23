@@ -41,3 +41,9 @@ test('every id-addressable form control is consumed by browser chrome JavaScript
   const unwired=controlIds.filter((id)=>!js.includes(`$('#${id}')`)&&!js.includes(`#${id}`));
   assert.deepEqual(unwired,[]);
 });
+
+
+test('collection selectors use querySelectorAll before forEach', () => {
+  const invalid = js.split('\n').filter((line) => /(^|[^$])\$\((['"])[^)\n]+\2\)\.forEach\(/.test(line));
+  assert.deepEqual(invalid, [], 'single-node $() selectors cannot be iterated with forEach');
+});
