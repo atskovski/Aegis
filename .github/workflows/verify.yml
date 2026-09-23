@@ -26,10 +26,14 @@ jobs:
           node-version: '22'
       - name: Verify source, contracts, and hardening
         run: npm run verify
-      - name: Validate macOS launchers
+      - name: Validate macOS launchers and app packaging
         if: runner.os == 'macOS'
         shell: zsh {0}
         run: |
           for file in *.command; do
             zsh -n "$file"
           done
+          for file in scripts/*.sh; do
+            zsh -n "$file"
+          done
+          plutil -lint build/entitlements.mac.plist
