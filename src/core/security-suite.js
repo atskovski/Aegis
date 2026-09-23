@@ -106,6 +106,99 @@ async function inspectPrivacySurfaces(executeJavaScript) {
   } catch (err) { return { status:'not-tested', values:{}, evidence:`Privacy surface inspection unavailable: ${err.message}` }; }
 }
 
+async function captureFingerprintSnapshot(executeJavaScript) {
+  if (typeof executeJavaScript !== 'function') return { status:'not-tested', values:{}, evidence:'Renderer execution unavailable.' };
+  const source = `(async()=>{const n=navigator,d=document;const hash=async(v)=>{try{const b=new TextEncoder().encode(String(v));const h=await crypto.subtle.digest('SHA-256',b);return Array.from(new Uint8Array(h)).slice(0,12).map(x=>x.toString(16).padStart(2,'0')).join('')}catch{return 'unavailable'}};let canvas='unavailable',webgl='unavailable',audio='unavailable';try{const c=d.createElement('canvas');c.width=220;c.height=48;const x=c.getContext('2d');x.textBaseline='top';x.font='16px Arial';x.fillStyle='#f60';x.fillRect(2,2,40,20);x.fillStyle='#069';x.fillText('Aegis cohort probe Ω',4,5);canvas=await hash(c.toDataURL())}catch{};try{const c=d.createElement('canvas');const gl=c.getContext('webgl')||c.getContext('webgl2');if(gl){const p=[gl.VERSION,gl.SHADING_LANGUAGE_VERSION,gl.MAX_TEXTURE_SIZE,gl.MAX_VIEWPORT_DIMS].map(k=>{try{return JSON.stringify(gl.getParameter(k))}catch{return ''}}).join('|');webgl=await hash(p)}}catch{};try{const AC=globalThis.AudioContext||globalThis.webkitAudioContext;if(AC){const a=new AC();const o=a.createOscillator(),g=a.createGain(),an=a.createAnalyser();g.gain.value=0;o.connect(an);an.connect(g);g.connect(a.destination);o.start();const bins=new Float32Array(an.frequencyBinCount);an.getFloatFrequencyData(bins);audio=await hash(Array.from(bins.slice(0,64)).join(','));o.stop();await a.close()}}catch{};let uaData={};try{uaData=n.userAgentData?await n.userAgentData.getHighEntropyValues(['architecture','bitness','model','platformVersion','uaFullVersion','fullVersionList','wow64']):{}}catch{};return {ua:String(n.userAgent||''),uaData,platform:String(n.platform||''),language:String(n.language||''),languages:Array.from(n.languages||[]),hardwareConcurrency:n.hardwareConcurrency,deviceMemory:n.deviceMemory,timezone:(()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone}catch{return ''}})(),screen:[screen.width,screen.height,screen.availWidth,screen.availHeight,screen.colorDepth,devicePixelRatio],canvas,webgl,audio,webrtc:typeof RTCPeerConnection==='function',localFonts:typeof queryLocalFonts==='function',plugins:n.plugins?n.plugins.length:null,mimeTypes:n.mimeTypes?n.mimeTypes.length:null}})()`;
+  try {
+    const values = await timeout(executeJavaScript(source), 2600, 'Fingerprint snapshot');
+    return { status:'pass', values: values || {}, evidence:'Active renderer fingerprint surfaces were sampled behaviorally.' };
+  } catch (err) {
+    return { status:'not-tested', values:{}, evidence:`Fingerprint snapshot unavailable: ${err.message}` };
+  }
+}
+
+function compareFingerprintSnapshots(a, b) {
+  const left = a?.values || a || {};
+  const right = b?.values || b || {};
+  const keys = ['ua','uaData','platform','language','languages','hardwareConcurrency','deviceMemory','timezone','screen','canvas','webgl','audio','webrtc','localFonts','plugins','mimeTypes'];
+  const changed = [];
+  for (const key of keys) {
+    if (JSON.stringify(left[key]) !== JSON.stringify(right[key])) changed.push(key);
+  }
+  return {
+    ok: changed.length === 0,
+    status: changed.length === 0 ? 'pass' : 'warning',
+    changed,
+    evidence: changed.length === 0
+      ? 'Two behavioral samples from the active renderer exposed the same standardized fingerprint surface.'
+      : `Fingerprint surface changed between samples: ${changed.join(', ')}.`
+  };
+}
+
+function fingerprintSnapshotDigest(snapshot) {
+  const v = snapshot?.values || snapshot || {};
+  const normalized = {
+    ua:v.ua||'', uaData:v.uaData||{}, platform:v.platform||'', language:v.language||'',
+    languages:v.languages||[], hardwareConcurrency:v.hardwareConcurrency, deviceMemory:v.deviceMemory,
+    timezone:v.timezone||'', screen:v.screen||[], canvas:v.canvas||'', webgl:v.webgl||'', audio:v.audio||'',
+    webrtc:Boolean(v.webrtc), localFonts:Boolean(v.localFonts), plugins:v.plugins, mimeTypes:v.mimeTypes
+  };
+  const json = JSON.stringify(normalized);
+  let h = 2166136261 >>> 0;
+  for (let i=0;i<json.length;i++){ h ^= json.charCodeAt(i); h = Math.imul(h,16777619); }
+  return h.toString(16).padStart(8,'0');
+}
+
+function compareFingerprintCohort(samples = []) {
+  const usable = (Array.isArray(samples) ? samples : []).filter((x)=>x?.status==='pass');
+  if (usable.length < 2) return { status:'not-tested', ok:false, digests:[], evidence:'At least two successful renderer samples are required.' };
+  const digests = usable.map(fingerprintSnapshotDigest);
+  const unique = [...new Set(digests)];
+  return {
+    status: unique.length === 1 ? 'pass' : 'warning',
+    ok: unique.length === 1,
+    digests,
+    evidence: unique.length === 1
+      ? `${usable.length} renderer samples exposed the same normalized fingerprint cohort digest.`
+      : `Renderer cohort drift detected across ${usable.length} samples (${unique.length} distinct digests).`
+  };
+}
+
+async function testNetworkIdentity(ses, expected = {}) {
+  if (!ses?.webRequest) return { status:'not-tested', ok:false, evidence:'Session webRequest API unavailable.' };
+  const token = 'aegis-identity-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  let observed = null;
+  const listener = (details) => {
+    try {
+      if (String(details.url || '').includes(token)) observed = { ...(details.requestHeaders || {}) };
+    } catch {}
+  };
+  try {
+    ses.webRequest.onBeforeSendHeaders({ urls:['https://example.com/*'] }, listener);
+    try { await timeout(ses.fetch('https://example.com/?' + token, { method:'GET', cache:'no-store' }), 5000, 'Network identity probe'); } catch {}
+    if (!observed) return { status:'not-tested', ok:false, evidence:'The disposable session did not expose probe request headers.' };
+    const find = (name) => Object.entries(observed).find(([k])=>k.toLowerCase()===name.toLowerCase())?.[1] || '';
+    const ua = String(find('user-agent'));
+    const dnt = String(find('dnt'));
+    const gpc = String(find('sec-gpc'));
+    const highEntropy = Object.keys(observed).filter((k)=>/^sec-ch-ua-(full-version|full-version-list|arch|bitness|model|platform-version|wow64)$/i.test(k));
+    const ok = (!expected.ua || ua === expected.ua) &&
+      (expected.doNotTrack === false || dnt === '1') &&
+      (expected.globalPrivacyControl === false || gpc === '1') &&
+      highEntropy.length === 0;
+    return {
+      status: ok ? 'pass' : 'warning', ok, headers:{ ua,dnt,gpc,highEntropy },
+      evidence: ok
+        ? 'Network User-Agent/privacy signals are coherent and high-entropy UA Client Hints were absent from the observed request.'
+        : `Network identity drift detected (UA match=${!expected.ua || ua===expected.ua}, DNT=${dnt||'absent'}, Sec-GPC=${gpc||'absent'}, high-entropy hints=${highEntropy.join(', ')||'none'}).`
+    };
+  } catch (err) {
+    return { status:'not-tested', ok:false, evidence:`Network identity probe unavailable: ${err.message}` };
+  } finally {
+    try { ses.webRequest.onBeforeSendHeaders(null); } catch {}
+  }
+}
+
 function routePrivacyStatus(proxyMode, route = null) {
   const mode = String(proxyMode || 'system');
   if (['socks5','http','https'].includes(mode)) {
@@ -131,5 +224,5 @@ function summarizeChecks(checks) {
 
 module.exports = {
   isPublicIp, fetchPublicIp, testSessionIsolation, candidateAddresses, isNumericLocalLeak,
-  testWebRtcLeakSurface, inspectPrivacySurfaces, routePrivacyStatus, makeCheck, summarizeChecks
+  testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, fingerprintSnapshotDigest, compareFingerprintCohort, testNetworkIdentity, routePrivacyStatus, makeCheck, summarizeChecks
 };
