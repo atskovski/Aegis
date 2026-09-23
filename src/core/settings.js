@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   blockAutoplay: true,
   blockPrefetch: true,
   blockSpeculativeConnections: true,
+  mediaClickToPlay: false,
   enterpriseMode: false,
   enterprise: {
     urlAllowlist: [],
@@ -188,6 +189,7 @@ function sanitizeSettings(raw = {}) {
     blockAutoplay: bool(raw.blockAutoplay, d.blockAutoplay),
     blockPrefetch: bool(raw.blockPrefetch, d.blockPrefetch),
     blockSpeculativeConnections: bool(raw.blockSpeculativeConnections, d.blockSpeculativeConnections),
+    mediaClickToPlay: bool(raw.mediaClickToPlay, d.mediaClickToPlay),
     enterpriseMode: bool(raw.enterpriseMode, d.enterpriseMode),
     enterprise: {
       urlAllowlist: clampLines(raw.enterprise?.urlAllowlist, 200, 300),
@@ -229,8 +231,8 @@ function searchTemplateFor(settings) { if (settings.searchEngine === 'custom' &&
 function profileDefaults(level) {
   const base = {
     standard: { privacyLevel:'standard', letterbox:false, blockTrackers:true, blockAds:true, blockSocialTrackers:true, blockThirdPartyCookies:true, stripTrackingParams:true, stripCrossSiteReferrers:true, heuristicTrackingProtection:false, blockFingerprintingScripts:true, cosmeticFiltering:true, privacyApiGuard:false, blockTrackingBeacons:true, disableServiceWorkers:false },
-    strict: { privacyLevel:'strict', letterbox:true, blockTrackers:true, blockAds:true, blockSocialTrackers:true, blockThirdPartyCookies:true, stripTrackingParams:true, stripCrossSiteReferrers:true, heuristicTrackingProtection:true, blockFingerprintingScripts:true, cosmeticFiltering:true, privacyApiGuard:true, blockTrackingBeacons:true, disableServiceWorkers:false },
-    maximum: { privacyLevel:'maximum', letterbox:true, blockTrackers:true, blockAds:true, blockSocialTrackers:true, blockThirdPartyCookies:true, stripTrackingParams:true, stripCrossSiteReferrers:true, heuristicTrackingProtection:true, blockFingerprintingScripts:true, cosmeticFiltering:true, privacyApiGuard:true, blockTrackingBeacons:true, disableServiceWorkers:true }
+    strict: { privacyLevel:'strict', mediaClickToPlay:true, letterbox:true, blockTrackers:true, blockAds:true, blockSocialTrackers:true, blockThirdPartyCookies:true, stripTrackingParams:true, stripCrossSiteReferrers:true, heuristicTrackingProtection:true, blockFingerprintingScripts:true, cosmeticFiltering:true, privacyApiGuard:true, blockTrackingBeacons:true, disableServiceWorkers:false },
+    maximum: { privacyLevel:'maximum', mediaClickToPlay:true, letterbox:true, blockTrackers:true, blockAds:true, blockSocialTrackers:true, blockThirdPartyCookies:true, stripTrackingParams:true, stripCrossSiteReferrers:true, heuristicTrackingProtection:true, blockFingerprintingScripts:true, cosmeticFiltering:true, privacyApiGuard:true, blockTrackingBeacons:true, disableServiceWorkers:true }
   };
   return { ...base[level] };
 }
