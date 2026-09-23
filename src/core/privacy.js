@@ -39,7 +39,7 @@ function categoryEnabled(settings, category) {
   return settings.blockTrackers !== false;
 }
 
-function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
+function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, onExtensionRequest, getExtensionNetworkDecision, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
   const genericUA = buildGenericUA(chromiumVersion);
   ses.setUserAgent(genericUA, 'en-US,en');
   ses.spellCheckerEnabled = false;
@@ -69,6 +69,10 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
     }
     if (details.resourceType === 'mainFrame') tab.topUrl = details.url;
     const topUrl = tab.topUrl || tab.url || details.url;
+    if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onBeforeRequest', details); } catch {} }
+    const extensionDecision = typeof getExtensionNetworkDecision === 'function' ? getExtensionNetworkDecision(details) : null;
+    if (extensionDecision?.action === 'block') { tab.stats.blockedTrackers += 1; noteBlocked(tab, details.url); if (typeof onNetworkAccess === 'function') onNetworkAccess({ url:details.url, blocked:true, category:'extension-dnr', resourceType:details.resourceType }); onStats(tab); return callback({cancel:true}); }
+    if (extensionDecision?.action === 'redirect' && extensionDecision.redirectURL) { if (typeof onNetworkAccess === 'function') onNetworkAccess({ url:details.url, blocked:false, category:'extension-dnr-redirect', resourceType:details.resourceType }); return callback({redirectURL:extensionDecision.redirectURL}); }
     if (details.resourceType === 'mainFrame' && settings.stripTrackingParams) {
       const cleaned = stripTrackingParams(details.url);
       if (cleaned !== details.url) { tab.stats.trackingParamsRemoved += 1; onStats(tab); return callback({ redirectURL: cleaned }); }
@@ -111,6 +115,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   });
 
   ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+    if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onBeforeSendHeaders', details); } catch {} }
     const settings = getSettings();
     const h = { ...(details.requestHeaders || {}) };
     const topUrl = tab.topUrl || tab.url || details.url;
@@ -146,6 +151,7 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
   });
 
   ses.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
+    if (typeof onExtensionRequest === 'function') { try { onExtensionRequest('webRequest.onHeadersReceived', details); } catch {} }
     const settings = getSettings(); const headers = { ...(details.responseHeaders || {}) }; const topUrl = tab.topUrl || tab.url || details.url; const thirdParty = isThirdParty(details.url, topUrl); const known = isKnownTracker(details.url); const cdn = thirdParty && settings.publicCdnIsolation && isPublicCdn(details.url);
     for (const k of Object.keys(headers)) {
       const lower = k.toLowerCase();
