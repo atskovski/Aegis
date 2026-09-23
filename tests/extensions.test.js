@@ -886,3 +886,30 @@ test('Chrome MV3 toolbar API presence exposes action without legacy browserActio
   assert.equal(typeof context.chrome.action.getUserSettings,'function');
   assert.equal(context.chrome.browserAction,undefined);
 });
+
+
+test('Privacy Badger browserAction badge state is isolated per tab', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-pb-badge-'));
+  try{
+    let active=1;
+    const sender={},tabs=[
+      {id:1,url:'https://one.example/',title:'One',loading:false,securityDomain:'private',disableExtensions:false,view:{webContents:{}}},
+      {id:2,url:'https://two.example/',title:'Two',loading:false,securityDomain:'private',disableExtensions:false,view:{webContents:{}}}
+    ];
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>tabs,getActiveId:()=>active,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const manifest={manifest_version:2,name:'Privacy Badger',version:'2026.9.15',permissions:['tabs','<all_urls>'],browser_action:{default_title:'Privacy Badger'}};
+    const e={id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp',path:root,resourceToken:'pb-badge',enabled:true,manifest,detectedApis:['browserAction'],compatibility:compatibility(manifest,['browserAction'])};
+    runtime.items.set(e.id,e);
+    runtime.backgroundHosts.set(e.id,{isDestroyed:()=>false,webContents:sender});
+
+    await runtime.call(sender,{extensionId:e.id,method:'browserAction.setBadgeText',args:[{tabId:1,text:'3'}]});
+    await runtime.call(sender,{extensionId:e.id,method:'browserAction.setBadgeText',args:[{tabId:2,text:'8'}]});
+    assert.equal(await runtime.call(sender,{extensionId:e.id,method:'browserAction.getBadgeText',args:[{tabId:1}]}),'3');
+    assert.equal(await runtime.call(sender,{extensionId:e.id,method:'browserAction.getBadgeText',args:[{tabId:2}]}),'8');
+    assert.equal(runtime.publicRecord(e).action.badgeText,'3');
+    active=2;
+    assert.equal(runtime.publicRecord(e).action.badgeText,'8');
+    runtime.notifyTabRemoved(1,true);
+    assert.equal(await runtime.call(sender,{extensionId:e.id,method:'browserAction.getBadgeText',args:[{tabId:1}]}),'');
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
