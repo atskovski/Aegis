@@ -122,3 +122,8 @@ Aegis 1.1 treats Electron as the current Chromium host, not as the product archi
 The next native host target is a Chromium embedding layer such as CEF or a maintained direct-Chromium shell. A conforming host must provide the engine contract, Chromium multi-process sandboxing, per-site renderer isolation, permission mediation, certificate policy, download mediation, network interception, isolated execution worlds, renderer crash lifecycle, and DevTools-protocol evidence hooks. The existing Electron host remains supported until the replacement host passes the same behavioral Security Suite.
 
 A host migration is complete only when both implementations pass identical Aegis conformance tests. Engine substitution must not silently weaken the Security Kernel, compartment isolation, Sentinel evidence, fingerprint cohort, extension capability broker, or network policy.
+
+
+## Browser-core progression
+
+Aegis 1.1 now includes host-neutral tab and navigation primitives (`src/core/tab-model.js`, `src/core/navigation-controller.js`). The intended direction is a browser process architecture: the portable browser controller owns tabs, navigation, policy and evidence; BrowserRuntime owns privileged engine capabilities; Electron remains only the current desktop/Chromium host. Remote renderer lifecycle, debugger events, view geometry and device-permission denial are now mediated by the engine contract rather than referenced as Electron `webContents` behavior from portable core code.
