@@ -832,6 +832,7 @@ function renderSettingsDraft() {
   $('#customSearchTemplate').value = s.customSearchTemplate || '';
   $('#customSearchTemplate').disabled = s.searchEngine !== 'custom';
   $('#customFilterRules').value = s.customFilterRules || '';
+  $('#filterListAutoUpdate').checked = s.filterListAutoUpdate !== false;
   $('#themeSelect').value = s.appearance?.theme || 'nebula';
   $('#densitySelect').value = s.appearance?.density || 'comfortable';
   $('#accentSelect').value = s.appearance?.accent || 'cyan';
@@ -899,6 +900,7 @@ function collectDraftFromControls() {
   draftSettings.searchEngine = $('#searchEngine').value;
   draftSettings.customSearchTemplate = $('#customSearchTemplate').value.trim();
   draftSettings.customFilterRules = $('#customFilterRules').value;
+  draftSettings.filterListAutoUpdate = $('#filterListAutoUpdate').checked;
   draftSettings.appearance = {
     ...draftSettings.appearance,
     theme: $('#themeSelect').value,
@@ -1104,6 +1106,7 @@ $('#installXpi').addEventListener('click', async () => {
   } catch (err) { showToast({ message:'Extension install failed: ' + err.message, tone:'danger' }); }
   finally { button.disabled = false; button.textContent = 'Install .xpi'; }
 });
+$('#refreshFilterLists')?.addEventListener('click',async()=>{const b=$('#refreshFilterLists');b.disabled=true;b.textContent='Updating…';const r=await window.aegis.invoke('adblock:refresh-lists');const ok=(r?.results||[]).filter(x=>x.ok).length,total=(r?.results||[]).length;$('#filterListStatus').textContent=total?`${ok}/${total} enabled filter lists updated and compiled.`:'No enabled filter lists.';showToast(r?.ok?'Filter lists updated.':'Some filter lists could not update.',r?.ok?'success':'warning');b.disabled=false;b.textContent='Update lists';});
 $('#pickAdElement')?.addEventListener('click',async()=>{closeSettings();const r=await window.aegis.invoke('adblock:pick-element');if(r?.ok)showToast('Blocked element with rule: '+r.rule,'success');else if(!r?.canceled)showToast(r?.error||'Element picker failed.','danger');});
 $('#exportSecurityEvents').addEventListener('click',async()=>{const r=await window.aegis.invoke('enterprise:export-events');if(r?.ok)showToast(`Exported ${r.count} redacted security events.`,'success');else if(!r?.canceled)showToast(r?.error||'Evidence export failed.','danger');});
 $('#importManagedPolicy').addEventListener('click',async()=>{const r=await window.aegis.invoke('enterprise:import-policy');if(r?.ok){state.settings=await window.aegis.invoke('settings:get');loadSettings();showToast('Signed managed policy verified and applied.','success');}else if(!r?.canceled)showToast(r?.error||'Managed policy import failed.','danger');});
@@ -1130,7 +1133,7 @@ $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
 const draftControlIds = [
   'blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','heuristicTrackingProtection','siteIntelligence','bounceTrackingProtection','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
   'disableServiceWorkers','gpcToggle','dntToggle','downloadToggle','javascriptDefault','clearClipboardIdentity','compatibilityAssistance','threatProtection','cookieAutoDelete','cookieAutoDeleteDelay','sponsorBlockEnabled','fireproofSites',
-  'enterpriseMode','enterpriseBlockExtensions','enterpriseDisablePrinting','enterpriseDisableClipboard','enterpriseDisableCapture','enterpriseUrlAllowlist','enterpriseUrlBlocklist','enterpriseExtensionAllowlist','proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
+  'enterpriseMode','enterpriseBlockExtensions','enterpriseDisablePrinting','enterpriseDisableClipboard','enterpriseDisableCapture','enterpriseUrlAllowlist','enterpriseUrlBlocklist','enterpriseExtensionAllowlist','proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','filterListAutoUpdate','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
 ];
 draftControlIds.forEach((id) => $('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
