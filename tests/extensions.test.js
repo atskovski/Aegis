@@ -250,6 +250,38 @@ test('MAIN-world scripting executes packaged files without the isolated API boot
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
+test('extension-owned tabs retain their extension context and support URL queries', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-extension-tabs-'));
+  try{
+    const created=[],tabs=[];
+    const background={send:()=>{}};
+    const host={isDestroyed:()=>false,webContents:background};
+    const runtime=new AegisExtensionRuntime({
+      rootDir:root,
+      getTabs:()=>tabs,
+      getActiveId:()=>tabs[0]?.id||null,
+      createTab:async(url,active,_wait,options)=>{
+        created.push({url,active,options});
+        const tab={id:9,url,title:'Extension page',securityDomain:'private',disableExtensions:false,view:{webContents:{}}};
+        tabs.push(tab);return tab;
+      },
+      updateTab:async()=>{},removeTab:()=>{}
+    });
+    const manifest={manifest_version:3,name:'Owned tab',version:'1',permissions:['tabs']};
+    const e={id:'owned-tab',path:root,resourceToken:'ownedtoken',enabled:true,manifest,detectedApis:['tabs'],compatibility:compatibility(manifest,['tabs'])};
+    runtime.items.set(e.id,e);runtime.backgroundHosts.set(e.id,host);
+    const url='aegis-extension://ownedtoken/skin/firstRun.html';
+    const createdTab=await runtime.call(background,{extensionId:e.id,method:'tabs.create',args:[{url,active:true}]});
+    assert.equal(created[0].options.extensionPageExtensionId,e.id);
+    assert.equal(createdTab.url,url);
+    const found=await runtime.call(background,{extensionId:e.id,method:'tabs.query',args:[{url}]});
+    assert.equal(found.length,1);
+    assert.equal(found[0].id,9);
+    const missing=await runtime.call(background,{extensionId:e.id,method:'tabs.query',args:[{url:'aegis-extension://ownedtoken/other.html'}]});
+    assert.equal(missing.length,0);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
 test('notifications and context menus are supported with explicit reduced-surface warnings', () => {
   const report=compatibility({manifest_version:2,name:'T',version:'1',permissions:['notifications','menus']});
   assert.ok(report.supported.includes('notifications'));
