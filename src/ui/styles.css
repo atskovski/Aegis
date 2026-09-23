@@ -270,3 +270,41 @@ body[data-text-scale="xlarge"]{font-size:17px}
 @media(max-width:900px){.extension-actions{display:none}.addon-runtime-summary{grid-template-columns:1fr 1fr}.addon-review-grid,.addon-boundary-grid,.addon-details{grid-template-columns:1fr}.addon-card-head{grid-template-columns:42px minmax(0,1fr) auto}.addon-card-icon{width:42px;height:42px}.addon-review-head{grid-template-columns:42px minmax(0,1fr) auto}}
 @media(max-width:620px){.addon-runtime-summary{grid-template-columns:1fr 1fr}.addon-review-head{grid-template-columns:1fr}.addon-score{justify-self:start}.addon-review-actions{flex-direction:column}.addon-review-actions button{width:100%}.addon-card-head{grid-template-columns:42px minmax(0,1fr)}.addon-card-head>.addon-score{grid-column:2;justify-self:start}.addon-actions{justify-content:stretch}.addon-actions button{flex:1}}
 
+
+
+/* Add-ons & WebExtensions Runtime 3 */
+.addon-hero-v3{grid-template-columns:minmax(0,1fr) auto;align-items:center}
+.addon-install-actions{display:flex;gap:8px;align-items:center}
+.addon-url-install{display:grid;gap:10px;padding:16px 18px;margin:12px 0 16px;border:1px solid var(--line2);border-radius:15px;background:var(--surface3)}
+.addon-url-install label{display:grid;gap:3px}
+.addon-url-install label>span{font-size:12px;font-weight:800}
+.addon-url-install label>small{font-size:10.5px;color:var(--muted)}
+.addon-url-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.addon-url-row input,.addon-manager-controls input,.addon-manager-controls select{height:40px;border:1px solid var(--line2);border-radius:10px;background:var(--surface2);color:var(--text);padding:0 11px;outline:none}
+.addon-url-row input:focus,.addon-manager-controls input:focus,.addon-manager-controls select:focus{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 10%,transparent)}
+.addon-runtime-summary-v3{grid-template-columns:repeat(5,minmax(0,1fr))}
+.addon-capability-matrix{display:grid;gap:11px;padding:18px;margin:16px 0 18px;border:1px solid var(--line2);border-radius:16px;background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 5%,var(--surface2)),var(--surface))}
+.addon-capability-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.addon-capability-head h4{font-size:17px;margin:3px 0 0}
+.addon-capability-head>span{font-size:10px;font-weight:850;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:999px;padding:5px 8px;background:color-mix(in srgb,var(--accent) 8%,var(--surface3))}
+.addon-capability-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.addon-capability-grid>div{display:grid;gap:5px;padding:12px 13px;border:1px solid var(--line);border-radius:12px;background:var(--surface3)}
+.addon-capability-grid b{font-size:11px}.addon-capability-grid span{font-size:10.5px;line-height:1.5;color:var(--muted)}
+.addon-capability-grid .supported{border-color:color-mix(in srgb,var(--good) 24%,var(--line))}
+.addon-capability-grid .limited{border-color:color-mix(in srgb,var(--warn) 30%,var(--line))}
+.addon-manager-toolbar{display:grid;gap:11px;margin-top:8px}
+.addon-manager-controls{display:grid;grid-template-columns:minmax(0,1fr) 190px auto;gap:8px;align-items:center}
+.addon-health{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.addon-health-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:999px;border:1px solid var(--line);font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.05em}
+.addon-health-badge.pass{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--line));background:color-mix(in srgb,var(--good) 7%,var(--surface))}
+.addon-health-badge.warning{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 42%,var(--line));background:color-mix(in srgb,var(--warn) 7%,var(--surface))}
+.addon-health-badge.fail{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line));background:color-mix(in srgb,var(--danger) 8%,var(--surface))}
+.addon-diagnostic{display:grid;gap:5px;padding:10px 11px;border:1px solid var(--line);border-radius:11px;background:var(--surface3)}
+.addon-diagnostic-row{display:grid;grid-template-columns:78px minmax(0,1fr);gap:8px;align-items:start}
+.addon-diagnostic-row b{font-size:9px;text-transform:uppercase;letter-spacing:.05em}
+.addon-diagnostic-row span{font-size:10px;color:var(--muted);line-height:1.45}
+.addon-card[data-health="fail"]{border-color:color-mix(in srgb,var(--danger) 42%,var(--line))}
+.addon-card[data-health="warning"]{border-color:color-mix(in srgb,var(--warn) 38%,var(--line))}
+.addon-card[data-health="pass"]{border-color:color-mix(in srgb,var(--good) 24%,var(--line))}
+@media(max-width:1000px){.addon-runtime-summary-v3{grid-template-columns:repeat(3,1fr)}.addon-manager-controls{grid-template-columns:1fr 160px}.addon-manager-controls button{grid-column:1/-1}.addon-capability-grid{grid-template-columns:1fr}}
+@media(max-width:700px){.addon-hero-v3{grid-template-columns:1fr}.addon-url-row,.addon-manager-controls{grid-template-columns:1fr}.addon-runtime-summary-v3{grid-template-columns:1fr 1fr}.addon-manager-controls button{grid-column:auto}}
