@@ -31,6 +31,8 @@ if (!gotSingleInstanceLock) {
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'aegis', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false }
+},{
+  scheme: 'aegis-extension', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
 }]);
 
 // Chromium hardening that must be configured before app readiness.
@@ -120,11 +122,42 @@ function internalProtocolHandler(request) {
   });
 }
 
+function extensionProtocolHandler(request) {
+  if (!extensionRuntime) return new Response('Extension runtime unavailable', { status: 503 });
+  let u; try { u = new URL(request.url); } catch { return new Response('Bad request', { status: 400 }); }
+  if (u.hostname !== 'ext') return new Response('Not found', { status: 404 });
+  const parts = u.pathname.split('/').filter(Boolean);
+  const token = parts.shift() || '';
+  let rel = '';
+  try { rel = decodeURIComponent(parts.join('/')); } catch { return new Response('Bad resource path', { status: 400 }); }
+  const resource = extensionRuntime.resolveResource(token, rel);
+  if (!resource) return new Response('Not found', { status: 404 });
+  const ext = path.extname(resource.path).toLowerCase();
+  const mime = ({
+    '.html':'text/html; charset=utf-8','.htm':'text/html; charset=utf-8','.css':'text/css; charset=utf-8',
+    '.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8',
+    '.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp',
+    '.woff':'font/woff','.woff2':'font/woff2','.ttf':'font/ttf','.wasm':'application/wasm'
+  })[ext] || 'application/octet-stream';
+  return new Response(fs.readFileSync(resource.path), {
+    status:200,
+    headers:{
+      'Content-Type':mime,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
+      'Access-Control-Allow-Origin':'*',
+      'Content-Security-Policy':"default-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src https: http:; object-src 'none'; base-uri 'none'"
+    }
+  });
+}
+
 function registerInternalProtocol(targetProtocol, label = 'session') {
   if (!targetProtocol) throw new Error(`Missing protocol object for ${label}`);
   if (!targetProtocol.isProtocolHandled('aegis')) {
     targetProtocol.handle('aegis', internalProtocolHandler);
     startupLog(`Registered aegis:// protocol for ${label}.`);
+  }
+  if (extensionRuntime && !targetProtocol.isProtocolHandled('aegis-extension')) {
+    targetProtocol.handle('aegis-extension', extensionProtocolHandler);
+    startupLog(`Registered aegis-extension:// protocol for ${label}.`);
   }
 }
 
