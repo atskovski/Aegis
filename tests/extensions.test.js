@@ -182,6 +182,27 @@ test('background bootstrap preserves runtime.sendMessage response handling and u
 });
 
 
+test('WebExtension bootstrap is idempotent across multiple content-script groups', () => {
+  const vm=require('node:vm');
+  const ext={id:'repeat@example',resourceToken:'repeat-token',path:__dirname,manifest:{manifest_version:3,name:'Repeat',version:'1'}};
+  let eventSubscriptions=0,messageSubscriptions=0;
+  const context={
+    setTimeout,
+    __aegisExtensionBridge:{
+      call:()=>Promise.resolve(),
+      onMessage:()=>{messageSubscriptions++},
+      onEvent:()=>{eventSubscriptions++}
+    }
+  };
+  const source=bootstrap(ext);
+  vm.runInNewContext(source,context);
+  vm.runInNewContext(source,context);
+  assert.equal(context.chrome.runtime.id,'repeat@example');
+  assert.equal(context.browser.runtime.id,'repeat@example');
+  assert.equal(messageSubscriptions,1);
+  assert.equal(eventSubscriptions,1);
+});
+
 test('callback-style runtime messaging preserves asynchronous sendResponse', async () => {
   const vm=require('node:vm');
   const { webExtensionBootstrap }=require('../src/core/extension-shim');
