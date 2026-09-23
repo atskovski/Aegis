@@ -1026,8 +1026,8 @@ class AegisExtensionRuntime{
     }
     if(m==='tabs.get'){const t=this.tabById(a[0]);if(!extensionVisibleTab(t))throw new Error('Tab unavailable to extensions');return this.publicTab(e,t)}
     if(m==='tabs.getCurrent')return source?this.publicTab(e,source):null;
-    if(m==='tabs.create'){
-      requireTabs();const raw=String(a[0]?.url||'aegis://app/start.html');let options={};
+    if(m==='tabs.create'){requireTabs();
+      const raw=String(a[0]?.url||'aegis://app/start.html');let options={};
       try{const u=new URL(raw);if(u.protocol==='aegis-extension:'&&u.hostname===e.resourceToken)options={extensionPageExtensionId:e.id}}catch{}
       return this.publicTab(e,await this.createTab(raw,a[0]?.active!==false,false,options))
     }
