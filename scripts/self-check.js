@@ -106,7 +106,30 @@ if (/candidate\?\.view\?\.webContents/.test(mainSource)) {
   bad = true;
 }
 
+const browserRuntimeSource = fs.readFileSync(path.join(root, 'src/core/browser-runtime.js'), 'utf8');
+const usedRuntimeOps = unique([...mainSource.matchAll(/\bbrowserRuntime\.([A-Za-z0-9_]+)\b/g)].map((m) => m[1]));
+const exposedRuntimeOps = unique([...browserRuntimeSource.matchAll(/\b([A-Za-z0-9_]+)\s*:\s*\(/g)].map((m) => m[1]));
+for (const op of usedRuntimeOps) {
+  if (!exposedRuntimeOps.includes(op)) {
+    console.error('BrowserRuntime operation used but not exposed:', op);
+    bad = true;
+  }
+}
+
+const privacyHeaderHandlers = [...privacySource.matchAll(/ses\.webRequest\.onBeforeSendHeaders\(/g)].length;
+if (privacyHeaderHandlers !== 1) {
+  console.error('Privacy session must register exactly one onBeforeSendHeaders pipeline; found:', privacyHeaderHandlers);
+  bad = true;
+}
+
 const launcher = fs.readFileSync(path.join(root, 'Run-Aegis.command'), 'utf8');
+const packageVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+const launcherVersion = launcher.match(/VERSION="([^"]+)"/)?.[1] || '';
+if (!packageVersion || launcherVersion !== packageVersion) {
+  console.error('Release version mismatch:', { packageVersion, launcherVersion });
+  bad = true;
+}
+
 for (const token of ['Library/Application Support','rsync','runtime-v$VERSION','44.4.3','codesign --verify --deep --strict','shasum -a 256','ELECTRON_RUN_AS_NODE=1','darwin-$ELECTRON_ARCH.zip']) {
   if (!launcher.includes(token)) { console.error('Launcher hardening token missing:', token); bad = true; }
 }
