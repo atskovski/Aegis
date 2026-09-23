@@ -49,7 +49,7 @@ test('zoom isolation uses Electron 44 runtime API, not an unsupported WebPrefere
 
 
 test('invalid TLS certificates fail closed without a bypass path', () => {
-  assert.match(main, /app\.on\('certificate-error'/);
-  assert.match(main, /callback\(false\)/);
-  assert.match(main, /preventDefault\(\)/);
+  assert.match(source, /app\.on\('certificate-error'/);
+  assert.match(source, /callback\(false\)/);
+  assert.match(source, /preventDefault\(\)/);
 });
