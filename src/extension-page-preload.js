@@ -38,6 +38,8 @@ const call = (method, ...args) => {
 };
 const area = (name) => ({
   get: (keys) => call('storage.' + name + '.get', keys),
+  getKeys: () => call('storage.' + name + '.getKeys'),
+  getBytesInUse: (keys) => call('storage.' + name + '.getBytesInUse', keys),
   set: (items) => call('storage.' + name + '.set', items),
   remove: (keys) => call('storage.' + name + '.remove', keys),
   clear: () => call('storage.' + name + '.clear')
@@ -66,6 +68,38 @@ function localMessage(key, substitutions) {
   return text;
 }
 
+const ports = new Map();
+const makePortEvent = () => {
+  const set = new Set();
+  return {
+    addListener(fn) { if (typeof fn === 'function') set.add(fn); },
+    removeListener(fn) { set.delete(fn); },
+    hasListener(fn) { return set.has(fn); },
+    hasListeners() { return set.size > 0; },
+    _emit(...args) { for (const fn of [...set]) { try { fn(...args); } catch {} } }
+  };
+};
+const makePort = (portId, name = '', sender = {}) => {
+  if (ports.has(portId)) return ports.get(portId);
+  const onMessage = makePortEvent(), onDisconnect = makePortEvent();
+  const port = {
+    name:String(name || ''), sender:sender || {}, error:undefined, onMessage, onDisconnect,
+    postMessage(message) { return call('runtime.portPost', portId, message); },
+    disconnect() { ports.delete(portId); call('runtime.portDisconnect', portId).catch(()=>{}); onDisconnect._emit(port); }
+  };
+  ports.set(portId, port);
+  return port;
+};
+const newPortId = () => 'aegis-port-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+const runtimeConnect = (...args) => {
+  let target = extensionId, info = {};
+  if (typeof args[0] === 'string') { target = args[0]; info = args[1] || {}; } else info = args[0] || {};
+  if (target !== extensionId) throw new Error('Cross-extension runtime.connect is not supported.');
+  const portId = newPortId(), port = makePort(portId, info.name || '', { id:extensionId });
+  call('runtime.portOpen', { portId, name:port.name }).catch((err) => { port.error = err; ports.delete(portId); port.onDisconnect._emit(port); });
+  return port;
+};
+
 const runtime = {
   id: extensionId,
   getManifest: () => manifest,
@@ -76,6 +110,8 @@ const runtime = {
   openOptionsPage: () => call('runtime.openOptionsPage'),
   reload: () => call('runtime.reload'),
   sendMessage: (...args) => call('runtime.sendMessage', ...args),
+  connect: runtimeConnect,
+  onConnect: event('runtime.onConnect'),
   onMessage: event('runtime.onMessage'),
   onInstalled: event('runtime.onInstalled'),
   onStartup: event('runtime.onStartup')
@@ -89,6 +125,7 @@ const tabs = {
   remove: (ids) => call('tabs.remove', ids),
   reload: (...args) => call('tabs.reload', ...args),
   sendMessage: (id,msg) => call('tabs.sendMessage', id, msg),
+  connect: (id,info={}) => { const portId=newPortId(),port=makePort(portId,info.name||'',{id:extensionId}); call('tabs.connect',id,{...info,portId}).catch((err)=>{port.error=err;ports.delete(portId);port.onDisconnect._emit(port);}); return port; },
   executeScript: (...args) => call('tabs.executeScript', ...args),
   insertCSS: (...args) => call('tabs.insertCSS', ...args),
   removeCSS: (...args) => call('tabs.removeCSS', ...args),
@@ -103,7 +140,7 @@ const tabs = {
 const api = {
   runtime,
   extension: { getURL: runtime.getURL },
-  storage: { local:area('local'), sync:area('sync'), session:area('session'), onChanged:event('storage.onChanged') },
+  storage: { local:area('local'), sync:area('sync'), session:area('session'), managed:area('managed'), onChanged:event('storage.onChanged') },
   tabs,
   windows: {
     get:(id,info={})=>call('windows.get',id,info),
@@ -184,8 +221,24 @@ contextBridge.exposeInMainWorld('__aegisExtensionContext', Object.freeze({ id:ex
 
 ipcRenderer.on('extension:event', (_event, payload) => {
   if (String(payload?.extensionId || '') !== extensionId) return;
-  const set = eventList(String(payload?.type || ''));
+  const type = String(payload?.type || '');
   const args = Array.isArray(payload?.args) ? payload.args : [];
+  if (type === 'runtime.portMessage') {
+    const port = ports.get(String(args[0] || ''));
+    if (port) port.onMessage._emit(args[1], port);
+    return;
+  }
+  if (type === 'runtime.portDisconnect') {
+    const id = String(args[0] || ''), port = ports.get(id);
+    if (port) { ports.delete(id); port.onDisconnect._emit(port); }
+    return;
+  }
+  if (type === 'runtime.onConnect' && args[0]?.__aegisPort) {
+    const descriptor = args[0], port = makePort(String(descriptor.portId || ''), descriptor.name || '', descriptor.sender || {});
+    for (const fn of [...eventList('runtime.onConnect')]) { try { fn(port); } catch {} }
+    return;
+  }
+  const set = eventList(type);
   for (const fn of [...set]) { try { fn(...args); } catch {} }
 });
 
