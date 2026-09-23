@@ -1387,6 +1387,12 @@ function wireIpc() {
     if (!assertUiSender(event)) return;
     const tab = activeTab();
     if (!tab) return;
+    if (tab.securityDomain !== 'private' && !Boolean(enabled)) {
+      tab.shieldsEnabled = true;
+      emitState();
+      toast('Privacy shields are locked on in this security compartment.', 'warning');
+      return;
+    }
     tab.shieldsEnabled = Boolean(enabled);
     applyCosmeticFiltering(tab).finally(emitState);
   });
@@ -1394,6 +1400,12 @@ function wireIpc() {
     if (!assertUiSender(event)) return;
     const tab = activeTab();
     if (!tab) return;
+    if (tab.securityDomain === 'anonymous' && tabSettings(tab).anonymity?.disableJavaScript !== false && Boolean(enabled)) {
+      tab.javascriptEnabled = false;
+      emitState();
+      toast('JavaScript is locked off by the anonymous compartment policy.', 'warning');
+      return;
+    }
     replaceTabView(tab, Boolean(enabled)).catch((err) => {
       console.error('Could not change JavaScript policy:', err);
       toast(`Could not change JavaScript policy: ${err.message}`, 'danger');
@@ -1403,6 +1415,12 @@ function wireIpc() {
     if (!assertUiSender(event)) return;
     const tab = activeTab();
     if (!tab) return;
+    if (tab.securityDomain !== 'private' && Boolean(enabled)) {
+      tab.allowHttp = false;
+      emitState();
+      toast('HTTP downgrade is locked off in this security compartment.', 'warning');
+      return;
+    }
     tab.allowHttp = Boolean(enabled);
     emitState();
   });
@@ -1410,6 +1428,12 @@ function wireIpc() {
     if (!assertUiSender(event)) return;
     const tab = activeTab();
     if (!tab) return;
+    if (tab.securityDomain !== 'private' && Boolean(enabled)) {
+      tab.compatibilityMode = false;
+      emitState();
+      toast('Compatibility mode cannot weaken a hardened or anonymous compartment.', 'warning');
+      return;
+    }
     tab.compatibilityMode = Boolean(enabled);
     emitState();
     tab.view.webContents.reload();
