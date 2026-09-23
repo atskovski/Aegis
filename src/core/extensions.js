@@ -616,7 +616,7 @@ class AegisExtensionRuntime{
     health.lastDiagnostic=diagnostic;return diagnostic;
   }
   async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled){await this.startBackground(e);this.emitEvent(e,'runtime.onStartup',[]);await this.diagnose(id,{repair:false});}else this.stopBackground(id);return this.publicRecord(e)}
-  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.dnrSessionRules.delete(id);this.actionState.delete(id);this.runtimeHealth.delete(id);this.activeGrants.delete(id);this.menuItems.delete(id);this.extensionNotifications.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
+  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.dnrSessionRules.delete(id);this.registeredContentScripts.delete(id);this.actionState.delete(id);this.runtimeHealth.delete(id);this.activeGrants.delete(id);this.menuItems.delete(id);this.extensionNotifications.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
   enabled(){return [...this.items.values()].filter((e)=>e.enabled!==false)}
   extensionFor(id){const e=this.items.get(String(id||''));if(!e||e.enabled===false)throw new Error('Extension disabled or missing');return e}
   tabById(id){return this.getTabs().find((t)=>t.id===Number(id))}
@@ -949,6 +949,8 @@ class AegisExtensionRuntime{
       if(op==='get')return this.privacySetting(key);if(op==='clear')return undefined;const requested=a[0]?.value,current=this.privacyValue(key);if(requested===current)return undefined;throw new Error('Aegis security policy owns '+key+' and will not let an extension weaken it.');
     }
 
+    if(m==='webRequest.handlerBehaviorChanged')return undefined;
+
     if(m.startsWith('declarativeNetRequest.')){
       if(!declared.has('declarativeNetRequest')&&!declared.has('declarativeNetRequestWithHostAccess'))throw new Error('Extension lacks declarativeNetRequest permission.');
       if(m==='declarativeNetRequest.getDynamicRules')return this.dnrDynamicRules(e);if(m==='declarativeNetRequest.getSessionRules')return sanitizeDnrRules(this.dnrSessionRules.get(e.id)||[]);if(m==='declarativeNetRequest.getEnabledRulesets')return this.dnrEnabledRulesets(e);
@@ -1030,6 +1032,10 @@ class AegisExtensionRuntime{
     if(m==='scripting.executeScript'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.executeExtensionScript(e,target,a[0]||{})}
     if(m==='scripting.insertCSS'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.insertExtensionCss(e,target,a[0]||{})}
     if(m==='scripting.removeCSS'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.removeExtensionCss(e,target,a[0]||{})}
+    if(m==='scripting.registerContentScripts'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');return this.registerContentScripts(e,a[0]||[])}
+    if(m==='scripting.updateContentScripts'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');return this.updateRegisteredContentScripts(e,a[0]||[])}
+    if(m==='scripting.unregisterContentScripts'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');return this.unregisterContentScripts(e,a[0]||{})}
+    if(m==='scripting.getRegisteredContentScripts'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');return this.getRegisteredContentScripts(e,a[0]||{})}
 
     if(m==='alarms.create'){if(!declared.has('alarms'))throw new Error('Extension lacks alarms permission.');return this.createAlarm(e,typeof a[0]==='string'?a[0]:'',typeof a[0]==='string'?(a[1]||{}):(a[0]||{}))}
     if(m==='alarms.get'){return this.alarmTimers.get(this.alarmKey(e.id,a[0]))?.alarm||null}
