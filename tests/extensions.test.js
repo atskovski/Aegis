@@ -167,8 +167,10 @@ test('package source API scanning catches undeclared unsupported browser namespa
 });
 
 
-test('background bootstrap preserves runtime.sendMessage response handling', () => {
+test('background bootstrap preserves runtime.sendMessage response handling and unique origins', () => {
+  const { webExtensionBootstrap }=require('../src/core/extension-shim');
   const ext={id:'msg@example',resourceToken:'token123',path:__dirname,manifest:{manifest_version:2,name:'Msg',version:'1',background:{scripts:['bg.js']}}};
-  const source=bootstrap(ext);
-  assert.match(source,/aegis-extension:\/\/token123\//);
+  const source=webExtensionBootstrap(ext,'__aegisBackgroundBridge');
+  assert.ok(source.includes("'aegis-extension://'+TOKEN+'/'"));
+  assert.ok(source.includes('B.respond?.(p.messageId,response)'));
 });
