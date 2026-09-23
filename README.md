@@ -1,12 +1,20 @@
 <p align="center"><img src="assets/brand/aegis-lockup.svg" alt="Aegis Privacy Browser" width="430"></p>
 
-# Aegis Privacy Browser 1.0 — Runtime Guardian
+# Aegis Privacy Browser 1.1 — Security Kernel
 
-Aegis 1.0 is a local-first macOS privacy, security and managed-browser platform built on Electron/Chromium. Its design rule is simple: a security setting is not treated as protection merely because a toggle is enabled. Aegis couples policy, browser-process enforcement, behavioral runtime checks and user-visible evidence.
+Aegis 1.1 is a local-first macOS privacy, security and managed-browser platform built on Electron/Chromium. Its design rule is simple: a security setting is not treated as protection merely because a toggle is enabled. Aegis couples policy, browser-process enforcement, behavioral runtime checks and user-visible evidence.
 
 Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or Tor Browser equivalence. It reduces attack surface and linkability, isolates high-risk activity, can fail closed for selected routes, and reports important residual exposure instead of converting limitations into green badges.
 
-## What's new in 1.0
+## What's new in 1.1
+
+### Security Kernel and Runtime Guardian
+- Centralized fail-closed policy decision kernel for navigation, extensions, downloads and permissions.
+- Managed-policy runtime expiry enforcement, anti-rollback version comparison and signing-key identity support.
+- Enterprise URL block rules now take precedence over allow rules.
+- Fingerprint activity telemetry classifies bursts of high-entropy surface access as Low, Elevated or Aggressive without claiming anonymity.
+- Identity-coherence evaluation compares observed browser identity with the active Aegis cohort policy.
+- Filter subscriptions now support bounded streaming downloads, 24-hour cache TTLs, conditional ETag/Last-Modified refresh, parse-health validation, last-known-good retention and hosts-format conversion.
 
 ### Runtime Guardian and Security Suite
 - Behavioral verification of renderer/Node isolation, session separation, storage cleanup, WebRTC exposure, network identity coherence and fingerprint cohort consistency.
@@ -205,8 +213,8 @@ Native macOS GUI behavior, real-world fingerprint comparison populations, live l
 - [Release checklist](docs/RELEASE-CHECKLIST.md)
 - [Brand system](docs/BRAND.md)
 
-## 1.0 status
+## 1.1 status
 
-The repository version is **1.0.0**. Aegis 1.0 now contains the Runtime Guardian architecture, isolated browsing compartments, enterprise policy engine, signed managed-policy verification, Aegis Extension Runtime, runtime Security Suite, Sentinel evidence model, tracking/storage defenses, fingerprint-reduction framework, download integrity evidence, secret-safe diagnostics and expanded appearance system.
+The repository version is **1.1.0**. Aegis 1.1 now contains the Runtime Guardian architecture, isolated browsing compartments, enterprise policy engine, signed managed-policy verification, Aegis Extension Runtime, runtime Security Suite, Sentinel evidence model, tracking/storage defenses, fingerprint-reduction framework, download integrity evidence, secret-safe diagnostics and expanded appearance system.
 
 The repository should still distinguish a feature-complete codebase from a publicly trusted binary release: broad native compatibility testing, Apple signing/notarization, signed update distribution, reproducible release provenance and independent security review are distribution/release-assurance steps rather than claims the source tree can make by itself.
