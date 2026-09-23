@@ -873,14 +873,12 @@ const REMOTE_RENDERER_POLICY = Object.freeze({
 
 function createTabView(tab) {
   tab.rendererPolicy = { ...REMOTE_RENDERER_POLICY };
-  const view = new WebContentsView({
-    webPreferences: {
+  const view = browserEngine.createView({
       ...REMOTE_RENDERER_POLICY,
       preload: path.join(__dirname, 'extension-bridge-preload.js'),
       additionalArguments: extensionRuntime ? extensionRuntime.bridgeArguments() : [],
       session: tab.privateSession,
       javascript: Boolean(tab.javascriptEnabled)
-    }
   });
   if (typeof view.webContents.setZoomMode === 'function') view.webContents.setZoomMode('isolated');
   return view;
