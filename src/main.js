@@ -840,8 +840,9 @@ function wireTabView(tab, view) {
   });
   view.webContents.on('will-redirect', (event, legacyDetails) => {
     const original = navigationUrl(event, legacyDetails);
-    const url = cleanNavigationUrl(original, { strip: settings.stripTrackingParams, unwrap: settings.unwrapTrackingLinks });
-    if (!url || !isAllowedNavigation(url) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe redirect.', 'danger'); return; }
+    const effective = tabSettings(tab);
+    const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
+    if (!url || !isAllowedNavigation(url) || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe redirect.', 'danger'); return; }
     if (url !== original) { event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState(); view.webContents.loadURL(url).catch(() => {}); }
   });
   view.webContents.on('did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
@@ -868,7 +869,7 @@ function wireTabView(tab, view) {
   });
   view.webContents.on('did-navigate', (_event, url, httpResponseCode = -1, httpStatusText = '') => {
     const oldOrigin = safeOrigin(tab.url); const newOrigin = safeOrigin(url);
-    tab.url = url; tab.topUrl = url; tab.safety = settings.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+    tab.url = url; tab.topUrl = url; tab.safety = tabSettings(tab).threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
     if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
     tab.httpStatus = { code: httpResponseCode, text: httpStatusText }; scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
   });
