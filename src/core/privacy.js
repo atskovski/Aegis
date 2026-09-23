@@ -35,7 +35,8 @@ function categoryEnabled(settings, category) {
 }
 
 function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
-  ses.setUserAgent(buildGenericUA(chromiumVersion), 'en-US,en');
+  const genericUA = buildGenericUA(chromiumVersion);
+  ses.setUserAgent(genericUA, 'en-US,en');
   ses.spellCheckerEnabled = false;
   try { ses.setSSLConfig({ minVersion: 'tls1.2', maxVersion: 'tls1.3' }); } catch {}
 
@@ -53,6 +54,22 @@ function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onSta
   ses.on('select-hid-device', (event, details, callback) => { event.preventDefault(); callback(); });
   ses.on('select-serial-port', (event, portList, webContents, callback) => { event.preventDefault(); callback(''); });
   ses.on('select-usb-device', (event, details, callback) => { event.preventDefault(); callback(); });
+
+  ses.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+    const settings = getSettings();
+    const headers = { ...(details.requestHeaders || {}) };
+    // Keep the network identity coherent with the JS-visible privacy cohort.
+    headers['User-Agent'] = genericUA;
+    headers['Accept-Language'] = 'en-US,en;q=0.5';
+    if (settings.doNotTrack !== false) headers['DNT'] = '1'; else delete headers['DNT'];
+    if (settings.globalPrivacyControl !== false) headers['Sec-GPC'] = '1'; else delete headers['Sec-GPC'];
+    // High-entropy UA client hints are unnecessary for normal browsing and create
+    // another cross-layer fingerprint. Chromium may regenerate low-entropy hints.
+    for (const key of Object.keys(headers)) {
+      if (/^sec-ch-ua-(full-version|full-version-list|arch|bitness|model|platform-version|wow64)$/i.test(key)) delete headers[key];
+    }
+    callback({ requestHeaders: headers });
+  });
 
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
     const settings = getSettings();
