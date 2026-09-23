@@ -32,7 +32,7 @@ function safeRel(v){
 }
 function normalizeManifest(m){
   if(!m||typeof m!=='object') throw new Error('Invalid manifest.json.');
-  if(![2,3].includes(Number(m.manifest_version))) throw new Error('Only WebExtensions manifest v2/v3 is supported.');
+  if(![2,3].includes(Number(m.manifest_version))) throw new Error('Only Chrome extension Manifest V2 or V3 is supported.');
   if(!String(m.name||'').trim()||!String(m.version||'').trim()) throw new Error('Extension name/version is required.');
   return m;
 }
@@ -246,8 +246,8 @@ function compatibility(m,detectedRoots=[]){
   }
   const features=manifestFeatures(m);
   const contentEntries=Array.isArray(m.content_scripts)?m.content_scripts:[];
-  if(contentEntries.some((e)=>e?.run_at==='document_start')) warnings.push({api:'content_scripts.run_at',reason:'document_start uses Aegis early-navigation isolated-world injection; exact Firefox pre-page-script ordering is not guaranteed on every Chromium navigation.'});
-  if(contentEntries.some((e)=>e?.all_frames)) warnings.push({api:'content_scripts.all_frames',reason:'Aegis injects declared all_frames scripts into loaded subframes through the sandboxed frame bridge. Exact document_start ordering in newly created subframes can still differ from upstream Chrome/Firefox.'});
+  if(contentEntries.some((e)=>e?.run_at==='document_start')) warnings.push({api:'content_scripts.run_at',reason:'document_start uses Aegis early-navigation isolated-world injection; exact upstream Chrome pre-page-script ordering is not guaranteed on every navigation.'});
+  if(contentEntries.some((e)=>e?.all_frames)) warnings.push({api:'content_scripts.all_frames',reason:'Aegis injects declared all_frames scripts into loaded subframes through the sandboxed frame bridge. Exact document_start ordering in newly created subframes can still differ from upstream Chrome.'});
   if(Array.isArray(m.optional_permissions)&&m.optional_permissions.length) warnings.push({api:'optional_permissions',reason:'Optional permissions require explicit user approval in Aegis and are not auto-granted.'});
   if(Array.isArray(m.optional_host_permissions)&&m.optional_host_permissions.length) warnings.push({api:'optional_host_permissions',reason:'Optional host access requires explicit user approval in Aegis and is not auto-granted.'});
   if(permissions(m).includes('notifications')) warnings.push({api:'notifications',reason:'Notifications are rendered as prominent Aegis browser-chrome notices; OS notification buttons and native notification-center persistence are not emulated.'});
@@ -255,17 +255,17 @@ function compatibility(m,detectedRoots=[]){
   else if(permissions(m).includes('webRequest')) warnings.push({api:'webRequest',reason:'Aegis forwards request-observation events to extensions. Blocking behavior requires the declared webRequestBlocking permission.'});
   if(permissions(m).some((p)=>p==='declarativeNetRequest'||p==='declarativeNetRequestWithHostAccess')) warnings.push({api:'declarativeNetRequest',reason:'Aegis imports static, dynamic and session DNR rules for block, allow, redirect and upgradeScheme actions. Privacy-strengthening modifyHeaders removals are supported for cookies, referrers and cache/tracking identifiers; security-weakening header changes remain blocked.'});
   if(permissions(m).includes('privacy')) warnings.push({api:'privacy',reason:'Privacy settings are exposed through an Aegis-controlled compatibility surface. Extensions can query them; attempts to weaken Aegis-enforced protections are ignored.'});
-  if(permissions(m).includes('menus')||permissions(m).includes('contextMenus')) warnings.push({api:'menus',reason:'Aegis hosts standard extension context-menu items; advanced Firefox menu surfaces and icons are reduced.'});
+  if(permissions(m).includes('menus')||permissions(m).includes('contextMenus')) warnings.push({api:'menus',reason:'Aegis hosts standard Chrome extension context-menu items; some advanced browser-shell menu surfaces and icons are reduced.'});
   const bg=m.background||{};
   let background='none', backgroundCredit=0;
   if(bg.page){
     background='sandboxed-page'; backgroundCredit=1;
-    warnings.push({api:'background.page',reason:'Background pages run in a sandboxed Aegis extension window with Aegis WebExtension APIs; Firefox browser internals remain unavailable.'});
+    warnings.push({api:'background.page',reason:'Background pages run in a sandboxed Aegis extension window with the Aegis Chrome compatibility APIs; privileged browser internals remain unavailable.'});
   } else if((Array.isArray(bg.scripts)&&bg.scripts.length)||bg.service_worker){
     background='sandboxed-emulation'; backgroundCredit=1;
     warnings.push({api:'background',reason:bg.service_worker?'MV3 service-worker code runs in a sandboxed persistent Aegis background host; service-worker suspension semantics differ from Chromium.':'Background scripts run in a sandboxed Aegis background host.'});
   }
-  if(m.sidebar_action) unsupported.push({api:'sidebarAction',reason:'Firefox sidebar_action is not implemented in the Aegis shell yet.'});
+  if(m.sidebar_action) unsupported.push({api:'sidebarAction',reason:'sidebar_action is not part of the Chrome extension runtime and is not implemented in the Aegis shell.'});
   if(m.omnibox) unsupported.push({api:'omnibox',reason:'Extension omnibox keyword providers are not implemented yet.'});
   if(m.devtools_page) unsupported.push({api:'devtools_page',reason:'DevTools extension pages are disabled because remote DevTools is not exposed.'});
   const capabilityCount=roots.length+(features.contentScripts?1:0)+(background!=='none'?1:0)+(features.action?1:0)+(features.options?1:0);
