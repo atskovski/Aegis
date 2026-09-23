@@ -31,6 +31,11 @@ test('Add-ons manager exposes staged review and installed-extension controls',()
   assert.match(ui,/extensions:open-action/);
   assert.match(ui,/extensions:open-options/);
   assert.match(ui,/extensions:reload/);
+  assert.match(ui,/Check update/);
+  assert.match(ui,/updateFor:addon\.id/);
+  assert.match(ui,/Update rejected because the downloaded package identity does not match/);
+  assert.match(ui,/Already current at version/);
+  assert.match(ui,/Add-on updated/);
   assert.doesNotMatch(ui,/confirm\('Remove '/);
 });
 
