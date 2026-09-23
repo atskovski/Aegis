@@ -1819,6 +1819,7 @@ function wireIpc() {
   });
   ipcMain.on('extension:message-response', (event, payload) => { if (extensionRuntime) extensionRuntime.handleBackgroundResponse(event.sender, payload); });
   ipcMain.on('extension:frame-inject-result', (event, payload) => { if (extensionRuntime) extensionRuntime.handleFrameInjectionResult(event.sender, event.senderFrame, payload); });
+  ipcMain.on('extension:frame-message-result', (event, payload) => { if (extensionRuntime) extensionRuntime.handleFrameMessageResult(event.sender, event.senderFrame, payload); });
 
   ipcMain.on('nav', (event, value) => { if (assertUiSender(event)) navigateTab(activeTab(), value); });
   ipcMain.on('tab:new', (event, value) => { if (assertUiSender(event)) createTab(value || settings.homePage || 'https://duckduckgo.com/'); });
