@@ -366,6 +366,8 @@ function renderControlAssurance() {
   });
 }
 
+const PRIVACY_BADGER_CHROME_ID = 'pkehgijcmpdhfbdbbnkijodmdjhbjlgp';
+
 function addonFeatureLabels(features = {}) {
   const out = [];
   if (features.contentScripts) out.push(features.contentScripts + ' content script' + (features.contentScripts === 1 ? '' : 's'));
@@ -601,6 +603,7 @@ function renderAddons() {
 
     const features = document.createElement('div'); features.className = 'addon-chip-list addon-features';
     addonFeatureLabels(addon.features).forEach((item) => features.append(makeAddonChip(item, 'supported')));
+    if (addon.id === PRIVACY_BADGER_CHROME_ID) features.append(makeAddonChip('Runtime 6 reference: Privacy Badger', 'supported'));
     ['storage.sync','windows','cookies','tabs.captureVisibleTab'].filter((name) => {
       const root=name.split('.')[0];
       return (addon.detectedApis||[]).includes(root) || (addon.permissions||[]).includes(root);
@@ -1548,15 +1551,22 @@ $('#confirmAddonInstall').addEventListener('click', async () => {
   try {
     const result = await window.aegis.invoke('extensions:install-staged', pendingAddonInstall.token);
     if (result?.ok) {
+      const installed = result.extension || {};
+      const diagnostic = installed.runtime?.lastDiagnostic;
+      const runtimeState = addonHealth(installed);
       pendingAddonInstall = null;
       let refreshError = '';
       try { await refreshExtensions(); } catch (err) { refreshError = String(err?.message || err || 'Unknown manager refresh error'); }
+      const verified = runtimeState.status === 'pass';
+      const failed = runtimeState.status === 'fail';
       showToast({
-        title: previousAddon ? 'Extension updated' : 'Extension installed',
-        message: previousAddon
-          ? (result.extension.name + ' updated from ' + previousAddon.version + ' to ' + result.extension.version + '. The package was re-verified before activation.' + (refreshError ? ' The Extensions view could not refresh automatically: ' + refreshError : ''))
-          : (result.extension.name + ' ' + result.extension.version + ' is installed. Supported background, content, toolbar and options features are now active.' + (refreshError ? ' The Extensions view could not refresh automatically: ' + refreshError : '')),
-        tone:refreshError?'warning':'success',duration:8000
+        title: previousAddon
+          ? (verified ? 'Extension updated and verified' : 'Extension updated — runtime needs attention')
+          : (verified ? 'Extension installed and verified' : 'Extension installed — runtime needs attention'),
+        message: verified
+          ? (installed.name + ' ' + installed.version + ' passed the post-install runtime health check.' + (installed.id === PRIVACY_BADGER_CHROME_ID ? ' Privacy Badger is the Runtime 6 reference extension.' : '') + (refreshError ? ' The Extensions view could not refresh automatically: ' + refreshError : ''))
+          : (installed.name + ' ' + installed.version + ' was installed, but the runtime health check reported ' + String(diagnostic?.status || installed.runtime?.status || 'an issue') + '. Open its Health check evidence' + (failed ? ' and use Repair runtime before relying on it.' : ' before relying on every feature.') + (refreshError ? ' The Extensions view could not refresh automatically: ' + refreshError : '')),
+        tone:verified&&!refreshError?'success':(failed?'danger':'warning'),duration:10000
       });
     } else showToast({title:'Extension install failed',message:result?.error || 'Unknown installation error.',tone:'danger'});
   } catch (err) { showToast({title:'Extension install failed',message:err.message,tone:'danger'}); }
