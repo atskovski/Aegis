@@ -1104,6 +1104,7 @@ $('#installXpi').addEventListener('click', async () => {
   } catch (err) { showToast({ message:'Extension install failed: ' + err.message, tone:'danger' }); }
   finally { button.disabled = false; button.textContent = 'Install .xpi'; }
 });
+$('#pickAdElement')?.addEventListener('click',async()=>{closeSettings();const r=await window.aegis.invoke('adblock:pick-element');if(r?.ok)showToast('Blocked element with rule: '+r.rule,'success');else if(!r?.canceled)showToast(r?.error||'Element picker failed.','danger');});
 $('#exportSecurityEvents').addEventListener('click',async()=>{const r=await window.aegis.invoke('enterprise:export-events');if(r?.ok)showToast(`Exported ${r.count} redacted security events.`,'success');else if(!r?.canceled)showToast(r?.error||'Evidence export failed.','danger');});
 $('#importManagedPolicy').addEventListener('click',async()=>{const r=await window.aegis.invoke('enterprise:import-policy');if(r?.ok){state.settings=await window.aegis.invoke('settings:get');loadSettings();showToast('Signed managed policy verified and applied.','success');}else if(!r?.canceled)showToast(r?.error||'Managed policy import failed.','danger');});
 $('#networkTestFromNetwork').addEventListener('click', () => { openSettings('diagnostics'); runNetworkTest(); });
