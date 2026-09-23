@@ -29,5 +29,6 @@ test('page privacy preload contains privacy API and beacon guards', () => {
   assert.match(source, /joinAdInterestGroup/);
   assert.match(source, /queryLocalFonts/);
   assert.match(source, /sendBeacon/);
-  assert.match(source, /Dynamic eval blocked by Aegis Maximum protection/);
+  assert.doesNotMatch(source, /Dynamic eval blocked by Aegis Maximum protection/);
+  assert.doesNotMatch(source, /globalThis\\.eval\\s*=/);
 });
