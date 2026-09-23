@@ -480,12 +480,12 @@ async function runSecuritySuite() {
     'Sites can still observe Chromium TLS characteristics (for example JA3/JA4-style fingerprints). Aegis does not claim to rewrite the Chromium TLS stack.', 'known-limit'));
 
   if (tab && effective.privacyLevel !== 'standard' && tab.javascriptEnabled !== false) {
-    const liveTabs = tabs.filter((candidate) =>
+    const liveTabs = [...tabs.values()].filter((candidate) =>
       candidate?.id !== tab.id &&
       candidate?.securityDomain === tab.securityDomain &&
       candidate?.javascriptEnabled !== false &&
       candidate?.fingerprintReady &&
-      candidate?.view?.webContents &&
+      candidate?.view &&
       !browserRuntime.destroyed(candidate.view)
     ).slice(0, 2);
     if (liveTabs.length) {
@@ -519,7 +519,7 @@ async function runSecuritySuite() {
 
     const expectedNetworkUa = buildGenericUA(process.versions.chrome);
     configurePrivacySession({
-      ses, engine: browserEngine, tab: { url:'https://example.com/', topUrl:'https://example.com/', stats:createStats() },
+      ses, engine: browserEngine, tab: { url:'https://example.com/', topUrl:'https://example.com/', stats:makeTabStats() },
       getSettings:()=>effective, chromiumVersion:process.versions.chrome, onStats:()=>{},
       onPermissionBlocked:()=>{}, onPermissionPrompt:({ complete })=>complete(false),
       onSensitiveAccess:()=>{}, onNetworkAccess:()=>{}, trackerLearner:null, getFilterRules:()=>null, isTemporarilyAllowed:()=>false
@@ -1368,9 +1368,9 @@ async function hardenTab(tab) {
   // Remove state accumulated before hardening so the reloaded page starts from a
   // genuinely clean compartment instead of inheriting old cookies/cache/storage.
   try {
-    await tab.privateSession.clearData({ dataTypes:['cookies','localStorage','indexedDB','serviceWorkers','cache','cacheStorage'] });
-    await tab.privateSession.clearCache();
-    await tab.privateSession.closeAllConnections();
+    await browserRuntime.clearData(tab.privateSession, { dataTypes:['cookies','localStorage','indexedDB','serviceWorkers','cache','cacheStorage'] });
+    await browserRuntime.clearCache(tab.privateSession);
+    await browserRuntime.closeConnections(tab.privateSession);
   } catch (err) { console.warn('Harden cleanup warning:', err.message); }
 
   tab.javascriptEnabled = true;
@@ -1490,7 +1490,20 @@ function wireIpc() {
       try { await ses.closeAllConnections(); } catch {}
     }
   });
-  ipcMain.handle('security-suite:run', (event) => assertUiSender(event) ? runSecuritySuite() : { testedAt: new Date().toISOString(), checks: [], summary: { pass: 0, warning: 0, info: 0, fail: 0, 'not-tested': 0, total: 0 }, error: 'IPC sender denied' });
+  ipcMain.handle('security-suite:run', async (event) => {
+    if (!assertUiSender(event)) return { testedAt: new Date().toISOString(), checks: [], summary: { pass: 0, warning: 0, info: 0, fail: 0, 'not-tested': 0, total: 0 }, error: 'IPC sender denied' };
+    try {
+      return await runSecuritySuite();
+    } catch (err) {
+      const evidence = 'Security Suite internal error: ' + String(err?.message || err || 'unknown error');
+      console.error(evidence, err);
+      securityEvents.add('security-suite-error','danger',{ error:String(err?.message || err || 'unknown error') },activeId);
+      const failed = makeCheck('suite-runtime-integrity','Security Suite runtime integrity','fail',evidence,'self-test');
+      lastSecuritySuite = { testedAt:new Date().toISOString(), publicIp:{ok:false,status:'not-tested',ip:'',provider:'',error:'Suite aborted.'}, route:null, connectivity:null, checks:[failed], summary:summarizeChecks([failed]), error:evidence };
+      emitState();
+      return lastSecuritySuite;
+    }
+  });
   ipcMain.handle('security-test:open', async (event, key) => {
     if (!assertUiSender(event)) return { ok:false, error:'IPC sender denied' };
     const url=SECURITY_TEST_TARGETS[String(key||'')];
