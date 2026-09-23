@@ -1,0 +1,8 @@
+'use strict';
+const test=require('node:test');const assert=require('node:assert/strict');
+const {parseFilterRules,matchFilterRules,cosmeticSelectorsForHost,applyRemoveParamRules}=require('../src/core/filter-rules');
+test('resource type and third-party options',()=>{const r=parseFilterRules('||ads.example^$script,third-party');assert.equal(matchFilterRules('https://ads.example/a.js',r,{topUrl:'https://site.test/',resourceType:'script'}),'block');assert.equal(matchFilterRules('https://ads.example/a.png',r,{topUrl:'https://site.test/',resourceType:'image'}),null);});
+test('domain option scopes filters',()=>{const r=parseFilterRules('||ads.example^$domain=news.test|~shop.news.test');assert.equal(matchFilterRules('https://ads.example/a',r,{topUrl:'https://news.test/',resourceType:'image'}),'block');assert.equal(matchFilterRules('https://ads.example/a',r,{topUrl:'https://shop.news.test/',resourceType:'image'}),null);});
+test('important overrides exception',()=>{const r=parseFilterRules('||ads.example^$important\n@@||ads.example^');assert.equal(matchFilterRules('https://ads.example/x',r,{topUrl:'https://site.test/',resourceType:'script'}),'block');});
+test('cosmetic scope honors exceptions',()=>{const r=parseFilterRules('news.test##.ad\nshop.test##.promo\nnews.test#@#.ad');assert.deepEqual(cosmeticSelectorsForHost('news.test',r),[]);assert.deepEqual(cosmeticSelectorsForHost('shop.test',r),['.promo']);});
+test('removeparam strips query key',()=>{const r=parseFilterRules('||example.test^$removeparam=utm_source');const out=applyRemoveParamRules('https://example.test/a?utm_source=x&id=2',r,{topUrl:'https://site.test/'});assert.equal(new URL(out).searchParams.has('utm_source'),false);assert.equal(new URL(out).searchParams.get('id'),'2');});
