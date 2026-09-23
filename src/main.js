@@ -1280,6 +1280,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
     getFilterRules: () => filterRules,
     onExtensionRequest: (type, details) => extensionRuntime?.notifyWebRequest(type, tab, details),
     getExtensionNetworkDecision: (details) => extensionRuntime?.networkDecision(tab, details),
+    getExtensionHeaderModifications: (details, phase) => extensionRuntime?.headerModifications(tab, details, phase) || [],
     isTemporarilyAllowed: (origin, key) => isTemporarilyAllowed(tab.id, origin, key)
   });
   tab.permissionFirewallReady = true;
