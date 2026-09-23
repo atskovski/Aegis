@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, WebContentsView, ipcMain, protocol, clipboard, dialog, shell, Menu, net, session: electronSession } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, clipboard, dialog, shell, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
@@ -25,6 +25,9 @@ const { makeBounceTracker, noteNavigation, detectBounce } = require('./core/boun
 const { createSecurityEventLedger } = require('./core/security-events');
 const { evaluateUrl, extensionAllowed } = require('./core/enterprise-policy');
 const { verifyBundle, applyManagedPolicy, preserveLockedSettings } = require('./core/managed-policy');
+const { createElectronChromiumAdapter } = require('./engine/electron-adapter');
+const { engineEvidence } = require('./core/engine-contract');
+const browserEngine = createElectronChromiumAdapter();
 
 app.setName('Aegis Privacy Browser');
 
@@ -214,7 +217,7 @@ function rebuildFilterRules(){
   filterRules=parseFilterRules([subscribed,settings.customFilterRules||''].filter(Boolean).join('\n'));
 }
 async function updateFilterLists(){
-  const results=await refreshFilterLists({dir:FILTER_LIST_DIR(),enabled:settings.enabledFilterLists||[],fetchImpl:(url,opts)=>net.fetch(url,{...opts,bypassCustomProtocolHandlers:true})});
+  const results=await refreshFilterLists({dir:FILTER_LIST_DIR(),enabled:settings.enabledFilterLists||[],fetchImpl:(url,opts)=>browserEngine.fetch(url,{...opts,bypassCustomProtocolHandlers:true})});
   rebuildFilterRules();securityEvents.add('filter-lists-refreshed',results.some(x=>!x.ok)?'warning':'success',{results});
   await Promise.allSettled([...tabs.values()].map(tab=>applyCosmeticFiltering(tab)));emitState();return results;
 }
@@ -283,7 +286,7 @@ async function runNetworkTest() {
   // Diagnostics deliberately use a disposable Chromium session. This keeps the
   // test working even when the current tab renderer/session is unhealthy and
   // prevents a proxy reset from interrupting a page the user is viewing.
-  const ses = electronSession.fromPartition(`aegis-diagnostic-${crypto.randomUUID()}`, { cache: false });
+  const ses = browserEngine.createSession(`aegis-diagnostic-${crypto.randomUUID()}`, { cache: false });
   try {
     const diagnosticMode = effective.proxy?.mode || 'system';
     const route = await applyProxyCore(ses, effective.proxy || {},  {
@@ -488,10 +491,10 @@ async function runSecuritySuite() {
     }
   }
 
-  const isolation = await testSessionIsolation((suffix) => electronSession.fromPartition(`aegis-suite-${suffix}-${crypto.randomUUID()}`, { cache: false }));
+  const isolation = await testSessionIsolation((suffix) => browserEngine.createSession(`aegis-suite-${suffix}-${crypto.randomUUID()}`, { cache: false }));
   checks.push(makeCheck('session-isolation', 'Ephemeral session isolation', isolation.status, isolation.evidence, 'behavioral-test'));
 
-  const ses = electronSession.fromPartition(`aegis-security-suite-${crypto.randomUUID()}`, { cache: false });
+  const ses = browserEngine.createSession(`aegis-security-suite-${crypto.randomUUID()}`, { cache: false });
   let route = null;
   let connectivity = null;
   let publicIp = { ok: false, status: 'not-tested', ip: '', provider: '', error: 'Not tested.' };
@@ -1099,7 +1102,7 @@ async function replaceTabView(tab, javascriptEnabled) {
 async function createTab(raw = null, activate = true, waitForNavigation = false, options = {}) {
   const id = nextId++;
   const partition = `aegis-tab-${crypto.randomUUID()}`; // no persist: prefix = memory-only session
-  const privateSession = electronSession.fromPartition(partition, { cache: false });
+  const privateSession = browserEngine.createSession(partition, { cache: false });
   // Custom protocols are session-scoped in Electron. Every in-memory tab session
   // must explicitly register Aegis's internal protocol before loading start/settings pages.
   registerInternalProtocol(privateSession.protocol, `private tab ${id}`);
@@ -1455,7 +1458,7 @@ function wireIpc() {
   ipcMain.handle('network:test-tor', async (event, payload = {}) => {
     if (!assertUiSender(event)) return { ok:false, verified:false, error:'IPC sender denied' };
     const partition = 'aegis-tor-proof-' + crypto.randomUUID();
-    const ses = electronSession.fromPartition(partition, { cache:false });
+    const ses = browserEngine.createSession(partition, { cache:false });
     const server = String(payload?.torProxy || settings.anonymity?.torProxy || '127.0.0.1:9050').trim().slice(0,180);
     try {
       const route = await applyProxyCore(ses, { mode:'socks5', server, bypassLocal:false, failClosedFixedProxy:true }, { failClosedFixedProxy:true, freshSession:true });
@@ -1858,7 +1861,7 @@ app.whenReady().then(async () => {
     getTabs: () => [...tabs.values()],
     getActiveId: () => activeId,
     BrowserWindow,
-    electronSession,
+    electronSession: { fromPartition:(partition,options)=>browserEngine.createSession(partition,options) },
     registerProtocols: registerInternalProtocol,
     createTab,
     updateTab: async (id, props = {}) => { const tab=tabs.get(Number(id)); if(!tab) throw new Error('Tab not found'); if(props.url) await navigateTab(tab, props.url); if(props.active) activateTab(tab.id); return serializeTab(tab); },
