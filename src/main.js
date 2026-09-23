@@ -25,6 +25,9 @@ const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPri
 const { makeBounceTracker, noteNavigation, detectBounce } = require('./core/bounce-tracking');
 const { createSecurityEventLedger } = require('./core/security-events');
 const { evaluateUrl, extensionAllowed } = require('./core/enterprise-policy');
+const { createSecurityKernel } = require('./core/security-kernel');
+const { createRiskEngine } = require('./core/risk-engine');
+const { createKernelAudit } = require('./core/kernel-audit');
 const { verifyBundle, applyManagedPolicy, preserveLockedSettings } = require('./core/managed-policy');
 const { createElectronChromiumAdapter } = require('./engine/electron-adapter');
 const { engineEvidence } = require('./core/engine-contract');
@@ -96,6 +99,9 @@ let trackerLearner = new TrackerLearner();
 let filterRules = parseFilterRules('');
 let extensionRuntime = null;
 const securityEvents = createSecurityEventLedger(750);
+const kernelAudit = createKernelAudit(1500);
+const riskEngine = createRiskEngine();
+const securityKernel = createSecurityKernel({getSettings:()=>settings,emit:(e)=>{kernelAudit.append(e);if(!e.allow)securityEvents.add('kernel-deny',e.risk==='critical'?'danger':'warning',{action:e.action,reason:e.reason,layer:e.layer,risk:e.risk,url:e.url},e.tabId);}});
 const SECURITY_TEST_TARGETS = Object.freeze({
   eff: 'https://coveryourtracks.eff.org/',
   ip: 'https://browserleaks.com/ip',
@@ -628,6 +634,7 @@ function statePayload() {
     network: { lastTest: lastNetworkTest, proxyMode: currentSettings.proxy?.mode || 'system', securityDomain: currentTab?.securityDomain || 'private', torVerified: Boolean(currentTab?.torVerified) },
     securitySuite: lastSecuritySuite,
     securityEvents: securityEvents.list(activeId).slice(0,100),
+    securityKernel: { ...securityKernel.evidence(), audit: kernelAudit.verify(), risk: riskEngine.score({tabId:activeId}) },
     extensions: extensionRuntime ? extensionRuntime.list() : [],
     privacyControls: controlAssurance(currentSettings, currentTab),
     engine: {
@@ -961,8 +968,8 @@ function wireTabView(tab, view) {
     const original = navigationUrl(event, legacyDetails);
     const effective = tabSettings(tab);
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
-    const managed=evaluateUrl(url, settings);
-    if (!url || !isAllowedNavigation(url) || !managed.allowed || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) {
+    const managed=securityKernel.navigate({url,tab});
+    if (!url || !isAllowedNavigation(url) || !managed.allow || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) {
       event.preventDefault(); toast(`Blocked unsafe navigation${url ? `: ${String(url).split(':')[0]}:` : '.'}`, 'danger'); return;
     }
     if (url !== original) {
@@ -986,8 +993,8 @@ function wireTabView(tab, view) {
     const original = navigationUrl(event, legacyDetails);
     const effective = tabSettings(tab);
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
-    const managed=evaluateUrl(url, settings);
-    if (!url || !isAllowedNavigation(url) || !managed.allowed || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe or enterprise-restricted redirect.', 'danger'); return; }
+    const managed=securityKernel.redirect({url,tab});
+    if (!url || !isAllowedNavigation(url) || !managed.allow || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe or enterprise-restricted redirect.', 'danger'); return; }
     if (url !== original) { event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState(); browserRuntime.load(view,url).catch(() => {}); }
   });
   view.webContents.on('did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
