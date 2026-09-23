@@ -288,8 +288,11 @@ async function runSecuritySuite() {
         v.debugRendererInfo === false ? 'WEBGL_debug_renderer_info is unavailable to the page.' : 'WebGL debug renderer information may remain queryable.', 'behavioral-test'));
       checks.push(makeCheck('ua-product-leak', 'Browser product identifier', /Aegis/i.test(String(v.userAgent || '')) ? 'warning' : 'pass',
         /Aegis/i.test(String(v.userAgent || '')) ? 'The page-visible JavaScript user agent contains an Aegis product token.' : 'The page-visible JavaScript user agent does not contain an Aegis product token.', 'behavioral-test'));
+      const fontExpected = settings.privacyLevel !== 'standard';
+      checks.push(makeCheck('font-metric-protection', 'CSS font enumeration resistance', !fontExpected ? 'info' : (v.fontMetricProtected ? 'pass' : 'fail'),
+        !fontExpected ? 'Standard mode does not normalize off-screen CSS font metric probes.' : (v.fontMetricProtected ? 'Common off-screen font metric probes returned standardized geometry.' : 'Installed-font metric differences remain observable to the active page.'), 'behavioral-test'));
     } else {
-      for (const [id,label] of [['privacy-api-guard','High-entropy & ad API guard'],['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],['ua-product-leak','Browser product identifier']]) checks.push(makeCheck(id,label,'not-tested',surface.evidence,'behavioral-test'));
+      for (const [id,label] of [['privacy-api-guard','High-entropy & ad API guard'],['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],['ua-product-leak','Browser product identifier'],['font-metric-protection','CSS font enumeration resistance']]) checks.push(makeCheck(id,label,'not-tested',surface.evidence,'behavioral-test'));
     }
 
     const webrtc = await testWebRtcLeakSurface((source) => tab.view.webContents.executeJavaScript(source, true));
@@ -299,7 +302,7 @@ async function runSecuritySuite() {
       ['renderer-isolation','Renderer isolation'],['permission-firewall','Permission firewall'],['fingerprint-defense','Fingerprint normalization'],
       ['cosmetic-filtering','Cosmetic ad filtering'],['https-first','HTTPS-first navigation'],['privacy-api-guard','High-entropy & ad API guard'],
       ['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],
-      ['ua-product-leak','Browser product identifier'],['webrtc-behavior','WebRTC local-IP behavioral test']
+      ['ua-product-leak','Browser product identifier'],['font-metric-protection','CSS font enumeration resistance'],['webrtc-behavior','WebRTC local-IP behavioral test']
     ]) checks.push(makeCheck(id, label, 'not-tested', 'No active web tab.', 'runtime'));
   }
 
@@ -307,12 +310,20 @@ async function runSecuritySuite() {
     'Chromium is launched with force-webrtc-ip-handling-policy=disable_non_proxied_udp.', 'startup-policy'));
   checks.push(makeCheck('site-isolation', 'Site-per-process isolation', 'pass',
     'Chromium is launched with site-per-process and every normal tab uses its own non-persistent session partition.', 'startup-policy'));
-  checks.push(makeCheck('third-party-cookies', 'Third-party cookie defense', settings.blockThirdPartyCookies ? 'pass' : 'fail',
-    settings.blockThirdPartyCookies ? 'Cross-site Cookie and Set-Cookie headers are stripped by the session network firewall.' : 'Third-party cookie blocking is disabled in Settings.', 'runtime-policy'));
-  checks.push(makeCheck('tracker-blocking', 'Tracker network filtering', settings.blockTrackers ? 'pass' : 'fail',
-    settings.blockTrackers ? 'Native main-process request blocking is enabled with ad, analytics, social, fingerprinting, telemetry and heuristic rules.' : 'Tracker blocking is disabled in Settings.', 'runtime-policy'));
-  checks.push(makeCheck('tracking-beacons', 'Tracking beacon guard', settings.blockTrackingBeacons !== false ? 'pass' : 'warning',
-    settings.blockTrackingBeacons !== false ? 'Known tracking destinations are suppressed for sendBeacon and anchor ping transports.' : 'Beacon/ping suppression is disabled.', 'runtime-policy'));
+  const assurance = new Map((tab ? controlAssurance(settings, tab) : []).map((item) => [item.key, item]));
+  const addControlCheck = (key, id, label) => {
+    const item = assurance.get(key);
+    if (!settings[key]) return checks.push(makeCheck(id, label, 'warning', 'Disabled in Settings.', 'runtime-policy'));
+    if (!tab || !item) return checks.push(makeCheck(id, label, 'not-tested', 'No active web tab is available to confirm enforcement.', 'runtime-policy'));
+    return checks.push(makeCheck(id, label, item.status === 'enforced' ? 'pass' : 'fail', item.evidence, 'runtime-policy'));
+  };
+  addControlCheck('blockThirdPartyCookies', 'third-party-cookies', 'Third-party cookie defense');
+  addControlCheck('blockTrackers', 'tracker-blocking', 'Generic tracker network filtering');
+  addControlCheck('blockAds', 'ad-blocking', 'Ad network filtering');
+  addControlCheck('blockSocialTrackers', 'social-blocking', 'Social tracker filtering');
+  addControlCheck('blockCryptominers', 'cryptominer-blocking', 'Cryptominer filtering');
+  addControlCheck('blockFingerprintingScripts', 'fingerprinting-script-blocking', 'Fingerprinting-script filtering');
+  addControlCheck('blockTrackingBeacons', 'tracking-beacons', 'Tracking beacon guard');
   checks.push(makeCheck('tls-fingerprint', 'TLS fingerprint visibility', 'info',
     'Sites can still observe Chromium TLS characteristics (for example JA3/JA4-style fingerprints). Aegis does not claim to rewrite the Chromium TLS stack.', 'known-limit'));
 
