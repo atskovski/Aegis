@@ -754,7 +754,7 @@ async function installFingerprintDefenses(tab) {
     catch (err) { tab.fingerprintStatus.errors.push(name + ': ' + err.message); if (required) console.error('Required privacy preload step failed:', name, err.message); else console.warn('Optional privacy preload step failed:', name, err.message); return false; }
   };
   try {
-    if (!dbg.isAttached()) browserRuntime.attachInspector(tab.view,'1.3');
+    if (!browserRuntime.inspectorAttached(tab.view)) browserRuntime.attachInspector(tab.view,'1.3');
     tab.fingerprintStatus.debugger = true;
   } catch (err) {
     tab.fingerprintStatus.errors.push('debugger: ' + err.message);
@@ -790,7 +790,7 @@ async function installFingerprintDefenses(tab) {
           if (tabSettings(tab).siteIntelligence === false || method !== 'Runtime.bindingCalled' || params?.name !== tab.auditBinding) return;
           try { const payload = JSON.parse(String(params.payload || '{}')); if (recordSiteSignal(tab, payload)) emitState(); } catch {}
         };
-        dbg.on('message', tab.auditMessageHandler);
+        browserRuntime.onInspectorMessage(tab.view, tab.auditMessageHandler);
       }
       await step('sentinelPreload', () => withTimeout(browserRuntime.command(tab.view,'Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName }) }), 1800, 'Sentinel preload'));
     }
@@ -891,7 +891,7 @@ function createTabView(tab) {
       session: tab.privateSession,
       javascript: Boolean(tab.javascriptEnabled)
   });
-  if (typeof view.webContents.setZoomMode === 'function') view.webContents.setZoomMode('isolated');
+  browserRuntime.zoomMode(view,'isolated');
   return view;
 }
 
@@ -962,14 +962,14 @@ function wireTabView(tab, view) {
     createTab(url,true);return {action:'deny'};
   });
 
-  view.webContents.on('context-menu', (_event, params) => showTabContextMenu(tab, params));
+  browserRuntime.on(view,'context-menu', (_event, params) => showTabContextMenu(tab, params));
 
-  view.webContents.on('will-navigate', (event, legacyDetails) => {
+  browserRuntime.on(view,'will-navigate', (event, legacyDetails) => {
     const original = navigationUrl(event, legacyDetails);
     const effective = tabSettings(tab);
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
     const managed=securityKernel.navigate({url,tab});
-    if (!url || !isAllowedNavigation(url) || !managed.allow || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) {
+    if (!url || !isAllowedNavigation(url) || !managed.allow || !shouldAllowInternalNavigation(browserRuntime.url(view), url)) {
       event.preventDefault(); toast(`Blocked unsafe navigation${url ? `: ${String(url).split(':')[0]}:` : '.'}`, 'danger'); return;
     }
     if (url !== original) {
@@ -984,20 +984,20 @@ function wireTabView(tab, view) {
     }
   });
 
-  view.webContents.on('will-frame-navigate', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
+  browserRuntime.on(view,'will-frame-navigate', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
     const url = navigationUrl(event, legacyDetails);
     const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
-    if (!url || !isAllowedNavigation(url) || (isMainFrame && !shouldAllowInternalNavigation(view.webContents.getURL(), url))) event.preventDefault();
+    if (!url || !isAllowedNavigation(url) || (isMainFrame && !shouldAllowInternalNavigation(browserRuntime.url(view), url))) event.preventDefault();
   });
-  view.webContents.on('will-redirect', (event, legacyDetails) => {
+  browserRuntime.on(view,'will-redirect', (event, legacyDetails) => {
     const original = navigationUrl(event, legacyDetails);
     const effective = tabSettings(tab);
     const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
     const managed=securityKernel.redirect({url,tab});
-    if (!url || !isAllowedNavigation(url) || !managed.allow || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) { event.preventDefault(); toast('Blocked unsafe or enterprise-restricted redirect.', 'danger'); return; }
+    if (!url || !isAllowedNavigation(url) || !managed.allow || !shouldAllowInternalNavigation(browserRuntime.url(view), url)) { event.preventDefault(); toast('Blocked unsafe or enterprise-restricted redirect.', 'danger'); return; }
     if (url !== original) { event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState(); browserRuntime.load(view,url).catch(() => {}); }
   });
-  view.webContents.on('did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
+  browserRuntime.on(view,'did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
     const url = navigationUrl(event, legacyDetails);
     const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
     if (!isMainFrame || !url || String(url).startsWith('aegis://')) return;
@@ -1006,20 +1006,20 @@ function wireTabView(tab, view) {
     const nextOrigin = safeOrigin(url);
     if (tab.siteIntelligence?.url !== url) { resetSiteIntelligence(tab, url, nextOrigin); emitState(); }
   });
-  view.webContents.on('did-start-loading', () => { tab.loading = true; emitState(); });
-  view.webContents.on('dom-ready', () => {
+  browserRuntime.on(view,'did-start-loading', () => { tab.loading = true; emitState(); });
+  browserRuntime.on(view,'dom-ready', () => {
     extensionRuntime?.inject(tab, 'end').then((ids) => {
       tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
       emitState();
     }).catch((err) => console.warn('Extension document-end injection failed:', err.message));
   });
-  view.webContents.on('did-stop-loading', () => { tab.loading = false; emitState(); });
-  view.webContents.on('page-title-updated', (event, title) => {
+  browserRuntime.on(view,'did-stop-loading', () => { tab.loading = false; emitState(); });
+  browserRuntime.on(view,'page-title-updated', (event, title) => {
     event.preventDefault();
     tab.title = String(title || 'Tab').replace(/\s+/g, ' ').slice(0, 90);
     emitState();
   });
-  view.webContents.on('did-navigate', (_event, url, httpResponseCode = -1, httpStatusText = '') => {
+  browserRuntime.on(view,'did-navigate', (_event, url, httpResponseCode = -1, httpStatusText = '') => {
     const oldOrigin = safeOrigin(tab.url); const newOrigin = safeOrigin(url);
     tab.url = url; tab.topUrl = url; tab.safety = tabSettings(tab).threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
     if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
@@ -1040,7 +1040,7 @@ function wireTabView(tab, view) {
     }
     scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
   });
-  view.webContents.on('did-finish-load', () => {
+  browserRuntime.on(view,'did-finish-load', () => {
     applyCosmeticFiltering(tab);
     applySponsorProtection(tab);
     extensionRuntime?.inject(tab, 'idle').then((ids) => {
@@ -1048,8 +1048,8 @@ function wireTabView(tab, view) {
       emitState();
     }).catch((err) => console.warn('Extension document-idle injection failed:', err.message));
   });
-  view.webContents.on('did-navigate-in-page', (_event, url) => { tab.url = url; emitState(); });
-  view.webContents.on('did-fail-load', (_event, code, desc, url, isMainFrame) => {
+  browserRuntime.on(view,'did-navigate-in-page', (_event, url) => { tab.url = url; emitState(); });
+  browserRuntime.on(view,'did-fail-load', (_event, code, desc, url, isMainFrame) => {
     if (isMainFrame && code !== -3 && !String(url || '').startsWith('aegis://')) {
       console.error(`Page load failed ${url}: ${desc} (${code})`);
       setTimeout(() => showLoadError(tab, url, code, desc), 0);
@@ -1059,7 +1059,7 @@ function wireTabView(tab, view) {
     tab.tls={valid:false,error:String(error||'certificate-error'),host:(()=>{try{return new URL(url).hostname}catch{return''}})(),issuer:certificate?.issuerName||'',subject:certificate?.subjectName||'',validStart:certificate?.validStart||0,validExpiry:certificate?.validExpiry||0,serialNumber:certificate?.serialNumber||'',fingerprint:certificate?.fingerprint||'',at:new Date().toISOString()};
     securityEvents.add('tls-certificate-error','danger',tab.tls,tab.id); emitState();
   });
-  view.webContents.on('did-finish-load', async () => {
+  browserRuntime.on(view,'did-finish-load', async () => {
     if (!/^https:/i.test(tab.url||'')) return;
     try {
       const cert=await browserRuntime.evaluate(view,`({protocol:location.protocol,secure:location.protocol==='https:'})`,true);
@@ -1067,20 +1067,20 @@ function wireTabView(tab, view) {
     } catch {}
   });
 
-  view.webContents.on('render-process-gone', (_e, details) => {
+  browserRuntime.on(view,'render-process-gone', (_e, details) => {
     tab.rendererCrashes=(tab.rendererCrashes||0)+1;
     tab.lastRendererExit={ reason:String(details?.reason||'unknown'), exitCode:Number(details?.exitCode||0), at:new Date().toISOString() };
     emitState();
     toast(`Tab renderer stopped: ${details.reason}`, 'danger');
   });
-  view.webContents.on('unresponsive', () => toast('This tab is not responding.', 'warning'));
+  browserRuntime.on(view,'unresponsive', () => toast('This tab is not responding.', 'warning'));
 }
 
 async function replaceTabView(tab, javascriptEnabled) {
   if (!tab || !tab.privateSession) return;
 
   const previousView = tab.view;
-  const previousUrl = tab.url || previousView?.webContents?.getURL?.() || 'aegis://app/start.html';
+  const previousUrl = tab.url || previousView ? browserRuntime.url(previousView) : '' || 'aegis://app/start.html';
   const wasActive = activeId === tab.id;
   const previousBounds = previousView?.getBounds?.();
 
@@ -1584,7 +1584,7 @@ function wireIpc() {
     const nav = browserRuntime.history(tab.view);
     if (command === 'back' && nav.canGoBack()) nav.goBack();
     else if (command === 'forward' && nav.canGoForward()) nav.goForward();
-    else if (command === 'reload') tab.loading ? tab.view.webContents.stop() : browserRuntime.reload(tab.view);
+    else if (command === 'reload') tab.loading ? browserRuntime.stop(tab.view) : browserRuntime.reload(tab.view);
     else if (command === 'home') navigateTab(tab, settings.homePage || 'https://duckduckgo.com/');
   });
 
