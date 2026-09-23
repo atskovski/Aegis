@@ -1280,6 +1280,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
     getFilterRules: () => filterRules,
     onExtensionRequest: (type, details) => extensionRuntime?.notifyWebRequest(type, tab, details),
     getExtensionNetworkDecision: (details) => extensionRuntime?.networkDecision(tab, details),
+    getExtensionBlockingDecision: (type, details) => extensionRuntime?.blockingWebRequestDecision(tab, type, details),
     getExtensionHeaderModifications: (details, phase) => extensionRuntime?.headerModifications(tab, details, phase) || [],
     isTemporarilyAllowed: (origin, key) => isTemporarilyAllowed(tab.id, origin, key)
   });
@@ -1836,6 +1837,7 @@ function wireIpc() {
     return result;
   });
   ipcMain.on('extension:message-response', (event, payload) => { if (extensionRuntime) extensionRuntime.handleBackgroundResponse(event.sender, payload); });
+  ipcMain.on('extension:blocking-webrequest-response', (event, payload) => { if (extensionRuntime) extensionRuntime.handleBlockingWebRequestResponse(event.sender, payload); });
   ipcMain.on('extension:frame-inject-result', (event, payload) => { if (extensionRuntime) extensionRuntime.handleFrameInjectionResult(event.sender, event.senderFrame, payload); });
   ipcMain.on('extension:frame-message-result', (event, payload) => { if (extensionRuntime) extensionRuntime.handleFrameMessageResult(event.sender, event.senderFrame, payload); });
 
