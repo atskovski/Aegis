@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { safeRel, normalizeManifest, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab } = require('../src/core/extensions');
+const { safeRel, normalizeManifest, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab, scanUsedApiRoots } = require('../src/core/extensions');
 
 test('XPI runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
@@ -142,4 +142,26 @@ test('toolbar actions scripting alarms commands and navigation are recognized ca
   }
   assert.equal(report.features.popup,true);
   assert.equal(report.features.commands,1);
+});
+
+
+test('<all_urls> is treated as host access rather than an unsupported API namespace', () => {
+  const report=compatibility({manifest_version:2,name:'T',version:'1',permissions:['<all_urls>','storage']});
+  assert.equal(report.unsupported.some((x)=>x.api==='<all_urls>'),false);
+  assert.ok(report.supported.includes('storage'));
+});
+
+test('package source API scanning catches undeclared unsupported browser namespaces', () => {
+  const fs=require('node:fs'), path=require('node:path'), os=require('node:os');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-ext-scan-'));
+  try {
+    fs.writeFileSync(path.join(root,'background.js'),"browser.runtime.onMessage.addListener(()=>{}); chrome.proxy.settings.get(()=>{}); browser.cookies.getAll({});");
+    const roots=scanUsedApiRoots(root);
+    assert.ok(roots.includes('runtime'));
+    assert.ok(roots.includes('proxy'));
+    assert.ok(roots.includes('cookies'));
+    const report=compatibility({manifest_version:2,name:'T',version:'1',background:{scripts:['background.js']}},roots);
+    assert.ok(report.unsupported.some((x)=>x.api==='proxy'));
+    assert.ok(report.unsupported.some((x)=>x.api==='cookies'));
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
