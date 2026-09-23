@@ -20,6 +20,7 @@ const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPriva
 const { protectionStatus } = require('./core/protection-registry');
 const { buildSentinelReport } = require('./core/sentinel-report');
 const { analyzeManifest, installDecision } = require('./core/extension-runtime');
+const { installXpiBuffer, loadInstalledExtensions, contentPlans } = require('./core/xpi-package');
 
 app.setName('Aegis Privacy Browser');
 // Keep the wire-level User-Agent generic. Product branding belongs in browser chrome, not in requests sites can fingerprint.
@@ -51,6 +52,7 @@ app.commandLine.appendSwitch('disable-features', [
 const UI_DIR = path.join(__dirname, 'ui');
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 const BOOKMARKS_FILE = () => path.join(app.getPath('userData'), 'bookmarks.json');
+const EXTENSIONS_DIR = () => path.join(app.getPath('userData'), 'extensions');
 const TOOLBAR_H = 108;
 const LETTERBOX_STEP = 100;
 let mainWindow;
@@ -65,6 +67,7 @@ let downloads = [];
 const activeDownloadItems = new Map();
 let lastNetworkTest = null;
 let lastSecuritySuite = null;
+let installedExtensions = [];
 const temporaryPermissions = new Map();
 let uiLayer = { mode: 'none', reserveRight: 0 };
 let trackerLearner = new TrackerLearner();
@@ -420,6 +423,7 @@ function statePayload() {
     downloads: downloads.map(({ path: _path, ...item }) => item),
     network: { lastTest: lastNetworkTest, proxyMode: settings.proxy?.mode || 'system' },
     securitySuite: lastSecuritySuite,
+    extensions: installedExtensions.map((ext) => ({ metadata:ext.metadata, report:ext.report })),
     engine: {
       appVersion: app.getVersion(),
       electron: process.versions.electron,
@@ -666,6 +670,31 @@ function scheduleOriginCleanup(tab, oldOrigin, newOrigin) {
   }, Math.max(0, Number(settings.cookieAutoDeleteDelaySec || 0)) * 1000);
 }
 
+async function applyInstalledExtensions(tab) {
+  if (!tab?.view?.webContents || tab.view.webContents.isDestroyed() || !tab.url || String(tab.url).startsWith('aegis://')) return;
+  const plans = contentPlans(installedExtensions, tab.url, 'document_idle');
+  if (!plans.length) return;
+  for (const plan of plans) {
+    for (const css of plan.css || []) {
+      try { await tab.view.webContents.insertCSS(css, { cssOrigin: 'user' }); } catch {}
+    }
+    for (const source of plan.js || []) {
+      try {
+        const dbg = tab.view.webContents.debugger;
+        if (!dbg?.isAttached?.()) dbg.attach('1.3');
+        const tree = await dbg.sendCommand('Page.getFrameTree');
+        const frameId = tree?.frameTree?.frame?.id;
+        if (!frameId) continue;
+        const world = await dbg.sendCommand('Page.createIsolatedWorld', { frameId, worldName: 'aegis-extension-' + String(plan.id || '').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40), grantUniveralAccess: false });
+        if (!world?.executionContextId) continue;
+        await dbg.sendCommand('Runtime.evaluate', { expression: `(() => { "use strict";\n${source}\n})();`, contextId: world.executionContextId, awaitPromise: true, returnByValue: false });
+      } catch (err) {
+        console.warn('Extension content script failed:', plan.name, err.message);
+      }
+    }
+  }
+}
+
 async function applyCosmeticFiltering(tab) {
   if (!tab?.view?.webContents || tab.view.webContents.isDestroyed()) return false;
   if (tab.cosmeticCssKey) {
@@ -756,7 +785,7 @@ function wireTabView(tab, view) {
     if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
     tab.httpStatus = { code: httpResponseCode, text: httpStatusText }; scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
   });
-  view.webContents.on('did-finish-load', () => { applyCosmeticFiltering(tab); applySponsorProtection(tab); });
+  view.webContents.on('did-finish-load', () => { applyCosmeticFiltering(tab); applySponsorProtection(tab); applyInstalledExtensions(tab); });
   view.webContents.on('did-navigate-in-page', (_event, url) => { tab.url = url; emitState(); });
   view.webContents.on('did-fail-load', (_event, code, desc, url, isMainFrame) => {
     if (isMainFrame && code !== -3 && !String(url || '').startsWith('aegis://')) {
@@ -1084,6 +1113,24 @@ function wireIpc() {
     return buildSentinelReport({ tab, settings, publicIp:lastSecuritySuite?.publicIp?.ip || '', route:lastSecuritySuite?.route || tab.networkRoute || null, protections });
   });
   ipcMain.handle('extension:analyze-manifest', (event, manifest) => assertUiSender(event) ? installDecision(manifest && typeof manifest === 'object' ? manifest : {}) : { allowed:false, mode:'reject', report:{ valid:false, errors:['IPC sender denied'] } });
+  ipcMain.handle('extensions:list', (event) => assertUiSender(event) ? installedExtensions.map((ext) => ({ metadata:ext.metadata, report:ext.report })) : [];
+  ipcMain.handle('extension:install-xpi', async (event) => {
+    if (!assertUiSender(event)) return { installed:false, mode:'reject', error:'IPC sender denied' };
+    const pick = await dialog.showOpenDialog(mainWindow, { title:'Install Firefox/WebExtension package', properties:['openFile'], filters:[{name:'Firefox extensions',extensions:['xpi','zip']}] });
+    if (pick.canceled || !pick.filePaths?.[0]) return { installed:false, mode:'cancelled' };
+    try {
+      const bytes = fs.readFileSync(pick.filePaths[0]);
+      const result = installXpiBuffer(bytes, EXTENSIONS_DIR());
+      installedExtensions = loadInstalledExtensions(EXTENSIONS_DIR());
+      if (result.installed) toast(`Installed compatible extension: ${result.metadata.name}`, 'success');
+      else if (result.mode === 'requires-gecko') toast('This add-on requires Firefox/Gecko capabilities that the Chromium edition cannot safely emulate.', 'warning');
+      else toast('Extension package was rejected.', 'danger');
+      emitState();
+      return { ...result, path: undefined };
+    } catch (err) {
+      return { installed:false, mode:'reject', error:String(err.message || err).slice(0,500) };
+    }
+  });
 
   ipcMain.on('nav', (event, value) => { if (assertUiSender(event)) navigateTab(activeTab(), value); });
   ipcMain.on('tab:new', (event, value) => { if (assertUiSender(event)) createTab(value || settings.homePage || 'https://duckduckgo.com/'); });
@@ -1338,6 +1385,8 @@ app.whenReady().then(async () => {
   loadSettings();
   saveSettings(); // persist schema migrations and sanitized network defaults
   loadBookmarks();
+  fs.mkdirSync(EXTENSIONS_DIR(), { recursive:true, mode:0o700 });
+  installedExtensions = loadInstalledExtensions(EXTENSIONS_DIR());
 
   registerInternalProtocol(protocol, 'default UI session');
 
