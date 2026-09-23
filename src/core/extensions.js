@@ -455,11 +455,35 @@ class AegisExtensionRuntime{
   clearRuntimeErrors(id,scope=''){
     const health=this.healthFor(id);health.errors=scope?health.errors.filter((x)=>x.scope!==scope&&!x.scope.startsWith(scope+':')):[];
   }
+  actionStateBucket(id){
+    let bucket=this.actionState.get(id);
+    if(!bucket||!(bucket.tabs instanceof Map)){
+      const legacy=bucket&&typeof bucket==='object'?bucket:{};
+      bucket={default:{...legacy},tabs:new Map()};
+      this.actionState.set(id,bucket);
+    }
+    return bucket;
+  }
+  actionStateFor(id,tabId=null){
+    const bucket=this.actionStateBucket(id);
+    const numeric=Number(tabId);
+    if(tabId===null||tabId===undefined||!Number.isFinite(numeric))return bucket.default;
+    if(!bucket.tabs.has(numeric))bucket.tabs.set(numeric,{});
+    return bucket.tabs.get(numeric);
+  }
+  effectiveActionState(id,tabId=null){
+    const bucket=this.actionStateBucket(id),numeric=Number(tabId),specific=(tabId!==null&&tabId!==undefined&&Number.isFinite(numeric))?bucket.tabs.get(numeric):null;
+    return {...bucket.default,...(specific||{})};
+  }
+  clearActionStateForTab(tabId){
+    const numeric=Number(tabId);if(!Number.isFinite(numeric))return;
+    for(const bucket of this.actionState.values())if(bucket?.tabs instanceof Map)bucket.tabs.delete(numeric);
+  }
   publicRecord(e){
     const action=extensionAction(e.manifest);
     const icon=iconPath(e.manifest);
     const options=optionsPage(e.manifest);
-    const state=this.actionState.get(e.id)||{},health=this.healthFor(e.id),backgroundExpected=Boolean(e.manifest?.background&&(e.manifest.background.page||e.manifest.background.service_worker||(Array.isArray(e.manifest.background.scripts)&&e.manifest.background.scripts.length)));
+    const state=this.effectiveActionState(e.id,this.getActiveId()),health=this.healthFor(e.id),backgroundExpected=Boolean(e.manifest?.background&&(e.manifest.background.page||e.manifest.background.service_worker||(Array.isArray(e.manifest.background.scripts)&&e.manifest.background.scripts.length)));
     return {
       id:e.id,name:e.manifest.name,version:e.manifest.version,description:String(e.manifest.description||''),
       manifestVersion:Number(e.manifest.manifest_version||0),ecosystem:packageEcosystem(e.manifest,{format:e.source}),installability:{status:'installed',packageCoverage:100},enabled:e.enabled!==false,worldId:e.worldId||extensionWorldId(e.id),
@@ -954,7 +978,7 @@ class AegisExtensionRuntime{
   notifyTabUpdated(tab,changeInfo={}){
     this.emitEventAll('tabs.onUpdated',(e)=>{const value=this.publicTab(e,tab);return value?[tab.id,{...changeInfo},value]:null});
   }
-  notifyTabRemoved(tabId,wasVisible=true){if(!wasVisible)return;this.emitEventAll('tabs.onRemoved',[Number(tabId),{windowId:1,isWindowClosing:false}])}
+  notifyTabRemoved(tabId,wasVisible=true){this.clearActionStateForTab(tabId);if(!wasVisible)return;this.emitEventAll('tabs.onRemoved',[Number(tabId),{windowId:1,isWindowClosing:false}])}
   notifyNavigation(type,tab,url,error='',frame=null){
     const eventName=String(type||''),main=tab?.view?.webContents?.mainFrame;
     const frameId=frame&&frame!==main?Number(frame.routingId||0):0,parentFrameId=frameId?Number(frame?.parent?.routingId??0):-1;
@@ -1047,7 +1071,7 @@ class AegisExtensionRuntime{
   async openAction(id,parent=null){
     const e=this.extensionFor(id),action=extensionAction(e.manifest);if(!action)throw new Error('This extension does not expose a toolbar action.');
     const active=this.tabById(this.getActiveId());if(active&&extensionVisibleTab(active)){if(!this.activeGrants.has(e.id))this.activeGrants.set(e.id,new Set());this.activeGrants.get(e.id).add(active.id)}
-    const state=this.actionState.get(e.id)||{},popup=safeRel(state.popup||action.popup||'');
+    const state=this.effectiveActionState(e.id,active?.id),popup=extensionRel(state.popup||action.popup||'');
     if(popup)return this.openExtensionPage(e.id,popup,{parent,title:state.title||action.title,width:440,height:600,context:'popup'});
     const tab=this.publicTab(e,active);if(tab){this.emitEvent(e,action.kind+'.onClicked',[tab]);if(action.kind!=='action')this.emitEvent(e,'action.onClicked',[tab])}return true;
   }
@@ -1420,24 +1444,26 @@ class AegisExtensionRuntime{
 
     if(/^(?:action|browserAction|pageAction)\./.test(m)){
       const [,op]=m.split('.'),action=extensionAction(e.manifest);if(!action)throw new Error('Extension has no browser action.');
-      const state={...(this.actionState.get(e.id)||{})},details=a[0]||{};
-      if(op==='setTitle'){state.title=String(details.title||'').slice(0,160);this.actionState.set(e.id,state);return}
-      if(op==='getTitle')return String(state.title||action.title||e.manifest.name);
-      if(op==='setBadgeText'){state.badgeText=String(details.text||'').slice(0,12);this.actionState.set(e.id,state);return}
-      if(op==='getBadgeText')return String(state.badgeText||'');
-      if(op==='setBadgeBackgroundColor'){state.badgeColor=details.color||null;this.actionState.set(e.id,state);return}
-      if(op==='setBadgeTextColor'){state.badgeTextColor=details.color||null;this.actionState.set(e.id,state);return}
+      const details=(a[0]&&typeof a[0]==='object'&&!Array.isArray(a[0]))?a[0]:{},detailTabId=Number(details.tabId),hasDetailTab=Number.isFinite(detailTabId);
+      const directTabId=Number(a[0]),hasDirectTab=(op==='enable'||op==='disable'||op==='isEnabled')&&Number.isFinite(directTabId);
+      const tabId=hasDetailTab?detailTabId:(hasDirectTab?directTabId:null),state=this.actionStateFor(e.id,tabId),effective=()=>this.effectiveActionState(e.id,tabId);
+      if(op==='setTitle'){state.title=String(details.title||'').slice(0,160);return}
+      if(op==='getTitle'){const value=effective();return String(value.title||action.title||e.manifest.name)}
+      if(op==='setBadgeText'){state.badgeText=String(details.text||'').slice(0,12);return}
+      if(op==='getBadgeText')return String(effective().badgeText||'');
+      if(op==='setBadgeBackgroundColor'){state.badgeColor=details.color||null;return}
+      if(op==='setBadgeTextColor'){state.badgeTextColor=details.color||null;return}
       if(op==='getUserSettings')return {isOnToolbar:true};
-      if(op==='setPopup'){state.popup=safeRel(details.popup||'');this.actionState.set(e.id,state);return}
-      if(op==='getPopup')return String(state.popup!==undefined?state.popup:(action.popup||''));
+      if(op==='setPopup'){state.popup=extensionRel(details.popup||'');return}
+      if(op==='getPopup'){const value=effective();return String(value.popup!==undefined?value.popup:(action.popup||''))}
       if(op==='setIcon'){
-        let rel='';if(typeof details.path==='string')rel=safeRel(details.path);else if(details.path&&typeof details.path==='object'){rel=Object.values(details.path).map(safeRel).filter(Boolean).pop()||''}
-        if(rel){this.extensionFile(e,rel);state.iconUrl=extensionResourceUrl(e,rel)}this.actionState.set(e.id,state);return;
+        let rel='';if(typeof details.path==='string')rel=extensionRel(details.path);else if(details.path&&typeof details.path==='object'){rel=Object.values(details.path).map(extensionRel).filter(Boolean).pop()||''}
+        if(rel){this.extensionFile(e,rel);state.iconUrl=extensionResourceUrl(e,rel)}return;
       }
-      if(op==='enable'){state.enabled=true;this.actionState.set(e.id,state);return}
-      if(op==='disable'){state.enabled=false;this.actionState.set(e.id,state);return}
-      if(op==='isEnabled')return state.enabled!==false;
-      if(op==='openPopup'){if(state.enabled===false)return false;return this.openAction(e.id);}
+      if(op==='enable'){state.enabled=true;return}
+      if(op==='disable'){state.enabled=false;return}
+      if(op==='isEnabled')return effective().enabled!==false;
+      if(op==='openPopup'){const activeState=this.effectiveActionState(e.id,this.getActiveId());if(activeState.enabled===false)return false;return this.openAction(e.id);}
     }
 
     throw new Error('Unsupported extension API: '+m);
