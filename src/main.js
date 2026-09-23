@@ -17,6 +17,9 @@ const { analyzeUrl } = require('./core/safety');
 const { youtubeVideoId, fetchSponsorSegments, sponsorSkipScript } = require('./core/sponsor');
 const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNetworkEvent, publicSiteIntelligence, buildSiteAuditScript } = require('./core/site-intelligence');
 const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
+const { protectionStatus } = require('./core/protection-registry');
+const { buildSentinelReport } = require('./core/sentinel-report');
+const { analyzeManifest, installDecision } = require('./core/extension-runtime');
 
 app.setName('Aegis Privacy Browser');
 // Keep the wire-level User-Agent generic. Product branding belongs in browser chrome, not in requests sites can fingerprint.
@@ -1073,6 +1076,14 @@ function wireIpc() {
   ipcMain.on('ui:layer', (event, payload) => { if (assertUiSender(event)) applyUiLayer(payload); });
   ipcMain.handle('network:test', (event) => assertUiSender(event) ? runNetworkTest() : { ok: false, error: 'IPC sender denied' });
   ipcMain.handle('security-suite:run', (event) => assertUiSender(event) ? runSecuritySuite() : { testedAt: new Date().toISOString(), checks: [], summary: { pass: 0, warning: 0, info: 0, fail: 0, 'not-tested': 0, total: 0 }, error: 'IPC sender denied' });
+  ipcMain.handle('protections:status', (event) => assertUiSender(event) ? protectionStatus(settings, activeTab() || {}) : { generatedAt:new Date().toISOString(), protections:[], summary:{ enforced:0,degraded:0,disabled:0 }, error:'IPC sender denied' });
+  ipcMain.handle('sentinel:report', (event) => {
+    if (!assertUiSender(event)) return null;
+    const tab = activeTab() || {};
+    const protections = protectionStatus(settings, tab);
+    return buildSentinelReport({ tab, settings, publicIp:lastSecuritySuite?.publicIp?.ip || '', route:lastSecuritySuite?.route || tab.networkRoute || null, protections });
+  });
+  ipcMain.handle('extension:analyze-manifest', (event, manifest) => assertUiSender(event) ? installDecision(manifest && typeof manifest === 'object' ? manifest : {}) : { allowed:false, mode:'reject', report:{ valid:false, errors:['IPC sender denied'] } });
 
   ipcMain.on('nav', (event, value) => { if (assertUiSender(event)) navigateTab(activeTab(), value); });
   ipcMain.on('tab:new', (event, value) => { if (assertUiSender(event)) createTab(value || settings.homePage || 'https://duckduckgo.com/'); });
