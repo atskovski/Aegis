@@ -9,7 +9,7 @@ const { webExtensionBootstrap, localeMessages, commandList } = require('./extens
 
 const execFileAsync = promisify(execFile);
 const SUPPORTED_ROOTS = new Set([
-  'runtime','storage','tabs','permissions','i18n','activeTab',
+  'runtime','storage','tabs','windows','cookies','permissions','i18n','activeTab',
   'action','browserAction','pageAction','alarms','commands','scripting','webNavigation','notifications','menus','contextMenus'
 ]);
 const DENIED_ROOTS = Object.freeze({
@@ -18,7 +18,6 @@ const DENIED_ROOTS = Object.freeze({
   declarativeNetRequest:'DNR import is not implemented yet.',
   proxy:'Extensions cannot replace Aegis network routing.',
   nativeMessaging:'Native messaging is disabled.',
-  cookies:'Cookie API is withheld until per-tab cookie-store scoping is complete.',
   history:'Aegis deliberately does not keep a browsing-history database.',
   management:'Extensions cannot manage other extensions.',
   debugger:'The Chrome debugger API is not exposed to add-ons.',
@@ -277,7 +276,7 @@ class AegisExtensionRuntime{
       optionalPermissions:[...(Array.isArray(e.manifest.optional_permissions)?e.manifest.optional_permissions:[]),...(Array.isArray(e.manifest.optional_host_permissions)?e.manifest.optional_host_permissions:[])],
       detectedApis:Array.isArray(e.detectedApis)?e.detectedApis:[],
       runtime:{backgroundExpected,backgroundRunning:backgroundExpected?Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed()):false,status:e.enabled===false?'disabled':(health.errors.length?'degraded':(backgroundExpected?(this.backgroundHosts.has(e.id)?'running':'stopped'):'ready')),errors:[...health.errors],lastStartedAt:health.lastStartedAt,lastInjectionAt:health.lastInjectionAt},
-      action:action?{...action,title:String(state.title||action.title),badgeText:String(state.badgeText||''),iconUrl:icon?extensionResourceUrl(e,icon):''}:null,
+      action:action?{...action,title:String(state.title||action.title),badgeText:String(state.badgeText||''),enabled:state.enabled!==false,iconUrl:String(state.iconUrl||(icon?extensionResourceUrl(e,icon):''))}:null,
       optionsPage:options?extensionResourceUrl(e,options):'',
       features:manifestFeatures(e.manifest)
     };
@@ -582,6 +581,12 @@ class AegisExtensionRuntime{
     if(m==='runtime.getPlatformInfo')return {os:process.platform==='darwin'?'mac':(process.platform==='win32'?'win':'linux'),arch:process.arch==='arm64'?'arm':'x86-64'};
     if(m==='runtime.getBrowserInfo')return {name:'Aegis Privacy Browser',vendor:'Aegis',version:this.browserVersion,buildID:''};
     if(m==='runtime.openOptionsPage')return this.openOptions(e.id);
+    if(m==='runtime.getContexts'){
+      const contexts=[];const host=this.backgroundHosts.get(e.id);
+      if(host&&!host.isDestroyed())contexts.push({contextId:'background:'+e.id,contextType:'BACKGROUND',documentUrl:host.webContents.getURL()||'',incognito:true});
+      for(const win of this.pageWindows)if(win.__aegisExtensionId===e.id&&!win.isDestroyed())contexts.push({contextId:'page:'+String(win.id),contextType:'POPUP',documentUrl:win.webContents.getURL()||'',incognito:true});
+      return contexts;
+    }
     if(m==='runtime.reload'){this.stopBackground(e.id);await this.startBackground(e);return true}
     if(m==='runtime.sendMessage'){
       if(typeof a[0]==='string'&&a.length>1){
@@ -597,12 +602,16 @@ class AegisExtensionRuntime{
     if(m==='permissions.remove')return false;
 
     if(m.startsWith('storage.')){
-      const [,area,op]=m.split('.'),file=path.join(this.dataDir,e.id,'storage.json'),store=area==='local'?readStore(file):(this.sessionStores.get(e.id)||{}),before={...store};this.sessionStores.set(e.id,store);
+      const [,area,op]=m.split('.');
+      const persistent=area==='local'||area==='sync';
+      const file=path.join(this.dataDir,e.id,area==='sync'?'storage-sync.json':'storage.json');
+      const store=persistent?readStore(file):(this.sessionStores.get(e.id)||{});
+      const before={...store};if(!persistent)this.sessionStores.set(e.id,store);
       if(op==='get')return getKeys(store,a[0]);
       if(op==='set')Object.assign(store,a[0]||{});
       if(op==='remove')for(const k of Array.isArray(a[0])?a[0]:[a[0]])delete store[k];
       if(op==='clear')for(const k of Object.keys(store))delete store[k];
-      if(area==='local')writeStore(file,store);
+      if(persistent)writeStore(file,store);
       const changes={};for(const key of new Set([...Object.keys(before),...Object.keys(store)])){if(JSON.stringify(before[key])!==JSON.stringify(store[key]))changes[key]={oldValue:before[key],newValue:store[key]}}
       if(Object.keys(changes).length)this.emitEvent(e,'storage.onChanged',[changes,area]);return undefined;
     }
@@ -624,6 +633,37 @@ class AegisExtensionRuntime{
     if(m==='tabs.executeScript'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.executeExtensionScript(e,target,details)}
     if(m==='tabs.insertCSS'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.insertExtensionCss(e,target,details)}
     if(m==='tabs.removeCSS'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.removeExtensionCss(e,target,details)}
+    if(m==='tabs.getZoom'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined);if(!target||!extensionVisibleTab(target))throw new Error('Tab unavailable to extensions');return Number(target.view.webContents.getZoomFactor?.()||1)}
+    if(m==='tabs.setZoom'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),factor=Number(typeof a[0]==='number'?a[1]:a[0]);if(!target||!extensionVisibleTab(target)||!Number.isFinite(factor)||factor<0.5||factor>3)throw new Error('Invalid tab zoom request');target.view.webContents.setZoomFactor?.(factor);return undefined}
+    if(m==='tabs.captureVisibleTab'){requireTabs();const target=this.tabById(this.getActiveId());if(!target||!this.canAccessTab(e,target,{inject:true}))throw new Error('Extension lacks access to the active tab');const image=await target.view.webContents.capturePage();return image.toDataURL()}
+
+    if(m.startsWith('windows.')){
+      const visible=tabs.filter(extensionVisibleTab),active=this.tabById(this.getActiveId());
+      const record=()=>({id:1,focused:true,incognito:true,type:'normal',state:'normal',alwaysOnTop:false,tabs:visible.map((t)=>this.publicTab(e,t)).filter(Boolean)});
+      if(['windows.get','windows.getCurrent','windows.getLastFocused'].includes(m))return record();
+      if(m==='windows.getAll')return [record()];
+      if(m==='windows.update')return record();
+    }
+
+    if(m.startsWith('cookies.')){
+      if(!declared.has('cookies'))throw new Error('Extension lacks cookies permission.');
+      const details=a[0]||{},requested=String(details.url||'');
+      const candidates=tabs.filter(extensionVisibleTab).filter((t)=>this.canAccessTab(e,t));
+      let target=requested?candidates.find((t)=>{try{return new URL(t.url||'').origin===new URL(requested).origin}catch{return false}}):this.tabById(this.getActiveId());
+      if(!target||!extensionVisibleTab(target)||!this.canAccessTab(e,target))throw new Error('Cookie access requires a declared host permission for an open private tab.');
+      const ses=target.privateSession||target.view?.webContents?.session;if(!ses?.cookies)throw new Error('Cookie store unavailable.');
+      if(m==='cookies.get'){const rows=await ses.cookies.get({url:requested||target.url,name:String(details.name||'')});return rows[0]||null}
+      if(m==='cookies.getAll'){
+        const query={};if(requested)query.url=requested;if(details.name)query.name=String(details.name);if(details.domain)query.domain=String(details.domain);if(details.path)query.path=String(details.path);
+        return ses.cookies.get(query);
+      }
+      if(m==='cookies.set'){
+        const url=requested||target.url;if(!networkAllowedByManifest(e.manifest,url)&&!this.activeGrants.get(e.id)?.has(target.id))throw new Error('Cookie write is outside declared host access.');
+        const payload={...details,url};delete payload.storeId;return ses.cookies.set(payload);
+      }
+      if(m==='cookies.remove'){const url=requested||target.url;const rows=await ses.cookies.get({url,name:String(details.name||'')});await ses.cookies.remove(url,String(details.name||''));return rows[0]?{url,name:String(details.name||''),storeId:'aegis-private-'+target.id}:null}
+      if(m==='cookies.getAllCookieStores')return [{id:'aegis-private-'+target.id,tabIds:[target.id],incognito:true}];
+    }
 
     if(m==='scripting.executeScript'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.executeExtensionScript(e,target,a[0]||{})}
     if(m==='scripting.insertCSS'){if(!declared.has('scripting'))throw new Error('Extension lacks scripting permission.');const target=this.tabById(a[0]?.target?.tabId);return this.insertExtensionCss(e,target,a[0]||{})}
@@ -669,7 +709,14 @@ class AegisExtensionRuntime{
       if(op==='setBadgeBackgroundColor'){state.badgeColor=details.color||null;this.actionState.set(e.id,state);return}
       if(op==='setPopup'){state.popup=safeRel(details.popup||'');this.actionState.set(e.id,state);return}
       if(op==='getPopup')return String(state.popup!==undefined?state.popup:(action.popup||''));
-      if(op==='openPopup')return this.openAction(e.id);
+      if(op==='setIcon'){
+        let rel='';if(typeof details.path==='string')rel=safeRel(details.path);else if(details.path&&typeof details.path==='object'){rel=Object.values(details.path).map(safeRel).filter(Boolean).pop()||''}
+        if(rel){this.extensionFile(e,rel);state.iconUrl=extensionResourceUrl(e,rel)}this.actionState.set(e.id,state);return;
+      }
+      if(op==='enable'){state.enabled=true;this.actionState.set(e.id,state);return}
+      if(op==='disable'){state.enabled=false;this.actionState.set(e.id,state);return}
+      if(op==='isEnabled')return state.enabled!==false;
+      if(op==='openPopup'){if(state.enabled===false)return false;return this.openAction(e.id);}
     }
 
     throw new Error('Unsupported extension API: '+m);
