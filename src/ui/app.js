@@ -710,11 +710,13 @@ function openSettings(page) {
   clearSettingsSearch();
 }
 
-function setSettingsSaveState(dirty) {
+function setSettingsSaveState(status) {
   const badge = $('#saveState');
   if (!badge) return;
-  badge.textContent = dirty ? 'Unsaved changes' : 'Saved locally';
-  badge.classList.toggle('dirty', Boolean(dirty));
+  const mode = status === true ? 'dirty' : (status === false ? 'saved' : String(status || 'saved'));
+  badge.classList.remove('dirty','saving','saved');
+  badge.classList.add(mode);
+  badge.textContent = mode === 'dirty' ? 'Unsaved changes' : (mode === 'saving' ? 'Saving…' : 'Saved ✓');
 }
 
 function clearSettingsSearch() {
@@ -958,13 +960,30 @@ function hidePanels() {
   requestAnimationFrame(syncUiLayer);
 }
 
+function hideToast() {
+  clearTimeout(toastTimer);
+  $('#toast').classList.add('hidden');
+}
+
 function showToast(payload) {
   const data = typeof payload === 'string' ? { message: payload, tone: 'default' } : (payload || {});
+  const tone = ['success','warning','danger'].includes(data.tone) ? data.tone : 'default';
+  const meta = {
+    success: { icon:'✓', title:'Confirmed', duration:6500 },
+    warning: { icon:'!', title:'Attention needed', duration:8500 },
+    danger: { icon:'×', title:'Action failed', duration:12000 },
+    default: { icon:'i', title:'Aegis notice', duration:6500 }
+  }[tone];
   const el = $('#toast');
-  el.textContent = data.message || '';
-  el.className = `toast ${data.tone || 'default'}`;
+  $('#toastIcon').textContent = data.icon || meta.icon;
+  $('#toastTitle').textContent = data.title || meta.title;
+  $('#toastMessage').textContent = data.message || '';
+  el.className = `toast ${tone}`;
+  if (/^Settings saved|restored to hardened defaults|administrator-locked controls were preserved/i.test(String(data.message || ''))) {
+    setSettingsSaveState('saved');
+  }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 3800);
+  if (!data.sticky) toastTimer = setTimeout(hideToast, Number(data.duration || meta.duration));
 }
 
 function permissionNames(keys) {
@@ -1157,7 +1176,7 @@ $('#saveSettings').addEventListener('click', () => {
     return;
   }
   window.aegis.send('settings:update', draft);
-  setSettingsSaveState(false);
+  setSettingsSaveState('saving');
 });
 $('#cancelSettings').addEventListener('click', hidePanels);
 $('#settingsSearch').addEventListener('input', (e) => renderSettingsSearch(e.target.value));
@@ -1168,6 +1187,7 @@ $('#resetSettings').addEventListener('click', () => window.aegis.send('settings:
 $('#settingsClearAll').addEventListener('click', () => window.aegis.send('data:clear-all'));
 $('#settingsNewIdentity').addEventListener('click', () => { hidePanels(); window.aegis.send('identity:new'); });
 
+$('#toastClose').addEventListener('click', hideToast);
 $('#permissionBlock').addEventListener('click', () => respondPermission('block-once'));
 $('#permissionBlockAlways').addEventListener('click', () => respondPermission('block-always'));
 $('#permissionAllowOnce').addEventListener('click', () => respondPermission('allow-once'));
