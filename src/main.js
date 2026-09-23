@@ -23,6 +23,7 @@ const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPri
 const { makeBounceTracker, noteNavigation, detectBounce } = require('./core/bounce-tracking');
 const { createSecurityEventLedger } = require('./core/security-events');
 const { evaluateUrl, extensionAllowed } = require('./core/enterprise-policy');
+const { verifyBundle, applyManagedPolicy, preserveLockedSettings } = require('./core/managed-policy');
 
 app.setName('Aegis Privacy Browser');
 
@@ -1466,6 +1467,21 @@ function wireIpc() {
       return {ok:true,tabId:tab.id,url};
     } catch (err) { return {ok:false,error:err.message}; }
   });
+  ipcMain.handle('enterprise:import-policy', async (event) => {
+    if(!assertUiSender(event)) return {ok:false,error:'IPC sender denied'};
+    const key=process.env.AEGIS_POLICY_PUBLIC_KEY||'';
+    const pick=await dialog.showOpenDialog(mainWindow,{title:'Import signed Aegis policy',properties:['openFile'],filters:[{name:'Aegis Policy',extensions:['json','aegispolicy']}]});
+    if(pick.canceled||!pick.filePaths[0])return {ok:false,canceled:true};
+    try{
+      const bundle=JSON.parse(fs.readFileSync(pick.filePaths[0],'utf8'));
+      const verified=verifyBundle(bundle,key);
+      if(!verified.ok){securityEvents.add('managed-policy-rejected','danger',{reason:verified.error});return verified;}
+      settings=sanitizeSettings(applyManagedPolicy(settings,verified.policy)); saveSettings();
+      securityEvents.add('managed-policy-applied','success',{id:verified.policy.id||'',version:verified.policy.version||'',digest:verified.digest});
+      await Promise.allSettled([...tabs.values()].map(tab=>replaceTabView(tab,tab.javascriptEnabled)));
+      emitState();return {ok:true,digest:verified.digest,policy:settings.managedPolicy||null};
+    }catch(err){return {ok:false,error:'Could not import policy: '+err.message};}
+  });
   ipcMain.handle('extensions:list', (event) => assertUiSender(event) && extensionRuntime ? extensionRuntime.list() : []);
   ipcMain.handle('extensions:install', async (event) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
@@ -1681,6 +1697,7 @@ function wireIpc() {
   ipcMain.on('settings:update', async (event, patch) => {
     if (!assertUiSender(event) || !patch || typeof patch !== 'object') return;
     const previousSettings = settings;
+    patch = preserveLockedSettings(settings, patch);
     const siteIntelligenceWasEnabled = settings.siteIntelligence !== false;
     settings = sanitizeSettings({
       ...settings,
