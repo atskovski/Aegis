@@ -151,7 +151,7 @@ test('<all_urls> is treated as host access rather than an unsupported API namesp
   assert.ok(report.supported.includes('storage'));
 });
 
-test('package source API scanning catches undeclared unsupported browser namespaces', () => {
+test('package source API scanning distinguishes supported and unsupported browser namespaces', () => {
   const fs=require('node:fs'), path=require('node:path'), os=require('node:os');
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-ext-scan-'));
   try {
@@ -162,7 +162,8 @@ test('package source API scanning catches undeclared unsupported browser namespa
     assert.ok(roots.includes('cookies'));
     const report=compatibility({manifest_version:2,name:'T',version:'1',background:{scripts:['background.js']}},roots);
     assert.ok(report.unsupported.some((x)=>x.api==='proxy'));
-    assert.ok(report.unsupported.some((x)=>x.api==='cookies'));
+    assert.ok(report.supported.includes('cookies'));
+    assert.equal(report.unsupported.some((x)=>x.api==='cookies'),false);
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
 
