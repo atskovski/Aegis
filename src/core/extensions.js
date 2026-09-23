@@ -47,16 +47,23 @@ function apiRoots(m){
   return [...roots];
 }
 function compatibility(m){
-  const unsupported=[],supported=[];
+  const unsupported=[],supported=[],warnings=[];
   for(const root of apiRoots(m)){
     if(SUPPORTED_ROOTS.has(root)) supported.push(root);
     else unsupported.push({api:root,reason:DENIED_ROOTS[root]||'API not implemented by Aegis Extension Runtime.'});
   }
   const cs=Array.isArray(m.content_scripts)?m.content_scripts.length:0;
-  const bg=m.background?'not-implemented':'none';
-  if(bg==='not-implemented') unsupported.push({api:'background',reason:'Background pages/service workers are not implemented by the current Aegis runtime.'});
-  const score=Math.round(100*(supported.length+(cs?1:0))/Math.max(1,apiRoots(m).length+(cs?1:0)+(bg!=='none'?1:0)));
-  return {score,supported,unsupported,contentScripts:cs,background:bg};
+  const bg=m.background||{};
+  let background='none', backgroundCredit=0;
+  if(bg.page){
+    background='unsupported-page';
+    unsupported.push({api:'background.page',reason:'Custom Firefox background HTML pages are not supported yet.'});
+  } else if((Array.isArray(bg.scripts)&&bg.scripts.length)||bg.service_worker){
+    background='sandboxed-emulation'; backgroundCredit=1;
+    warnings.push({api:'background',reason:bg.service_worker?'MV3 service-worker code runs in a sandboxed persistent Aegis background host; service-worker lifecycle semantics differ.':'Background scripts run in a sandboxed, non-persistent Aegis host.'});
+  }
+  const score=Math.round(100*(supported.length+(cs?1:0)+backgroundCredit)/Math.max(1,apiRoots(m).length+(cs?1:0)+(background!=='none'?1:0)));
+  return {score,supported,unsupported,warnings,contentScripts:cs,background};
 }
 function matchPattern(url,p){
   if(p==='<all_urls>') return /^https?:/.test(url);
@@ -123,9 +130,9 @@ function getKeys(store,keys){
   if(typeof keys==='object')return Object.fromEntries(Object.entries(keys).map(([k,d])=>[k,Object.prototype.hasOwnProperty.call(store,k)?store[k]:d])); return {};
 }
 class AegisExtensionRuntime{
-  constructor({rootDir,getTabs,createTab,updateTab,removeTab}){
+  constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
-    this.getTabs=getTabs;this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.items=new Map();this.sessionStores=new Map();
+    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest)})}catch{}}}
@@ -138,8 +145,8 @@ class AegisExtensionRuntime{
     fs.rmSync(dest,{recursive:true,force:true}); fs.renameSync(x.root,dest); if(x.tmp!==x.root)try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}
     const e={id,path:dest,worldId:extensionWorldId(id),resourceToken:crypto.randomBytes(18).toString('hex'),enabled:true,source:'xpi',digest,installedAt:new Date().toISOString(),manifest:x.manifest,compatibility:x.compatibility}; this.items.set(id,e);this.save();return this.list().find((i)=>i.id===id);
   }
-  setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();return this.list().find((i)=>i.id===id)}
-  remove(id){const e=this.items.get(id);if(!e)return false;this.items.delete(id);this.sessionStores.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}return true}
+  async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled)await this.startBackground(e);else this.stopBackground(id);return this.list().find((i)=>i.id===id)}
+  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.items.delete(id);this.sessionStores.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}return true}
   enabled(){return [...this.items.values()].filter((e)=>e.enabled!==false)}
   resolveResource(token, rel){
     const ext=[...this.items.values()].find((e)=>e.enabled!==false && e.resourceToken===String(token||''));
@@ -159,17 +166,67 @@ class AegisExtensionRuntime{
   }
   async call(sender,p={}){
     const e=this.items.get(String(p.extensionId||'')); if(!e||e.enabled===false)throw new Error('Extension disabled or missing'); const m=String(p.method||''),a=Array.isArray(p.args)?p.args:[],tabs=this.getTabs(),source=tabs.find((t)=>t.view?.webContents===sender);
+    if(m==='runtime.getManifest')return e.manifest;
+    if(m==='runtime.getURL')return 'aegis-extension://ext/'+e.resourceToken+'/'+String(a[0]||'').replace(/^\\/+/, '');
     if(m==='runtime.getPlatformInfo')return {os:process.platform==='darwin'?'mac':'unknown',arch:process.arch==='arm64'?'arm':'x86-64'};
     if(m==='permissions.contains'){const set=new Set(permissions(e.manifest));return [...(a[0]?.permissions||[]),...(a[0]?.origins||[])].every((x)=>set.has(x))}
     if(m.startsWith('storage.')){const [,area,op]=m.split('.'),file=path.join(this.dataDir,e.id,'storage.json'),store=area==='local'?readStore(file):(this.sessionStores.get(e.id)||{});this.sessionStores.set(e.id,store);if(op==='get')return getKeys(store,a[0]);if(op==='set')Object.assign(store,a[0]||{});if(op==='remove')for(const k of Array.isArray(a[0])?a[0]:[a[0]])delete store[k];if(op==='clear')for(const k of Object.keys(store))delete store[k];if(area==='local'&&op!=='get')writeStore(file,store);return;}
-    const pub=(t)=>({id:t.id,url:t.url||'',title:t.title||'',active:t.id===source?.id,incognito:true,status:t.loading?'loading':'complete'});
+    const pub=(t)=>({id:t.id,url:t.url||'',title:t.title||'',active:t.id===this.getActiveId(),incognito:true,status:t.loading?'loading':'complete'});
     if(m==='tabs.query')return tabs.filter((t)=>!a[0]?.active||t.id===source?.id).map(pub);
     if(m==='tabs.create')return pub(await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false));
     if(m==='tabs.update')return this.updateTab(typeof a[0]==='number'?a[0]:source?.id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
     if(m==='tabs.remove'){for(const id of (Array.isArray(a[0])?a[0]:[a[0]]))this.removeTab(Number(id));return}
     if(m==='tabs.sendMessage'){const t=tabs.find((x)=>x.id===Number(a[0]));if(!t)throw new Error('Tab not found');const targetExt=this.items.get(e.id); return t.view.webContents.executeJavaScriptInIsolatedWorld(targetExt.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+'):undefined'}])}
-    if(m==='runtime.sendMessage')return undefined;
+    if(m==='runtime.sendMessage')return this.sendRuntimeMessage(e, source, a[0]);
     throw new Error('Unsupported extension API: '+m);
   }
+
+  backgroundScripts(ext){
+    const bg=ext?.manifest?.background||{};
+    if(bg.page)return [];
+    const list=[];
+    if(Array.isArray(bg.scripts))list.push(...bg.scripts);
+    if(bg.service_worker)list.push(bg.service_worker);
+    return list.map(safeRel).filter(Boolean);
+  }
+  backgroundBootstrap(ext){
+    const id=JSON.stringify(ext.id), token=JSON.stringify(ext.resourceToken), manifest=JSON.stringify(ext.manifest);
+    return "(()=>{'use strict';const ID="+id+",TOKEN="+token+",M=Object.freeze("+manifest+"),B=globalThis.__aegisBackgroundBridge;if(!B)return;const L=[],call=(m,...a)=>B.call(m,a),area=(n)=>({get:(k)=>call('storage.'+n+'.get',k),set:(v)=>call('storage.'+n+'.set',v),remove:(k)=>call('storage.'+n+'.remove',k),clear:()=>call('storage.'+n+'.clear')});const runtime={id:ID,getManifest:()=>M,getURL:(p='')=>'aegis-extension://ext/'+TOKEN+'/'+String(p).replace(/^\\/+/,''),getPlatformInfo:()=>call('runtime.getPlatformInfo'),sendMessage:(...a)=>call('runtime.sendMessage',...a),onMessage:{addListener:(f)=>{if(typeof f==='function'&&!L.includes(f))L.push(f)},removeListener:(f)=>{const i=L.indexOf(f);if(i>=0)L.splice(i,1)},hasListener:(f)=>L.includes(f)}};const api={runtime,extension:{getURL:runtime.getURL},storage:{local:area('local'),session:area('session')},tabs:{query:(q)=>call('tabs.query',q||{}),create:(p)=>call('tabs.create',p||{}),update:(...a)=>call('tabs.update',...a),remove:(ids)=>call('tabs.remove',ids),sendMessage:(id,msg)=>call('tabs.sendMessage',id,msg)},permissions:{contains:(p)=>call('permissions.contains',p||{})},i18n:{getUILanguage:()=> 'en-US'}};Object.defineProperty(globalThis,'browser',{value:api});if(!globalThis.chrome)Object.defineProperty(globalThis,'chrome',{value:api});B.onMessage(async(p)=>{let response;for(const fn of [...L]){try{const r=await fn(p.message,p.sender||{},()=>{});if(r!==undefined){response=r;break}}catch{}}B.respond(p.messageId,response)});})();";
+  }
+  async startBackground(ext){
+    this.stopBackground(ext.id);
+    const scripts=this.backgroundScripts(ext);
+    if(!ext.enabled||!scripts.length||!this.BrowserWindow||!this.electronSession)return false;
+    const valid=scripts.filter((rel)=>{const file=path.resolve(ext.path,rel);return file.startsWith(path.resolve(ext.path)+path.sep)&&fs.existsSync(file)&&fs.statSync(file).isFile()});
+    if(!valid.length)return false;
+    const wrapper=path.join(ext.path,'__aegis_background.html');
+    const tags=valid.map((rel)=>'<script src="'+rel.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></script>').join('');
+    const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\' \'unsafe-inline\'; connect-src https: http: aegis-extension:; img-src \'self\' data: aegis-extension:; style-src \'self\' \'unsafe-inline\'; object-src \'none\'"><script>'+this.backgroundBootstrap(ext).replace(/<\\/script/gi,'<\\/script')+'</script>'+tags;
+    fs.writeFileSync(wrapper,html,{mode:0o600});
+    const ses=this.electronSession.fromPartition('aegis-extension-bg-'+crypto.createHash('sha256').update(ext.id).digest('hex').slice(0,24),{cache:false});
+    if(typeof this.registerProtocols==='function')this.registerProtocols(ses.protocol,'extension '+ext.id);
+    const host=new this.BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,devTools:false,session:ses,preload:path.join(__dirname,'..','extension-host-preload.js'),additionalArguments:['--aegis-extension-id='+encodeURIComponent(ext.id)]}});
+    this.backgroundHosts.set(ext.id,host);
+    host.on('closed',()=>{if(this.backgroundHosts.get(ext.id)===host)this.backgroundHosts.delete(ext.id)});
+    try{await host.loadFile(wrapper);return true}catch(err){try{host.destroy()}catch{}this.backgroundHosts.delete(ext.id);return false}
+  }
+  async startAll(){for(const ext of this.enabled())await this.startBackground(ext)}
+  stopBackground(id){const host=this.backgroundHosts.get(id);if(host&&!host.isDestroyed())try{host.destroy()}catch{}this.backgroundHosts.delete(id)}
+  sendRuntimeMessage(ext, sourceTab, message){
+    const host=this.backgroundHosts.get(ext.id);
+    if(!host||host.isDestroyed())return Promise.resolve(undefined);
+    const messageId=crypto.randomUUID();
+    return new Promise((resolve)=>{
+      const timer=setTimeout(()=>{this.pendingMessages.delete(messageId);resolve(undefined)},2500);
+      this.pendingMessages.set(messageId,{extensionId:ext.id,resolve:(value)=>{clearTimeout(timer);resolve(value)}});
+      host.webContents.send('extension:runtime-message',{extensionId:ext.id,messageId,message,sender:sourceTab?{tab:{id:sourceTab.id,url:sourceTab.url||'',title:sourceTab.title||'',incognito:true}}:{id:ext.id}});
+    });
+  }
+  handleBackgroundResponse(sender,payload={}){
+    const id=String(payload.extensionId||''),pending=this.pendingMessages.get(String(payload.messageId||'')),host=this.backgroundHosts.get(id);
+    if(!pending||pending.extensionId!==id||!host||host.webContents!==sender)return false;
+    this.pendingMessages.delete(String(payload.messageId));pending.resolve(payload.response);return true;
+  }
+  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear()}
 }
 module.exports={extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,matchPattern,matchingContentScripts,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
