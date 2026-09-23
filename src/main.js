@@ -1032,6 +1032,7 @@ function wireTabView(tab, view) {
         try { ids.push(...await extensionRuntime.injectFrame(tab, frame, phase)); }
         catch (err) { console.warn('Extension subframe injection failed:', err.message); }
       }
+      extensionRuntime?.notifyNavigation('webNavigation.onCompleted',tab,String(frame.url||''),'',frame);
       if (ids.length) {
         tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
         emitState();
@@ -1051,7 +1052,11 @@ function wireTabView(tab, view) {
   browserRuntime.on(view,'did-start-navigation', (event, legacyDetails, _isInPlace, legacyIsMainFrame) => {
     const url = navigationUrl(event, legacyDetails);
     const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
-    if (!isMainFrame || !url || String(url).startsWith('aegis://')) return;
+    if (!url || String(url).startsWith('aegis://')) return;
+    if (!isMainFrame) {
+      extensionRuntime?.notifyNavigation('webNavigation.onBeforeNavigate',tab,url,'',event?.frame||null);
+      return;
+    }
     tab.extensionInjectionKeys = new Set();
     tab.extensionIds = [];
     tab.extensionStartInjection = null;
@@ -1059,6 +1064,18 @@ function wireTabView(tab, view) {
     extensionRuntime?.notifyNavigation('webNavigation.onBeforeNavigate',tab,url);
     const nextOrigin = safeOrigin(url);
     if (tab.siteIntelligence?.url !== url) { resetSiteIntelligence(tab, url, nextOrigin); emitState(); }
+  });
+  browserRuntime.on(view,'did-frame-navigate', (event, legacyUrl, _httpResponseCode, _httpStatusText, legacyIsMainFrame, legacyProcessId, legacyRoutingId) => {
+    const url = navigationUrl(event, legacyUrl);
+    const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
+    if (isMainFrame || !url || String(url).startsWith('aegis://')) return;
+    let frame = event?.frame || null;
+    if (!frame) {
+      const processId = Number(event?.frameProcessId ?? legacyProcessId), routingId = Number(event?.frameRoutingId ?? legacyRoutingId);
+      const frames = view.webContents.mainFrame?.framesInSubtree || [];
+      frame = frames.find((candidate) => Number(candidate?.processId) === processId && Number(candidate?.routingId) === routingId) || null;
+    }
+    extensionRuntime?.notifyNavigation('webNavigation.onCommitted',tab,url,'',frame);
   });
   browserRuntime.on(view,'did-start-loading', () => { tab.loading = true; extensionRuntime?.notifyTabUpdated(tab,{status:'loading'}); emitState(); });
   browserRuntime.on(view,'dom-ready', () => {
