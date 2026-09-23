@@ -164,6 +164,41 @@ function compareFingerprintCohort(samples = []) {
   };
 }
 
+async function testNetworkIdentity(ses, expected = {}) {
+  if (!ses?.webRequest) return { status:'not-tested', ok:false, evidence:'Session webRequest API unavailable.' };
+  const token = 'aegis-identity-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  let observed = null;
+  const listener = (details) => {
+    try {
+      if (String(details.url || '').includes(token)) observed = { ...(details.requestHeaders || {}) };
+    } catch {}
+  };
+  try {
+    ses.webRequest.onBeforeSendHeaders({ urls:['https://example.com/*'] }, listener);
+    try { await timeout(ses.fetch('https://example.com/?' + token, { method:'GET', cache:'no-store' }), 5000, 'Network identity probe'); } catch {}
+    if (!observed) return { status:'not-tested', ok:false, evidence:'The disposable session did not expose probe request headers.' };
+    const find = (name) => Object.entries(observed).find(([k])=>k.toLowerCase()===name.toLowerCase())?.[1] || '';
+    const ua = String(find('user-agent'));
+    const dnt = String(find('dnt'));
+    const gpc = String(find('sec-gpc'));
+    const highEntropy = Object.keys(observed).filter((k)=>/^sec-ch-ua-(full-version|full-version-list|arch|bitness|model|platform-version|wow64)$/i.test(k));
+    const ok = (!expected.ua || ua === expected.ua) &&
+      (expected.doNotTrack === false || dnt === '1') &&
+      (expected.globalPrivacyControl === false || gpc === '1') &&
+      highEntropy.length === 0;
+    return {
+      status: ok ? 'pass' : 'warning', ok, headers:{ ua,dnt,gpc,highEntropy },
+      evidence: ok
+        ? 'Network User-Agent/privacy signals are coherent and high-entropy UA Client Hints were absent from the observed request.'
+        : `Network identity drift detected (UA match=${!expected.ua || ua===expected.ua}, DNT=${dnt||'absent'}, Sec-GPC=${gpc||'absent'}, high-entropy hints=${highEntropy.join(', ')||'none'}).`
+    };
+  } catch (err) {
+    return { status:'not-tested', ok:false, evidence:`Network identity probe unavailable: ${err.message}` };
+  } finally {
+    try { ses.webRequest.onBeforeSendHeaders(null); } catch {}
+  }
+}
+
 function routePrivacyStatus(proxyMode, route = null) {
   const mode = String(proxyMode || 'system');
   if (['socks5','http','https'].includes(mode)) {
@@ -189,5 +224,5 @@ function summarizeChecks(checks) {
 
 module.exports = {
   isPublicIp, fetchPublicIp, testSessionIsolation, candidateAddresses, isNumericLocalLeak,
-  testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, fingerprintSnapshotDigest, compareFingerprintCohort, routePrivacyStatus, makeCheck, summarizeChecks
+  testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, fingerprintSnapshotDigest, compareFingerprintCohort, testNetworkIdentity, routePrivacyStatus, makeCheck, summarizeChecks
 };
