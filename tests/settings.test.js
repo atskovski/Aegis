@@ -53,3 +53,16 @@ test('preserves an explicit direct proxy choice in schema v3', () => {
 test('strict profile keeps service workers available for site compatibility', () => {
   assert.equal(profileDefaults('strict').disableServiceWorkers, false);
 });
+
+
+test('anonymous compartment settings are sanitized and default fail-closed', () => {
+  const d=sanitizeSettings({});
+  assert.equal(d.anonymity.torProxy,'127.0.0.1:9050');
+  assert.equal(d.anonymity.requireTorVerification,true);
+  assert.equal(d.anonymity.blockPrivateNetwork,true);
+  assert.equal(d.anonymity.disableDownloads,true);
+  assert.equal(d.anonymity.disableExtensions,true);
+  const s=sanitizeSettings({anonymity:{torProxy:'127.0.0.1:9150',requireTorVerification:false,blockPrivateNetwork:false,disableDownloads:false,disableExtensions:false}});
+  assert.equal(s.anonymity.torProxy,'127.0.0.1:9150');
+  assert.equal(s.anonymity.requireTorVerification,false);
+});
