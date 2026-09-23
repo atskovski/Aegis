@@ -50,7 +50,7 @@ function compatibility(m){
     else unsupported.push({api:root,reason:DENIED_ROOTS[root]||'API not implemented by Aegis Extension Runtime.'});
   }
   const cs=Array.isArray(m.content_scripts)?m.content_scripts.length:0;
-  const bg=m.background?'sandboxed-host':'none';
+  const bg=m.background?'not-implemented':'none';
   const score=Math.round(100*(supported.length+(cs?1:0)+(bg!=='none'?1:0))/Math.max(1,apiRoots(m).length+(cs?1:0)+(bg!=='none'?1:0)));
   return {score,supported,unsupported,contentScripts:cs,background:bg};
 }
