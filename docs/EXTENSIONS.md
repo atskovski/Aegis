@@ -47,7 +47,7 @@ Runtime 5 currently implements or emulates the following major surfaces:
 - permissions: declared-permission inspection.
 - i18n: manifest/default-locale message lookup.
 - alarms and commands.
-- scripting: file/code execution and CSS insertion/removal for the top-level frame.
+- scripting: packaged file/code execution in the top frame or targeted subframes (`frameIds` / `allFrames`), including MAIN-world injection; CSS insertion/removal is currently top-frame-only.
 - webNavigation observation.
 - webRequest observation.
 - declarativeNetRequest static/dynamic/session rules for block, allow, redirect and upgradeScheme decisions.
@@ -66,7 +66,7 @@ Runtime 5 does not claim universal Chrome or Firefox API parity.
 - declarativeNetRequest modifyHeaders is intentionally not allowed to weaken Aegis security headers, and matched-rule telemetry is reduced.
 - proxy replacement, native messaging, browsing-history database access, extension management, debugger APIs and DevTools extension pages are withheld.
 - optional_permissions and optional_host_permissions are detected and reviewed, but runtime permission-request/removal prompts are not yet implemented.
-- manifest and dynamically registered `content_scripts.all_frames` are injected into loaded subframes through Aegis's sandboxed iframe bridge, including `match_about_blank` origin fallback. Exact `document_start` ordering can still differ from upstream Chrome/Firefox. Programmatic `scripting.executeScript({target:{allFrames:true}})` remains top-frame-only for now.
+- manifest and dynamically registered `content_scripts.all_frames` are injected into loaded subframes through Aegis's sandboxed iframe bridge, including `match_about_blank` origin fallback. Programmatic `scripting.executeScript()` supports `frameIds` and `allFrames`, including MAIN-world execution. Exact `document_start` ordering can still differ from upstream Chrome/Firefox.
 - document_start uses Aegis early-navigation isolated-world injection, but exact Firefox/Chromium pre-page-script ordering is not guaranteed on every navigation.
 - MV3 service workers run in a persistent sandboxed host rather than Chromium's suspend/resume lifecycle.
 - function-object scripting injection is not transferred across Aegis IPC; packaged files or code strings are supported.
