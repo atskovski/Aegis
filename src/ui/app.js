@@ -458,7 +458,7 @@ async function refreshExtensions() {
     if (Array.isArray(addons)) state.extensions = addons;
   } catch {}
   renderExtensionActions();
-  renderStoreInstallButton(tab);
+  renderStoreInstallButton();
   renderAddons();
 }
 
