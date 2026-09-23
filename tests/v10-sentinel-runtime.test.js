@@ -14,11 +14,11 @@ test('Sentinel exposes simple and advanced modes with routed IP evidence',()=>{
   assert.match(js,/renderSentinelSummary/);
 });
 
-test('Aegis has an XPI add-on manager backed by main-process IPC',()=>{
+test('Aegis has a Chrome Extensions manager backed by main-process IPC',()=>{
   assert.match(html,/data-settings-page="addons"/);
-  assert.match(html,/id="installXpi"/);
-  assert.match(js,/extensions:install/);
-  assert.match(main,/extensions:install/);
+  assert.match(html,/id="installExtensionPackage"/);
+  assert.match(js,/extensions:pick-package/);
+  assert.match(main,/extensions:pick-package/);
   assert.match(main,/extension-bridge-preload\.js/);
 });
 
