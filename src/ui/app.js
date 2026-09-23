@@ -698,6 +698,7 @@ function renderSettingsDraft() {
   $('#blockTrackers').checked = Boolean(s.blockTrackers);
   $('#blockAds').checked = Boolean(s.blockAds);
   $('#blockSocialTrackers').checked = Boolean(s.blockSocialTrackers);
+  $('#blockCryptominers').checked = Boolean(s.blockCryptominers);
   $('#heuristicTrackingProtection').checked = Boolean(s.heuristicTrackingProtection);
   $('#siteIntelligence').checked = s.siteIntelligence !== false;
   $('#blockFingerprintingScripts').checked = Boolean(s.blockFingerprintingScripts);
@@ -748,6 +749,7 @@ function collectDraftFromControls() {
   draftSettings.blockTrackers = $('#blockTrackers').checked;
   draftSettings.blockAds = $('#blockAds').checked;
   draftSettings.blockSocialTrackers = $('#blockSocialTrackers').checked;
+  draftSettings.blockCryptominers = $('#blockCryptominers').checked;
   draftSettings.heuristicTrackingProtection = $('#heuristicTrackingProtection').checked;
   draftSettings.siteIntelligence = $('#siteIntelligence').checked;
   draftSettings.blockFingerprintingScripts = $('#blockFingerprintingScripts').checked;
@@ -992,7 +994,7 @@ $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
 }));
 
 const draftControlIds = [
-  'blockTrackers','blockAds','blockSocialTrackers','heuristicTrackingProtection','siteIntelligence','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
+  'blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','heuristicTrackingProtection','siteIntelligence','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
   'disableServiceWorkers','gpcToggle','dntToggle','downloadToggle','javascriptDefault','clearClipboardIdentity','compatibilityAssistance','threatProtection','cookieAutoDelete','cookieAutoDeleteDelay','sponsorBlockEnabled','fireproofSites',
   'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
