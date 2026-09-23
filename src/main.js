@@ -1830,6 +1830,12 @@ function wireIpc() {
     await Promise.allSettled([...tabs.values()].map((tab)=>replaceTabView(tab,tab.javascriptEnabled)));
     emitState();return {ok};
   });
+  ipcMain.on('extension:bootstrap-data', (event, payload) => {
+    if(!extensionRuntime){event.returnValue=null;return;}
+    try{
+      event.returnValue=extensionRuntime.pageBootstrapData(event.sender,String(payload?.extensionId||''),String(payload?.context||'page'));
+    }catch{event.returnValue=null;}
+  });
   ipcMain.handle('extension:call', async (event, payload) => {
     if(!extensionRuntime) throw new Error('Extension runtime unavailable.');
     const result=await extensionRuntime.call(event.sender,payload,event.senderFrame);
