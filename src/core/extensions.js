@@ -589,7 +589,7 @@ class AegisExtensionRuntime{
     const done=[];
     for(const frame of frames){
       if(frame===main||frame?.isDestroyed?.())continue;
-      try{done.push(...await this.injectFrame(tab,frame,phase))}catch(err){this.noteRuntimeError('runtime','content-script:frame-scan',err)}
+      try{done.push(...await this.injectFrame(tab,frame,phase))}catch{}
     }
     return [...new Set(done)];
   }
@@ -1051,8 +1051,8 @@ class AegisExtensionRuntime{
     const css=chunks.join('\n'),lookup=e.id+':'+tab.id+':'+crypto.createHash('sha256').update(css).digest('hex'),key=this.cssKeys.get(lookup);
     if(!key)return false;try{await tab.view.webContents.removeInsertedCSS(key)}catch{return false}this.cssKeys.delete(lookup);return true;
   }
-  async call(sender,p={}){
-    const e=this.extensionFor(p.extensionId),m=String(p.method||''),a=Array.isArray(p.args)?p.args:[],tabs=this.getTabs(),source=tabs.find((t)=>t.view?.webContents===sender);
+  async call(sender,p={},senderFrame=null){
+    const e=this.extensionFor(p.extensionId),m=String(p.method||''),a=Array.isArray(p.args)?p.args:[],tabs=this.getTabs(),source=tabs.find((t)=>t.view?.webContents===sender),sourceFrame=source&&senderFrame&&!senderFrame.isDestroyed?.()?senderFrame:null;
     const background=this.backgroundHosts.get(e.id),pageAuthorized=[...this.pageWindows].some((win)=>win.__aegisExtensionId===e.id&&!win.isDestroyed()&&win.webContents===sender);
     const senderAuthorized=Boolean((source&&extensionVisibleTab(source))||(background&&!background.isDestroyed()&&background.webContents===sender)||pageAuthorized);
     if(!senderAuthorized)throw new Error('Extension IPC sender is not authorized for '+e.id);
@@ -1073,9 +1073,9 @@ class AegisExtensionRuntime{
     if(m==='runtime.sendMessage'){
       if(typeof a[0]==='string'&&a.length>1){
         if(a[0]!==e.id)throw new Error('Cross-extension messaging is not supported.');
-        return this.sendRuntimeMessage(e,source,a[1]);
+        return this.sendRuntimeMessage(e,source,a[1],sourceFrame);
       }
-      return this.sendRuntimeMessage(e,source,a[0]);
+      return this.sendRuntimeMessage(e,source,a[0],sourceFrame);
     }
 
     if(m==='runtime.portOpen'){
@@ -1341,14 +1341,15 @@ class AegisExtensionRuntime{
     if(!this.suspensionReasons.size)await this.startAll();
   }
   stopBackground(id){const host=this.backgroundHosts.get(id);if(host&&!host.isDestroyed())try{host.destroy()}catch{}this.backgroundHosts.delete(id)}
-  sendRuntimeMessage(ext, sourceTab, message){
+  sendRuntimeMessage(ext, sourceTab, message, sourceFrame=null){
     const host=this.backgroundHosts.get(ext.id);
     if(!host||host.isDestroyed())return Promise.resolve(undefined);
     const messageId=crypto.randomUUID(),visible=sourceTab&&!sourceTab.disableExtensions&&sourceTab.securityDomain!=='anonymous'&&sourceTab.securityDomain!=='hardened';
     let sender;
     if(visible){
-      const raw=String(sourceTab.url||'');let origin='null';try{origin=new URL(raw).origin}catch{}
-      sender={id:ext.id,tab:this.publicTab(ext,sourceTab)||{id:sourceTab.id,url:raw,title:sourceTab.title||'',incognito:true},frameId:0,url:raw,origin};
+      const topRaw=String(sourceTab.url||''),frameRaw=String(sourceFrame?.url||topRaw);let origin='null';try{origin=new URL(frameRaw).origin}catch{}
+      const frameId=sourceFrame&&sourceTab?.view?.webContents?.mainFrame!==sourceFrame?Number(sourceFrame.routingId||0):0;
+      sender={id:ext.id,tab:this.publicTab(ext,sourceTab)||{id:sourceTab.id,url:topRaw,title:sourceTab.title||'',incognito:true},frameId,url:frameRaw,origin};
     }else{
       sender={id:ext.id,frameId:0,url:extensionResourceUrl(ext,''),origin:'aegis-extension://'+ext.resourceToken};
     }
