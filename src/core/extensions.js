@@ -685,8 +685,8 @@ class AegisExtensionRuntime{
       const payload={
         requestId:String(details.id||details.requestId||''),url,method:String(details.method||'GET'),tabId:tab.id,
         type:DNR_RESOURCE_TYPES[details.resourceType]||String(details.resourceType||'other').replace(/[A-Z]/g,(m)=>'_'+m.toLowerCase()),
-        frameId:Number(details.frameId??0),parentFrameId:Number(details.parentFrameId??-1),
-        initiator:String(details.initiator||tab.topUrl||tab.url||''),documentUrl:String(details.documentUrl||tab.topUrl||tab.url||''),
+        frameId:Number(details.frameId??details.frame?.routingId??0),parentFrameId:Number(details.parentFrameId??details.frame?.parent?.routingId??-1),
+        initiator:String(details.initiatorOrigin||details.initiator||tab.topUrl||tab.url||''),documentUrl:String(details.documentUrl||details.frame?.url||tab.topUrl||tab.url||''),
         timeStamp:Number(details.timestamp||details.timeStamp||Date.now())
       };
       if(details.requestHeaders)payload.requestHeaders=toHeaders(details.requestHeaders);
