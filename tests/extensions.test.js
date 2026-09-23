@@ -273,6 +273,31 @@ test('MAIN-world scripting executes packaged files without the isolated API boot
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
+test('runtime repair clears stale extension errors and reloads eligible tabs for clean reinjection', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-extension-repair-'));
+  try{
+    const extRoot=path.join(root,'extension');fs.mkdirSync(extRoot,{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'content.js'),'globalThis.__repairTest=true;');
+    let reloads=0;
+    const tab={
+      id:1,url:'https://example.com/',securityDomain:'private',disableExtensions:false,
+      extensionInjectionKeys:new Set(['repair-test:0:idle','other:0:idle']),
+      view:{webContents:{isDestroyed:()=>false,reload:()=>{reloads++}}}
+    };
+    const manifest={manifest_version:3,name:'Repair',version:'1',host_permissions:['<all_urls>'],content_scripts:[{matches:['<all_urls>'],js:['content.js']}]};
+    const runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[tab],getActiveId:()=>1,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'repair-test',path:extRoot,resourceToken:'repairtoken',enabled:true,manifest,detectedApis:['runtime'],compatibility:compatibility(manifest,['runtime'])};
+    runtime.items.set(e.id,e);
+    runtime.noteRuntimeError(e.id,'content-script:content.js',new Error('old failure'));
+    const diagnostic=await runtime.diagnose(e.id,{repair:true});
+    assert.equal(reloads,1);
+    assert.equal(runtime.healthFor(e.id).errors.length,0);
+    assert.equal(tab.extensionInjectionKeys.has('repair-test:0:idle'),false);
+    assert.equal(tab.extensionInjectionKeys.has('other:0:idle'),true);
+    assert.ok(diagnostic.checks.some((check)=>check.id==='repair'&&check.status==='pass'));
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
 test('extension-owned tabs retain their extension context and support URL queries', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-extension-tabs-'));
   try{
