@@ -250,7 +250,7 @@ function toggleBookmark(tab) {
 
 function addDownloadRecord(item, tab) {
   const id = crypto.randomUUID();
-  const rec = { id, filename: item.getFilename(), state: 'starting', receivedBytes: 0, totalBytes: item.getTotalBytes() || 0, path: '', startedAt: new Date().toISOString(), source: safeOrigin(tab?.url) };
+  const rec = { id, filename: item.getFilename(), state: 'starting', receivedBytes: 0, totalBytes: item.getTotalBytes() || 0, path: '', startedAt: new Date().toISOString(), source: safeOrigin(tab?.url), mimeType: item.getMimeType?.() || '', sha256: '', sizeVerified: false, contentWarning: '' };
   downloads.unshift(rec); downloads = downloads.slice(0, 50); emitState();
   return rec;
 }
@@ -794,6 +794,24 @@ function applySessionDownloadPolicy(tab) {
     item.once('done', (_e, state) => {
       updateDownloadRecord(rec, item, state);
       activeDownloadItems.delete(rec.id);
+      if (state === 'completed') {
+        try {
+          const stat=fs.statSync(target);
+          const hash=crypto.createHash('sha256');
+          const stream=fs.createReadStream(target);
+          stream.on('data',(chunk)=>hash.update(chunk));
+          stream.on('end',()=>{
+            rec.sha256=hash.digest('hex');
+            rec.sizeVerified=stat.size === rec.receivedBytes || rec.receivedBytes === 0;
+            const ext=path.extname(filename).toLowerCase();
+            const mime=String(rec.mimeType||'').toLowerCase();
+            const suspicious=(mime.includes('html') && !['.html','.htm'].includes(ext)) || (mime.includes('javascript') && !['.js','.mjs'].includes(ext)) || (mime.includes('executable') && !isRiskyDownload(filename));
+            rec.contentWarning=suspicious ? 'Server MIME type does not match the apparent file extension.' : '';
+            emitState();
+          });
+          stream.on('error',()=>{ rec.contentWarning='Could not hash downloaded file.'; emitState(); });
+        } catch { rec.contentWarning='Could not verify downloaded file on disk.'; emitState(); }
+      }
       toast(state === 'completed' ? `Download saved: ${filename}` : `Download ${state}: ${filename}`, state === 'completed' ? 'success' : 'warning');
     });
   });
