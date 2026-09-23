@@ -720,6 +720,7 @@ test('Privacy Badger 2026.9.15 MV2 profile boots with its required Chrome APIs h
       permissions:['<all_urls>','alarms','cookies','privacy','scripting','storage','tabs','webNavigation','webRequest','webRequestBlocking'],
       background:{page:'background.html'},
       browser_action:{default_popup:'skin/popup.html'},
+      options_ui:{page:'/skin/options.html',open_in_tab:true},
       content_scripts:[{matches:['<all_urls>'],all_frames:true,run_at:'document_start',js:['js/contentscripts/utils.js']}]
     };
     fs.writeFileSync(path.join(extRoot,'manifest.json'),JSON.stringify(manifest));
@@ -729,6 +730,7 @@ test('Privacy Badger 2026.9.15 MV2 profile boots with its required Chrome APIs h
     fs.writeFileSync(path.join(extRoot,'js','contentscripts','utils.js'),'');
     fs.mkdirSync(path.join(extRoot,'skin'),{recursive:true});
     fs.writeFileSync(path.join(extRoot,'skin','popup.html'),'<!doctype html>');
+    fs.writeFileSync(path.join(extRoot,'skin','options.html'),'<!doctype html>');
     const roots=['runtime','storage','tabs','cookies','privacy','scripting','webNavigation','webRequest','webRequestBlocking','browserAction','alarms'];
     const report=compatibility(manifest,roots);
     for(const api of roots)assert.equal(report.unsupported.some((x)=>x.api===api),false,api+' should remain hosted');
@@ -743,6 +745,7 @@ test('Privacy Badger 2026.9.15 MV2 profile boots with its required Chrome APIs h
     const bootstrapData=runtime.pageBootstrapData(sender,e.id,'background');
     assert.equal(bootstrapData.manifest.background.page,'background.html');
     assert.equal(bootstrapData.manifest.version,'2026.9.15');
+    assert.match(runtime.publicRecord(e).optionsPage,/\/skin\/options\.html$/);
 
     const cookies=await runtime.call(sender,{extensionId:e.id,method:'cookies.getAll',args:[{firstPartyDomain:null}]});
     assert.deepEqual(cookies,[]);
