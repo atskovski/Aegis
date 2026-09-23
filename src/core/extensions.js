@@ -256,7 +256,7 @@ function compatibility(m,detectedRoots=[]){
   if(Array.isArray(m.optional_host_permissions)&&m.optional_host_permissions.length) warnings.push({api:'optional_host_permissions',reason:'Optional host access requires explicit user approval in Aegis and is not auto-granted.'});
   if(permissions(m).includes('notifications')) warnings.push({api:'notifications',reason:'Notifications are rendered as prominent Aegis browser-chrome notices; OS notification buttons and native notification-center persistence are not emulated.'});
   if(permissions(m).includes('webRequest')) warnings.push({api:'webRequest',reason:'Aegis forwards request-observation events to extensions. Synchronous blocking listener responses remain owned by the Aegis network firewall; use declarativeNetRequest for blocking.'});
-  if(permissions(m).some((p)=>p==='declarativeNetRequest'||p==='declarativeNetRequestWithHostAccess')) warnings.push({api:'declarativeNetRequest',reason:'Aegis imports static, dynamic and session DNR rules for block, allow, redirect and upgradeScheme actions. modifyHeaders is intentionally not allowed to weaken Aegis security headers.'});
+  if(permissions(m).some((p)=>p==='declarativeNetRequest'||p==='declarativeNetRequestWithHostAccess')) warnings.push({api:'declarativeNetRequest',reason:'Aegis imports static, dynamic and session DNR rules for block, allow, redirect and upgradeScheme actions. Privacy-strengthening modifyHeaders removals are supported for cookies, referrers and cache/tracking identifiers; security-weakening header changes remain blocked.'});
   if(permissions(m).includes('privacy')) warnings.push({api:'privacy',reason:'Privacy settings are exposed through an Aegis-controlled compatibility surface. Extensions can query them; attempts to weaken Aegis-enforced protections are ignored.'});
   if(permissions(m).includes('menus')||permissions(m).includes('contextMenus')) warnings.push({api:'menus',reason:'Aegis hosts standard extension context-menu items; advanced Firefox menu surfaces and icons are reduced.'});
   const bg=m.background||{};
@@ -672,7 +672,30 @@ class AegisExtensionRuntime{
     }
     if(!best)return null;const {e,rule,type}=best;if(type==='block')return {action:'block',extensionId:e.id,ruleId:rule.id};if(type==='upgradeScheme'&&/^http:/i.test(rawUrl))return {action:'redirect',redirectURL:rawUrl.replace(/^http:/i,'https:'),extensionId:e.id,ruleId:rule.id};
     if(type==='redirect'){const redir=rule.action?.redirect||{};let target='';if(typeof redir.url==='string'&&/^https?:\/\//i.test(redir.url))target=redir.url;else if(redir.extensionPath)target=extensionResourceUrl(e,redir.extensionPath);else if(redir.regexSubstitution&&rule.condition?.regexFilter){try{target=rawUrl.replace(new RegExp(rule.condition.regexFilter),String(redir.regexSubstitution))}catch{}}if(target)return {action:'redirect',redirectURL:target,extensionId:e.id,ruleId:rule.id}}
-    return {action:'allow',extensionId:e.id,ruleId:rule.id};
+    return type==='modifyHeaders'?null:{action:'allow',extensionId:e.id,ruleId:rule.id};
+  }
+  headerModifications(tab,details={},phase='request'){
+    if(!extensionVisibleTab(tab))return [];
+    const rawUrl=String(details.url||''),topUrl=String(tab.topUrl||tab.url||rawUrl),rt=details.resourceType||'other';
+    const allowedRequestRemovals=new Set(['cookie','referer','if-none-match','if-modified-since','x-client-data']);
+    const allowedResponseRemovals=new Set(['set-cookie','etag','last-modified','report-to','nel']);
+    const allowed=phase==='response'?allowedResponseRemovals:allowedRequestRemovals,rows=[];
+    for(const e of this.enabled()){
+      const declared=new Set(permissions(e.manifest));
+      if(!declared.has('declarativeNetRequest')&&!declared.has('declarativeNetRequestWithHostAccess'))continue;
+      if(!networkAllowedByManifest(e.manifest,rawUrl))continue;
+      for(const rule of this.dnrRules(e)){
+        if(String(rule.action?.type||'')!=='modifyHeaders'||!dnrRuleMatches(rule,rawUrl,topUrl,rt,{...details,tabId:tab.id}))continue;
+        const entries=phase==='response'?rule.action?.responseHeaders:rule.action?.requestHeaders;
+        for(const item of Array.isArray(entries)?entries:[]){
+          const header=String(item?.header||'').trim().toLowerCase(),operation=String(item?.operation||'').toLowerCase();
+          if(operation!=='remove'||!allowed.has(header))continue;
+          rows.push({header,operation:'remove',priority:Number(rule.priority)||1,ruleId:Number(rule.id),extensionId:e.id});
+        }
+      }
+    }
+    rows.sort((a,b)=>a.priority-b.priority||String(a.extensionId).localeCompare(String(b.extensionId))||a.ruleId-b.ruleId);
+    return rows;
   }
   notifyWebRequest(type,tab,details={}){
     if(!extensionVisibleTab(tab))return;
