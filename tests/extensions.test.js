@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { safeRel, normalizeManifest, localizeManifest, packageEcosystem, extensionId, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab, scanUsedApiRoots } = require('../src/core/extensions');
+const { safeRel, normalizeManifest, localizeManifest, packageEcosystem, extensionId, compatibility, contentScriptPhase, matchPattern, matchingContentScripts, rewriteCssUrls, installRisk, extensionWorldId, bootstrap, AegisExtensionRuntime, hostPermissions, networkAllowedByManifest, extensionVisibleTab, scanUsedApiRoots, webAccessibleResourceAllowed } = require('../src/core/extensions');
 
 test('Chrome extension runtime rejects unsafe relative paths', () => {
   assert.equal(safeRel('../secret'), '');
@@ -923,4 +923,43 @@ test('Privacy Badger all_urls host access includes WebSocket requests', () => {
   const manifest={manifest_version:2,name:'Privacy Badger',version:'2026.9.15',permissions:['<all_urls>','webRequest','webRequestBlocking']};
   assert.equal(networkAllowedByManifest(manifest,'ws://socket.example.test/live'),true);
   assert.equal(networkAllowedByManifest(manifest,'wss://socket.example.test/live'),true);
+});
+
+
+test('Privacy Badger surrogate redirects are limited to declared web-accessible resources', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-pb-surrogate-')),extRoot=path.join(root,'extensions','privacy-badger');
+  try{
+    const rel='data/web_accessible_resources/googletagmanager.js';
+    fs.mkdirSync(path.dirname(path.join(extRoot,rel)),{recursive:true});
+    fs.writeFileSync(path.join(extRoot,rel),'void 0;');
+    fs.writeFileSync(path.join(extRoot,'private.js'),'void 0;');
+    const manifest={
+      manifest_version:2,name:'Privacy Badger',version:'2026.9.15',
+      permissions:['<all_urls>','webRequest','webRequestBlocking'],
+      web_accessible_resources:['data/web_accessible_resources/*'],
+      background:{page:'background.html'}
+    };
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp',path:extRoot,resourceToken:'pb-surrogate-token',enabled:true,manifest,detectedApis:['webRequest'],compatibility:compatibility(manifest,['webRequest'])};
+    runtime.items.set(e.id,e);
+    assert.equal(webAccessibleResourceAllowed(e,rel),true);
+    assert.equal(webAccessibleResourceAllowed(e,'private.js'),false);
+
+    const sender={},requestId='surrogate-request';
+    let decision;
+    runtime.pendingBlockingRequests.set(requestId,{extensionId:e.id,host:sender,resolve:(value)=>{decision=value}});
+    assert.equal(runtime.handleBlockingWebRequestResponse(sender,{
+      extensionId:e.id,requestId,
+      response:{redirectUrl:'aegis-extension://pb-surrogate-token/'+rel+'?key=secret'}
+    }),true);
+    assert.equal(decision.redirectURL,'aegis-extension://pb-surrogate-token/'+rel+'?key=secret');
+
+    let blockedDecision;
+    runtime.pendingBlockingRequests.set('private-request',{extensionId:e.id,host:sender,resolve:(value)=>{blockedDecision=value}});
+    runtime.handleBlockingWebRequestResponse(sender,{
+      extensionId:e.id,requestId:'private-request',
+      response:{redirectUrl:'aegis-extension://pb-surrogate-token/private.js'}
+    });
+    assert.equal(blockedDecision.redirectURL,undefined);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
