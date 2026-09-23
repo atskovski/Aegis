@@ -1008,19 +1008,16 @@ function wireTabView(tab, view) {
     if (!isMainFrame || !url || String(url).startsWith('aegis://')) return;
     tab.extensionInjectionKeys = new Set();
     tab.extensionIds = [];
+    tab.extensionStartInjection = null;
     extensionRuntime?.clearActiveGrantForTab(tab.id);
     extensionRuntime?.notifyNavigation('webNavigation.onBeforeNavigate',tab,url);
-    extensionRuntime?.inject(tab, 'start', url).then((ids) => {
-      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
-      emitState();
-    }).catch((err) => console.warn('Extension document-start injection failed:', err.message));
     const nextOrigin = safeOrigin(url);
     if (tab.siteIntelligence?.url !== url) { resetSiteIntelligence(tab, url, nextOrigin); emitState(); }
   });
   browserRuntime.on(view,'did-start-loading', () => { tab.loading = true; extensionRuntime?.notifyTabUpdated(tab,{status:'loading'}); emitState(); });
   browserRuntime.on(view,'dom-ready', () => {
-    extensionRuntime?.inject(tab, 'end').then((ids) => {
-      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
+    Promise.resolve(tab.extensionStartInjection).catch(()=>[]).then(() => extensionRuntime?.inject(tab, 'end')).then((ids) => {
+      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...(ids || [])])];
       emitState();
     }).catch((err) => console.warn('Extension document-end injection failed:', err.message));
   });
@@ -1034,6 +1031,14 @@ function wireTabView(tab, view) {
   browserRuntime.on(view,'did-navigate', (_event, url, httpResponseCode = -1, httpStatusText = '') => {
     const oldOrigin = safeOrigin(tab.url); const newOrigin = safeOrigin(url);
     tab.url = url; tab.topUrl = url; tab.safety = tabSettings(tab).threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+    tab.extensionStartInjection = extensionRuntime?.inject(tab, 'start', url).then((ids) => {
+      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...(ids || [])])];
+      emitState();
+      return ids || [];
+    }).catch((err) => {
+      console.warn('Extension document-start injection failed:', err.message);
+      return [];
+    }) || Promise.resolve([]);
     extensionRuntime?.notifyNavigation('webNavigation.onCommitted',tab,url);
     extensionRuntime?.notifyTabUpdated(tab,{url,status:'loading'});
     if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
