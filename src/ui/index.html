@@ -327,13 +327,14 @@
               <p>Install a downloaded <b>.xpi</b>/<b>.zip</b> or paste a direct HTTPS package URL. Aegis validates the manifest, referenced resources, SHA-256 digest, permissions, host access and API compatibility before activation.</p>
             </div>
             <div class="addon-install-actions">
-              <button id="installXpi" class="primary addon-install-btn">Choose XPI / ZIP</button>
+              <button id="installXpi" class="primary addon-install-btn">Choose CRX / XPI / ZIP</button>
+              <button id="loadUnpackedExtension" class="secondary">Load unpacked</button>
             </div>
           </div>
 
           <div class="addon-url-install">
-            <label for="addonUrlInput"><span>Install from HTTPS package URL</span><small>Paste a direct .xpi or .zip download URL, including a Mozilla Add-ons download link.</small></label>
-            <div class="addon-url-row"><input id="addonUrlInput" type="url" autocomplete="off" spellcheck="false" placeholder="https://example.org/addon.xpi"><button id="installAddonUrl" class="secondary">Inspect URL</button></div>
+            <label for="addonUrlInput"><span>Chrome Web Store, extension ID, or direct package URL</span><small>Paste a Chrome Web Store listing, a 32-character Chrome extension ID, or a direct HTTPS .crx/.xpi/.zip URL.</small></label>
+            <div class="addon-url-row"><input id="addonUrlInput" autocomplete="off" spellcheck="false" placeholder="https://chromewebstore.google.com/detail/.../extension-id"><button id="installAddonUrl" class="secondary">Download & inspect</button></div>
           </div>
 
           <div id="addonRuntimeSummary" class="addon-runtime-summary addon-runtime-summary-v3" aria-live="polite">
@@ -372,14 +373,14 @@
             <div class="addon-capability-head"><div><span class="eyebrow">COMPATIBILITY LAYER</span><h4>What Aegis implements</h4></div><span>Runtime 3</span></div>
             <div class="addon-capability-grid">
               <div class="supported"><b>Content & UI</b><span>content_scripts, document_start/end/idle, action/browserAction/pageAction, popups, options pages, extension resources</span></div>
-              <div class="supported"><b>Core APIs</b><span>runtime, storage.local/sync/session, tabs, windows, cookies, permissions, i18n, scripting, alarms, commands, webNavigation</span></div>
+              <div class="supported"><b>Core APIs</b><span>runtime + Ports, storage.local/sync/session/managed, tabs, windows, cookies, permissions, i18n, scripting, alarms, commands, webNavigation</span></div>
               <div class="supported"><b>Browser surfaces</b><span>context menus, notifications, activeTab, tab messaging, zoom, visible-tab capture, isolated extension worlds</span></div>
               <div class="limited"><b>Intentionally restricted</b><span>blocking webRequest/DNR parity, proxy replacement, nativeMessaging, debugger/devtools, browser history and extension management</span></div>
             </div>
           </div>
 
           <div class="addon-boundary-grid">
-            <div class="info-callout success"><b>Firefox package support</b><span>Manifest V2/V3 packages are extracted into an Aegis-owned sandbox, scanned for API usage, and given an explicit compatibility score before install.</span></div>
+            <div class="info-callout success"><b>Chrome + Firefox package support</b><span>CRX2/CRX3, XPI, ZIP and unpacked Manifest V2/V3 packages are staged into an Aegis-owned sandbox, scanned for API usage, and given an explicit compatibility score before install.</span></div>
             <div class="info-callout warning"><b>Aegis security boundary</b><span>Add-ons cannot disable Aegis routing, weaken hardened/anonymous compartments, use Node.js/native messaging, or silently take control of the browser security kernel.</span></div>
           </div>
 
