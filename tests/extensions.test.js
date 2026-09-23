@@ -793,3 +793,36 @@ test('renderer error diagnostics retain stack context for authenticated extensio
     assert.equal(health.errors[0].scope,'background-runtime');
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+
+
+test('Privacy Badger 2026.9.15 MV3 profile preserves complete startup manifest', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-pb-mv3-')),extRoot=path.join(root,'extensions','privacy-badger-mv3');
+  try{
+    fs.mkdirSync(extRoot,{recursive:true});
+    const manifest={
+      manifest_version:3,name:'Privacy Badger',version:'2026.9.15',
+      permissions:['alarms','declarativeNetRequest','privacy','scripting','storage','tabs','webNavigation','webRequest'],
+      host_permissions:['<all_urls>'],
+      background:{service_worker:'js/background.js',type:'module'},
+      action:{default_popup:'skin/popup.html'},
+      content_scripts:[{matches:['<all_urls>'],all_frames:true,run_at:'document_start',js:['js/contentscripts/utils.js']}]
+    };
+    fs.mkdirSync(path.join(extRoot,'js','contentscripts'),{recursive:true});
+    fs.mkdirSync(path.join(extRoot,'skin'),{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'manifest.json'),JSON.stringify(manifest));
+    fs.writeFileSync(path.join(extRoot,'js','background.js'),'');
+    fs.writeFileSync(path.join(extRoot,'js','contentscripts','utils.js'),'');
+    fs.writeFileSync(path.join(extRoot,'skin','popup.html'),'<!doctype html>');
+    const roots=['runtime','storage','tabs','privacy','scripting','webNavigation','webRequest','declarativeNetRequest','alarms','action'];
+    const report=compatibility(manifest,roots);
+    for(const api of roots)assert.equal(report.unsupported.some((x)=>x.api===api),false,api+' should remain hosted');
+    const sender={},runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[],getActiveId:()=>null,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{},getSettings:()=>({})});
+    const e={id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp',path:extRoot,resourceToken:'pb-mv3-token',enabled:true,manifest,detectedApis:roots,compatibility:report};
+    runtime.items.set(e.id,e);
+    runtime.backgroundHosts.set(e.id,{isDestroyed:()=>false,webContents:sender});
+    const data=runtime.pageBootstrapData(sender,e.id,'background');
+    assert.equal(data.manifest.manifest_version,3);
+    assert.equal(data.manifest.background.service_worker,'js/background.js');
+    assert.doesNotThrow(()=>Object.prototype.hasOwnProperty.call(data.manifest.background,'persistent'));
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
