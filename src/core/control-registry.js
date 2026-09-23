@@ -28,12 +28,49 @@ const CONTROL_DEFINITIONS = Object.freeze([
 function controlAssurance(settings, tab) {
   return CONTROL_DEFINITIONS.map(([key,label,layer]) => {
     const enabled = Boolean(settings?.[key]);
-    let enforced = enabled;
-    let evidence = enabled ? 'Enabled and connected to its enforcement layer.' : 'Disabled by user setting.';
-    if (key === 'cosmeticFiltering' && enabled) { enforced = Boolean(tab?.cosmeticFilteringReady); evidence = enforced ? 'User-origin cosmetic CSS is active in this document.' : 'Waiting for a remote document to confirm cosmetic CSS.'; }
-    if (['privacyApiGuard','globalPrivacyControl','doNotTrack','disableServiceWorkers'].includes(key) && enabled) { enforced = Boolean(tab?.fingerprintReady); evidence = enforced ? 'New-document privacy preload is active.' : 'New-document privacy preload is not confirmed for this tab.'; }
-    if (['blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','blockFingerprintingScripts','blockThirdPartyCookies','stripCrossSiteReferrers','etagProtection','publicCdnIsolation'].includes(key) && enabled) { enforced = Boolean(tab?.privacySessionReady); evidence = enforced ? 'Private-session request/response handlers are installed and read this setting at request time.' : 'Session privacy handlers are not confirmed.'; }
-    return { key,label,layer,enabled,enforced,status:enabled?(enforced?'enforced':'degraded'):'disabled',evidence };
+    if (!enabled) return { key,label,layer,enabled:false,enforced:false,status:'disabled',evidence:'Disabled by user setting.' };
+
+    const sessionReady = Boolean(tab?.privacySessionReady);
+    const documentReady = Boolean(tab?.fingerprintReady);
+    const cosmeticReady = Boolean(tab?.cosmeticFilteringReady);
+    const sentinelReady = Boolean(tab?.fingerprintStatus?.sentinelPreload);
+
+    let enforced = true;
+    let status = 'enforced';
+    let evidence = 'Enabled and connected to its enforcement layer.';
+
+    if (key === 'cosmeticFiltering') {
+      enforced = cosmeticReady; status = enforced ? 'enforced' : 'degraded';
+      evidence = enforced ? 'User-origin cosmetic CSS is active in this document.' : 'Cosmetic filtering is enabled but the current document has not confirmed user-origin CSS.';
+    } else if (['privacyApiGuard','blockTrackingBeacons','disableServiceWorkers'].includes(key)) {
+      enforced = documentReady; status = enforced ? 'enforced' : 'degraded';
+      evidence = enforced ? 'The new-document privacy preload is active for this tab.' : 'This control requires the new-document privacy preload, which is not confirmed for this tab.';
+    } else if (key === 'globalPrivacyControl' || key === 'doNotTrack') {
+      const network = sessionReady;
+      const page = documentReady;
+      enforced = network && page;
+      status = enforced ? 'enforced' : 'degraded';
+      evidence = enforced
+        ? 'The request header and JavaScript-visible privacy signal are both active.'
+        : (network ? 'The request header path is active, but the JavaScript-visible signal is not confirmed in this tab.' : 'Neither the request-header path nor document signal is confirmed.');
+    } else if (key === 'siteIntelligence') {
+      enforced = sentinelReady; status = enforced ? 'enforced' : 'degraded';
+      evidence = enforced ? 'Sentinel audit binding and new-document observer are installed.' : 'Sentinel is enabled, but its page observer is not confirmed in this tab.';
+    } else if (['blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','blockFingerprintingScripts','blockThirdPartyCookies','stripCrossSiteReferrers','etagProtection','publicCdnIsolation'].includes(key)) {
+      enforced = sessionReady; status = enforced ? 'enforced' : 'degraded';
+      evidence = enforced ? 'Private-session request/response handlers are installed and read this setting at request time.' : 'The private-session network handlers are not confirmed.';
+    } else if (key === 'heuristicTrackingProtection') {
+      enforced = sessionReady; status = enforced ? 'enforced' : 'degraded';
+      evidence = enforced ? 'The memory-only cross-site tracker learner is connected to the request firewall.' : 'The request firewall is not confirmed.';
+    } else if (key === 'cookieAutoDelete') {
+      evidence = 'Origin cleanup is scheduled by the tab lifecycle after cross-origin navigation, except for fireproofed sites.';
+    } else if (key === 'stripTrackingParams' || key === 'unwrapTrackingLinks' || key === 'threatProtection') {
+      evidence = 'The navigation pipeline reads this setting on every navigation.';
+    } else if (key === 'blockRiskyDownloads') {
+      evidence = 'The tab session will-download policy reads this setting for every download.';
+    }
+
+    return { key,label,layer,enabled:true,enforced,status,evidence };
   });
 }
 
