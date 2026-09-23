@@ -369,13 +369,16 @@ function renderAddons() {
     head.append(copy, toggle); card.append(head);
 
     const unsupported = addon.compatibility?.unsupported || [];
+    const warnings = addon.compatibility?.warnings || [];
     const perms = addon.risk || [];
     const details = document.createElement('div'); details.className = 'addon-details';
     const api = document.createElement('span'); api.innerHTML = '<b>Unsupported APIs</b><small></small>';
     api.querySelector('small').textContent = unsupported.length ? unsupported.map((x) => x.api).join(', ') : 'None detected';
     const risk = document.createElement('span'); risk.innerHTML = '<b>Permissions</b><small></small>';
     risk.querySelector('small').textContent = perms.length ? perms.map((x) => x.permission + ' (' + x.level + ')').join(', ') : 'No declared permissions';
-    details.append(api, risk); card.append(details);
+    const bg = document.createElement('span'); bg.innerHTML = '<b>Background runtime</b><small></small>';
+    bg.querySelector('small').textContent = (addon.compatibility?.background || 'none') + (warnings.length ? ' · ' + warnings.map((x) => x.reason).join(' ') : '');
+    details.append(api, risk, bg); card.append(details);
 
     const foot = document.createElement('div'); foot.className = 'addon-foot';
     const remove = document.createElement('button'); remove.className = 'text-btn danger-text'; remove.textContent = 'Remove';
