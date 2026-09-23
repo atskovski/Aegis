@@ -43,7 +43,7 @@ test('launcher pins the official Electron archive and uses layered macOS verific
 });
 
 test('zoom isolation uses Electron 44 runtime API, not an unsupported WebPreference', () => {
-  assert.match(source, /webContents\.setZoomMode\('isolated'\)/);
+  assert.match(source, /browserRuntime\.zoomMode\(view,'isolated'\)/);
   assert.doesNotMatch(source, /zoomMode:\s*'isolated'/);
 });
 
