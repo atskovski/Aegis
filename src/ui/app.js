@@ -33,7 +33,8 @@ const COMMANDS = [
   { name: 'Run connectivity test', hint: 'Diagnostics', run: () => { openSettings('diagnostics'); runNetworkTest(); } },
   { name: 'Run full security verification', hint: 'Security Suite', run: () => { openSettings('diagnostics'); runSecuritySuite(); } },
   { name: 'Toggle compatibility mode', hint: 'Current tab', run: () => { const t = activeTab(); if (t) window.aegis.send('compatibility:set', !t.compatibilityMode); } },
-  { name: 'Harden current site', hint: 'Sentinel', run: () => window.aegis.send('site:harden') }
+  { name: 'Harden current site', hint: 'Sentinel', run: () => window.aegis.send('site:harden') },
+  { name: 'New anonymous compartment', hint: 'Tor · fail closed', run: () => window.aegis.send('tab:new-anonymous') }
 ];
 
 function deepClone(value) { return JSON.parse(JSON.stringify(value || {})); }
@@ -462,6 +463,11 @@ function renderPrivacyPanel(tab) {
     select.value = currentSitePermission(select.dataset.sitePermission);
   });
   $('#resetSitePermissions').disabled = internal;
+  const hardenButton = $('#hardenSite');
+  hardenButton.textContent = tab.securityDomain === 'hardened' ? 'Site hardened' : (tab.securityDomain === 'anonymous' ? 'Anonymous compartment' : 'Harden this site');
+  hardenButton.disabled = tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous' || internal;
+  $('#anonymousTab').disabled = false;
+
   $('#sitePermissionHint').textContent = internal
     ? 'Site permissions apply to HTTP and HTTPS origins, not internal Aegis pages.'
     : `Exceptions here apply only to ${new URL(tab.origin).hostname}.`;
@@ -624,6 +630,25 @@ async function runSecuritySuite() {
   }
 }
 
+
+async function testTorRoute() {
+  const status = $('#torRouteStatus');
+  const button = $('#testTorRoute');
+  if (button) { button.disabled = true; button.textContent = 'Testing…'; }
+  try {
+    const result = await window.aegis.invoke('network:test-tor', { torProxy: ($('#anonymousTorProxy')?.value || '').trim() });
+    if (status) {
+      status.className = 'info-callout ' + (result?.verified ? 'success' : 'warning');
+      status.innerHTML = '<b>' + (result?.verified ? 'Tor route verified' : 'Tor route not verified') + '</b><span></span>';
+      status.querySelector('span').textContent = result?.verified
+        ? ('Tor Project confirmed the route' + (result.exitIp ? ' · exit ' + result.exitIp : '') + '.')
+        : (result?.error || 'Could not verify Tor.');
+    }
+    showToast({ message: result?.verified ? 'Tor route verified.' : 'Tor route verification failed.', tone: result?.verified ? 'success' : 'warning' });
+  } catch (err) { showToast({ message:'Tor route verification failed: '+err.message,tone:'danger' }); }
+  finally { if (button) { button.disabled = false; button.textContent = 'Test Tor route'; } }
+}
+
 async function runNetworkTest() {
   const buttons = [$('#runNetworkTest'), $('#networkTestFromNetwork')].filter(Boolean);
   buttons.forEach((b) => { b.disabled = true; b.textContent = 'Testing…'; });
@@ -762,6 +787,11 @@ function renderSettingsDraft() {
   $('#proxyServer').value = s.proxy?.server || '';
   $('#proxyBypassLocal').checked = Boolean(s.proxy?.bypassLocal);
   $('#proxyFailClosed').checked = s.proxy?.failClosedFixedProxy !== false;
+  $('#anonymousTorProxy').value = s.anonymity?.torProxy || '127.0.0.1:9050';
+  $('#anonymousRequireTor').checked = s.anonymity?.requireTorVerification !== false;
+  $('#anonymousBlockLan').checked = s.anonymity?.blockPrivateNetwork !== false;
+  $('#anonymousDisableDownloads').checked = s.anonymity?.disableDownloads !== false;
+  $('#anonymousDisableExtensions').checked = s.anonymity?.disableExtensions !== false;
   $('#homePage').value = s.homePage || 'https://duckduckgo.com/';
   $('#searchEngine').value = s.searchEngine || 'duckduckgo';
   $('#customSearchTemplate').value = s.customSearchTemplate || '';
@@ -809,6 +839,14 @@ function collectDraftFromControls() {
   draftSettings.sponsorBlock = { ...(draftSettings.sponsorBlock || {}), enabled: $('#sponsorBlockEnabled').checked, categories: $$('[data-sponsor-category]:checked').map((el) => el.dataset.sponsorCategory) };
   draftSettings.fireproofSites = $('#fireproofSites').value.split(/\r?\n|,/).map((x) => x.trim()).filter(Boolean);
   draftSettings.proxy = { mode: $('#proxyMode').value, server: $('#proxyServer').value.trim(), bypassLocal: $('#proxyBypassLocal').checked, failClosedFixedProxy: $('#proxyFailClosed').checked };
+  draftSettings.anonymity = {
+    ...(draftSettings.anonymity || {}),
+    torProxy: $('#anonymousTorProxy').value.trim() || '127.0.0.1:9050',
+    requireTorVerification: $('#anonymousRequireTor').checked,
+    blockPrivateNetwork: $('#anonymousBlockLan').checked,
+    disableDownloads: $('#anonymousDisableDownloads').checked,
+    disableExtensions: $('#anonymousDisableExtensions').checked
+  };
   draftSettings.homePage = $('#homePage').value.trim() || 'https://duckduckgo.com/';
   draftSettings.searchEngine = $('#searchEngine').value;
   draftSettings.customSearchTemplate = $('#customSearchTemplate').value.trim();
@@ -1001,6 +1039,8 @@ $('#jsToggle').addEventListener('change', (e) => window.aegis.send('javascript:s
 $('#httpToggle').addEventListener('change', (e) => window.aegis.send('http:set', e.target.checked));
 $('#compatibilityToggle').addEventListener('change', (e) => window.aegis.send('compatibility:set', e.target.checked));
 $('#hardenSite').addEventListener('click', () => window.aegis.send('site:harden'));
+$('#anonymousTab').addEventListener('click', () => window.aegis.send('tab:new-anonymous'));
+$('#newAnonymousTabFromNetwork').addEventListener('click', () => { hidePanels(); window.aegis.send('tab:new-anonymous'); });
 $('#clearTabData').addEventListener('click', () => window.aegis.send('data:clear-tab'));
 $('#resetSitePermissions').addEventListener('click', () => window.aegis.send('site-permission:reset'));
 $('#clearDownloads').addEventListener('click', () => window.aegis.send('downloads:clear'));
@@ -1029,7 +1069,7 @@ $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
 const draftControlIds = [
   'blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','heuristicTrackingProtection','siteIntelligence','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
   'disableServiceWorkers','gpcToggle','dntToggle','downloadToggle','javascriptDefault','clearClipboardIdentity','compatibilityAssistance','threatProtection','cookieAutoDelete','cookieAutoDeleteDelay','sponsorBlockEnabled','fireproofSites',
-  'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
+  'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
 ];
 draftControlIds.forEach((id) => $('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
