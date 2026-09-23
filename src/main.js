@@ -20,6 +20,7 @@ const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPriva
 const { AegisExtensionRuntime } = require('./core/extensions');
 const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
+const { makeBounceTracker, noteNavigation, detectBounce } = require('./core/bounce-tracking');
 
 app.setName('Aegis Privacy Browser');
 
@@ -968,7 +969,21 @@ function wireTabView(tab, view) {
     const oldOrigin = safeOrigin(tab.url); const newOrigin = safeOrigin(url);
     tab.url = url; tab.topUrl = url; tab.safety = tabSettings(tab).threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
     if (!String(url).startsWith('aegis://app/error')) tab.lastError = null;
-    tab.httpStatus = { code: httpResponseCode, text: httpStatusText }; scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
+    tab.httpStatus = { code: httpResponseCode, text: httpStatusText };
+    const effective = tabSettings(tab);
+    if (effective.bounceTrackingProtection && oldOrigin && newOrigin && oldOrigin !== newOrigin) {
+      noteNavigation(tab.bounceTracker, tab.url || oldOrigin, url);
+      const bounce = detectBounce(tab.bounceTracker, effective.bounceTrackingWindowSec);
+      if (bounce?.intermediaryOrigin && bounce.intermediaryOrigin !== newOrigin) {
+        tab.privateSession.clearData({
+          dataTypes:['cookies','localStorage','indexedDB','serviceWorkers','cacheStorage'],
+          origins:[bounce.intermediaryOrigin], originMatchingMode:'origin-in-all-contexts'
+        }).then(()=>{ tab.bouncePurges=(tab.bouncePurges||0)+1; scheduleStateEmit(); }).catch(()=>{});
+      }
+    } else if (newOrigin) {
+      noteNavigation(tab.bounceTracker, oldOrigin || newOrigin, url);
+    }
+    scheduleOriginCleanup(tab, oldOrigin, newOrigin); emitState();
   });
   view.webContents.on('did-finish-load', () => {
     applyCosmeticFiltering(tab);
@@ -985,7 +1000,12 @@ function wireTabView(tab, view) {
       setTimeout(() => showLoadError(tab, url, code, desc), 0);
     }
   });
-  view.webContents.on('render-process-gone', (_e, details) => toast(`Tab renderer stopped: ${details.reason}`, 'danger'));
+  view.webContents.on('render-process-gone', (_e, details) => {
+    tab.rendererCrashes=(tab.rendererCrashes||0)+1;
+    tab.lastRendererExit={ reason:String(details?.reason||'unknown'), exitCode:Number(details?.exitCode||0), at:new Date().toISOString() };
+    emitState();
+    toast(`Tab renderer stopped: ${details.reason}`, 'danger');
+  });
   view.webContents.on('unresponsive', () => toast('This tab is not responding.', 'warning'));
 }
 
@@ -1056,6 +1076,11 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
     cookieCleanupTimer: null,
     cosmeticCssKey: '',
     cosmeticFilteringReady: false,
+    bounceTracker: makeBounceTracker(),
+    bouncePurges: 0,
+    rendererCrashes: 0,
+    lastRendererExit: null,
+    tls: null,
     securityDomain: options.securityDomain === 'anonymous' ? 'anonymous' : (options.securityDomain === 'hardened' ? 'hardened' : 'private'),
     hardenedAt: null,
     anonymousAt: null,
