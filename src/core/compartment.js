@@ -129,6 +129,7 @@ function effectiveSettings(globalSettings = {}, tab = null) {
       ...globalSettings,
       ...o,
       permissionDefaults: o.permissionDefaults,
+      sitePermissions: {},
       sponsorBlock: { ...(globalSettings.sponsorBlock || {}), enabled: false }
     };
   }
