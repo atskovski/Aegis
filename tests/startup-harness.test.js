@@ -193,6 +193,7 @@ test('main-process startup shows chrome and initializes an aegis:// page inside 
   assert.equal(sessions[0].protocol.isProtocolHandled('aegis'), true, 'private tab session must handle aegis://');
   assert.equal(windows[0].children.length, 1, 'first WebContentsView should be attached');
   assert.equal(windows[0].children[0].visible, true, 'first private tab view should be visible');
+  assert.ok(windows[0].children[0].bounds.width > 0 && windows[0].children[0].bounds.height > 0, 'first private tab view should have renderable bounds');
   assert.equal(windows[0].children[0].webContents.zoomMode, 'isolated');
 
   const showIndex = events.indexOf('window:show');
