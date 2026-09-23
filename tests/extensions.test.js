@@ -366,3 +366,27 @@ test('package ecosystem distinguishes signed Chrome CRX from Firefox XPI', () =>
   assert.equal(packageEcosystem(firefox,{format:'xpi'}),'firefox');
   assert.equal(packageEcosystem(firefox,{format:'crx3',id:'pkehgijcmpdhfbdbbnkijodmdjhbjlgp'}),'chrome');
 });
+
+
+test('DNR privacy and webRequest roots are compatibility-hosted instead of rejected', () => {
+  const report=compatibility({manifest_version:3,name:'PB',version:'1',permissions:['declarativeNetRequest','privacy','webRequest'],host_permissions:['<all_urls>']});
+  for(const api of ['declarativeNetRequest','privacy','webRequest']) assert.equal(report.unsupported.some((x)=>x.api===api),false,api+' should not be unsupported');
+  assert.ok(report.warnings.some((x)=>x.api==='declarativeNetRequest'));
+});
+
+test('DNR block rules are enforced through the Aegis network decision bridge', () => {
+  const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-dnr-')),extRoot=path.join(root,'extensions','dnr-test');
+  try{
+    fs.mkdirSync(extRoot,{recursive:true});
+    const manifest={manifest_version:3,name:'DNR',version:'1',permissions:['declarativeNetRequest'],host_permissions:['<all_urls>'],declarative_net_request:{rule_resources:[{id:'base',enabled:true,path:'rules.json'}]}};
+    fs.writeFileSync(path.join(extRoot,'manifest.json'),JSON.stringify(manifest));
+    fs.writeFileSync(path.join(extRoot,'rules.json'),JSON.stringify([{id:1,priority:1,action:{type:'block'},condition:{urlFilter:'||tracker.example^',resourceTypes:['script']}}]));
+    const tab={id:1,url:'https://site.example/',topUrl:'https://site.example/',securityDomain:'private',disableExtensions:false};
+    const runtime=new AegisExtensionRuntime({rootDir:root,getTabs:()=>[tab],getActiveId:()=>1,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{},getSettings:()=>({})});
+    runtime.items.set('dnr-test',{id:'dnr-test',path:extRoot,enabled:true,manifest,detectedApis:[],compatibility:compatibility(manifest)});
+    const decision=runtime.networkDecision(tab,{url:'https://tracker.example/ad.js',resourceType:'script'});
+    assert.equal(decision?.action,'block');
+    assert.equal(decision?.ruleId,1);
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
