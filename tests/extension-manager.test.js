@@ -17,11 +17,13 @@ const bridgePreload=read('src/extension-bridge-preload.js');
 
 test('Extensions manager exposes staged review and installed-extension controls',()=>{
   for(const id of [
-    'extensionActions','installExtensionPackage','loadUnpackedExtension','addonUrlInput','installAddonUrl','addonRuntimeSummary','addonHealthyCount','addonDegradedCount',
+    'extensionActions','installReferenceExtension','installExtensionPackage','loadUnpackedExtension','addonUrlInput','installAddonUrl','addonRuntimeSummary','addonHealthyCount','addonDegradedCount',
     'addonReview','addonReviewName','addonReviewScore','addonReviewPermissions','addonReviewHosts','addonReviewUnsupported','addonReviewFeatures',
     'addonReviewId','addonReviewDigest','confirmAddonInstall','cancelAddonInstall','addonSearch','addonFilter','refreshAddons','addonList','addonManagerStatus','storeInstall'
   ]) assert.match(html,new RegExp('id="'+id+'"'));
   assert.match(ui,/extensions:pick-package/);
+  assert.match(ui,/PRIVACY_BADGER_CHROME_ID/);
+  assert.match(ui,/installReferenceExtension/);
   assert.match(ui,/extensions:pick-unpacked/);
   assert.match(ui,/extensions:install-url/);
   assert.match(ui,/extensionStoreSource/);
