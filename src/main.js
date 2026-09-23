@@ -519,7 +519,7 @@ async function runSecuritySuite() {
 
     const expectedNetworkUa = buildGenericUA(process.versions.chrome);
     configurePrivacySession({
-      ses, tab: { url:'https://example.com/', topUrl:'https://example.com/', stats:createStats() },
+      ses, engine: browserEngine, tab: { url:'https://example.com/', topUrl:'https://example.com/', stats:createStats() },
       getSettings:()=>effective, chromiumVersion:process.versions.chrome, onStats:()=>{},
       onPermissionBlocked:()=>{}, onPermissionPrompt:({ complete })=>complete(false),
       onSensitiveAccess:()=>{}, onNetworkAccess:()=>{}, trackerLearner:null, getFilterRules:()=>null, isTemporarilyAllowed:()=>false
@@ -1167,6 +1167,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
 
   configurePrivacySession({
     ses: privateSession,
+    engine: browserEngine,
     tab,
     getSettings: () => tabSettings(tab),
     chromiumVersion: process.versions.chrome,
