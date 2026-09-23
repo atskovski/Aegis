@@ -911,7 +911,7 @@ function scheduleOriginCleanup(tab, oldOrigin, newOrigin) {
   clearTimeout(tab.cookieCleanupTimer);
   tab.cookieCleanupTimer = setTimeout(async () => {
     try {
-      await tab.privateSession.clearData({ dataTypes: ['cookies','localStorage','indexedDB','serviceWorkers','cache'], origins: [oldOrigin], originMatchingMode: 'origin-in-all-contexts' });
+      await browserRuntime.clearData(tab.privateSession,{ dataTypes: ['cookies','localStorage','indexedDB','serviceWorkers','cache'], origins: [oldOrigin], originMatchingMode: 'origin-in-all-contexts' });
       tab.stats.siteDataCleanups = (tab.stats.siteDataCleanups || 0) + 1;
       emitState();
     } catch (err) { console.warn('Site data auto-clean failed:', err.message); }
@@ -1028,7 +1028,7 @@ function wireTabView(tab, view) {
       const bounce = detectBounce(tab.bounceTracker, effective.bounceTrackingWindowSec);
       if (bounce?.intermediaryOrigin && bounce.intermediaryOrigin !== newOrigin) {
         securityEvents.add('bounce-tracker-purge','warning',{intermediary:bounce.intermediaryHost,destination:bounce.destinationHost,elapsedMs:bounce.elapsedMs},tab.id);
-        tab.privateSession.clearData({
+        browserRuntime.clearData(tab.privateSession,{
           dataTypes:['cookies','localStorage','indexedDB','serviceWorkers','cacheStorage'],
           origins:[bounce.intermediaryOrigin], originMatchingMode:'origin-in-all-contexts'
         }).then(()=>{ tab.bouncePurges=(tab.bouncePurges||0)+1; scheduleStateEmit(); }).catch(()=>{});
