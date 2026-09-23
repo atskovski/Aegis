@@ -792,6 +792,7 @@ function renderSettingsDraft() {
   $('#anonymousBlockLan').checked = s.anonymity?.blockPrivateNetwork !== false;
   $('#anonymousDisableDownloads').checked = s.anonymity?.disableDownloads !== false;
   $('#anonymousDisableExtensions').checked = s.anonymity?.disableExtensions !== false;
+  $('#anonymousDisableJavaScript').checked = s.anonymity?.disableJavaScript !== false;
   $('#homePage').value = s.homePage || 'https://duckduckgo.com/';
   $('#searchEngine').value = s.searchEngine || 'duckduckgo';
   $('#customSearchTemplate').value = s.customSearchTemplate || '';
@@ -845,7 +846,8 @@ function collectDraftFromControls() {
     requireTorVerification: $('#anonymousRequireTor').checked,
     blockPrivateNetwork: $('#anonymousBlockLan').checked,
     disableDownloads: $('#anonymousDisableDownloads').checked,
-    disableExtensions: $('#anonymousDisableExtensions').checked
+    disableExtensions: $('#anonymousDisableExtensions').checked,
+    disableJavaScript: $('#anonymousDisableJavaScript').checked
   };
   draftSettings.homePage = $('#homePage').value.trim() || 'https://duckduckgo.com/';
   draftSettings.searchEngine = $('#searchEngine').value;
@@ -1070,7 +1072,7 @@ $$('.profile-card').forEach((b) => b.addEventListener('click', () => {
 const draftControlIds = [
   'blockTrackers','blockAds','blockSocialTrackers','blockCryptominers','heuristicTrackingProtection','siteIntelligence','blockFingerprintingScripts','cosmeticFiltering','privacyApiGuard','blockTrackingBeacons','blockThirdPartyCookies','stripTrackingParams','unwrapTrackingLinks','etagProtection','publicCdnIsolation','stripCrossSiteReferrers','letterboxToggle',
   'disableServiceWorkers','gpcToggle','dntToggle','downloadToggle','javascriptDefault','clearClipboardIdentity','compatibilityAssistance','threatProtection','cookieAutoDelete','cookieAutoDeleteDelay','sponsorBlockEnabled','fireproofSites',
-  'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
+  'proxyMode','proxyServer','proxyBypassLocal','proxyFailClosed','anonymousTorProxy','anonymousRequireTor','anonymousBlockLan','anonymousDisableDownloads','anonymousDisableExtensions','anonymousDisableJavaScript','homePage','searchEngine','customSearchTemplate','customFilterRules','themeSelect','densitySelect','accentSelect','textScaleSelect',
   'showScoreToggle','reduceMotionToggle'
 ];
 draftControlIds.forEach((id) => $('#' + id).addEventListener('input', () => { collectDraftFromControls(); renderSettingsDraft(); setSettingsSaveState(true); }));
