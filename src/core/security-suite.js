@@ -106,6 +106,35 @@ async function inspectPrivacySurfaces(executeJavaScript) {
   } catch (err) { return { status:'not-tested', values:{}, evidence:`Privacy surface inspection unavailable: ${err.message}` }; }
 }
 
+async function captureFingerprintSnapshot(executeJavaScript) {
+  if (typeof executeJavaScript !== 'function') return { status:'not-tested', values:{}, evidence:'Renderer execution unavailable.' };
+  const source = `(async()=>{const n=navigator,d=document;const hash=async(v)=>{try{const b=new TextEncoder().encode(String(v));const h=await crypto.subtle.digest('SHA-256',b);return Array.from(new Uint8Array(h)).slice(0,12).map(x=>x.toString(16).padStart(2,'0')).join('')}catch{return 'unavailable'}};let canvas='unavailable',webgl='unavailable',audio='unavailable';try{const c=d.createElement('canvas');c.width=220;c.height=48;const x=c.getContext('2d');x.textBaseline='top';x.font='16px Arial';x.fillStyle='#f60';x.fillRect(2,2,40,20);x.fillStyle='#069';x.fillText('Aegis cohort probe Ω',4,5);canvas=await hash(c.toDataURL())}catch{};try{const c=d.createElement('canvas');const gl=c.getContext('webgl')||c.getContext('webgl2');if(gl){const p=[gl.VERSION,gl.SHADING_LANGUAGE_VERSION,gl.MAX_TEXTURE_SIZE,gl.MAX_VIEWPORT_DIMS].map(k=>{try{return JSON.stringify(gl.getParameter(k))}catch{return ''}}).join('|');webgl=await hash(p)}}catch{};try{const AC=globalThis.AudioContext||globalThis.webkitAudioContext;if(AC){const a=new AC();const o=a.createOscillator(),g=a.createGain(),an=a.createAnalyser();g.gain.value=0;o.connect(an);an.connect(g);g.connect(a.destination);o.start();const bins=new Float32Array(an.frequencyBinCount);an.getFloatFrequencyData(bins);audio=await hash(Array.from(bins.slice(0,64)).join(','));o.stop();await a.close()}}catch{};let uaData={};try{uaData=n.userAgentData?await n.userAgentData.getHighEntropyValues(['architecture','bitness','model','platformVersion','uaFullVersion','fullVersionList','wow64']):{}}catch{};return {ua:String(n.userAgent||''),uaData,platform:String(n.platform||''),language:String(n.language||''),languages:Array.from(n.languages||[]),hardwareConcurrency:n.hardwareConcurrency,deviceMemory:n.deviceMemory,timezone:(()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone}catch{return ''}})(),screen:[screen.width,screen.height,screen.availWidth,screen.availHeight,screen.colorDepth,devicePixelRatio],canvas,webgl,audio,webrtc:typeof RTCPeerConnection==='function',localFonts:typeof queryLocalFonts==='function',plugins:n.plugins?n.plugins.length:null,mimeTypes:n.mimeTypes?n.mimeTypes.length:null}})()`;
+  try {
+    const values = await timeout(executeJavaScript(source), 2600, 'Fingerprint snapshot');
+    return { status:'pass', values: values || {}, evidence:'Active renderer fingerprint surfaces were sampled behaviorally.' };
+  } catch (err) {
+    return { status:'not-tested', values:{}, evidence:`Fingerprint snapshot unavailable: ${err.message}` };
+  }
+}
+
+function compareFingerprintSnapshots(a, b) {
+  const left = a?.values || a || {};
+  const right = b?.values || b || {};
+  const keys = ['ua','uaData','platform','language','languages','hardwareConcurrency','deviceMemory','timezone','screen','canvas','webgl','audio','webrtc','localFonts','plugins','mimeTypes'];
+  const changed = [];
+  for (const key of keys) {
+    if (JSON.stringify(left[key]) !== JSON.stringify(right[key])) changed.push(key);
+  }
+  return {
+    ok: changed.length === 0,
+    status: changed.length === 0 ? 'pass' : 'warning',
+    changed,
+    evidence: changed.length === 0
+      ? 'Two behavioral samples from the active renderer exposed the same standardized fingerprint surface.'
+      : `Fingerprint surface changed between samples: ${changed.join(', ')}.`
+  };
+}
+
 function routePrivacyStatus(proxyMode, route = null) {
   const mode = String(proxyMode || 'system');
   if (['socks5','http','https'].includes(mode)) {
@@ -131,5 +160,5 @@ function summarizeChecks(checks) {
 
 module.exports = {
   isPublicIp, fetchPublicIp, testSessionIsolation, candidateAddresses, isNumericLocalLeak,
-  testWebRtcLeakSurface, inspectPrivacySurfaces, routePrivacyStatus, makeCheck, summarizeChecks
+  testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, routePrivacyStatus, makeCheck, summarizeChecks
 };
