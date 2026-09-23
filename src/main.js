@@ -1163,7 +1163,10 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
   tab.view = view;
   tabs.set(id, tab);
   browserRuntime.mount(mainWindow,view);
-  view.setVisible(false);
+  // Active tabs are presented immediately. Avoid a hide/show race during the
+  // first navigation, which can leave a native WebContentsView visually blank
+  // even though its webContents has loaded successfully.
+  browserRuntime.visible(view, Boolean(activate && uiLayer.mode !== 'hidden'));
 
   configurePrivacySession({
     ses: privateSession,
@@ -1244,6 +1247,13 @@ async function navigateTab(tab, raw) {
   try {
     await browserRuntime.load(tab.view,url);
     tab.lastNavigationOk = true;
+    // Re-assert geometry and visibility after the document commits. This keeps
+    // the native page surface synchronized with browser chrome on startup and
+    // after renderer/view transitions.
+    if (activeId === tab.id && uiLayer.mode !== 'hidden') {
+      relayout();
+      try { browserRuntime.visible(tab.view, true); browserRuntime.focus(tab.view); } catch {}
+    }
     return true;
   } catch (err) {
     if (err && err.code !== 'ERR_ABORTED' && err.errno !== -3) await showLoadError(tab, url, err.errno || err.code, err.message);
@@ -1843,9 +1853,9 @@ async function createMainWindow() {
 
   try {
     const smokeUrl = process.env.AEGIS_SMOKE_TEST_URL || settings.homePage || 'https://duckduckgo.com/';
-    const firstTab = await withTimeout(createTab(smokeUrl, true, Boolean(process.env.AEGIS_SMOKE_TEST_URL)), process.env.AEGIS_SMOKE_TEST_URL ? 25000 : 7000, 'First private tab initialization');
+    const firstTab = await withTimeout(createTab(smokeUrl, true, true), process.env.AEGIS_SMOKE_TEST_URL ? 25000 : 15000, 'First private tab initialization');
     if (process.env.AEGIS_SMOKE_TEST_URL && firstTab.lastNavigationOk !== true) throw new Error(`External website smoke test failed: ${process.env.AEGIS_SMOKE_TEST_URL}`);
-    startupLog('First private tab initialized.');
+    startupLog(firstTab.lastNavigationOk === true ? 'First private tab initialized and page rendered.' : 'First private tab initialized, but initial navigation did not complete.', smokeUrl);
     if (process.env.AEGIS_SMOKE_TEST_URL) startupLog(`External website smoke test passed: ${process.env.AEGIS_SMOKE_TEST_URL}`);
     if (process.env.AEGIS_SMOKE_TEST === '1') {
       startupLog('Smoke test passed; exiting cleanly.');
