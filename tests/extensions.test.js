@@ -285,6 +285,36 @@ test('all_frames content scripts use the sandboxed subframe bridge', async () =>
   }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
 
+test('tabs.sendMessage can target an injected subframe by frameId', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-frame-message-'));
+  try{
+    const extRoot=path.join(root,'extension');fs.mkdirSync(extRoot,{recursive:true});
+    fs.writeFileSync(path.join(extRoot,'content.js'),'chrome.runtime.onMessage.addListener(()=>true);');
+    const mainFrame={framesInSubtree:[]};
+    const frame={processId:12,routingId:34,url:'https://sub.example.com/',parent:{url:'https://example.com/'},isDestroyed:()=>false};
+    mainFrame.framesInSubtree=[mainFrame,frame];
+    let runtime;
+    const contents={
+      mainFrame,
+      isDestroyed:()=>false,
+      sendToFrame:(_frameId,channel,payload)=>{
+        assert.equal(channel,'extension:frame-message');
+        setImmediate(()=>runtime.handleFrameMessageResult(contents,frame,{
+          requestId:payload.requestId,extensionId:payload.extensionId,ok:true,response:{frame:'ok'}
+        }));
+      },
+      executeJavaScriptInIsolatedWorld:async()=>({top:'ok'})
+    };
+    const tab={id:2,url:'https://example.com/',securityDomain:'private',disableExtensions:false,view:{webContents:contents}};
+    const manifest={manifest_version:3,name:'Frame Message',version:'1',permissions:['tabs'],host_permissions:['<all_urls>'],content_scripts:[{matches:['<all_urls>'],all_frames:true,js:['content.js']}]};
+    runtime=new AegisExtensionRuntime({rootDir:path.join(root,'runtime'),getTabs:()=>[tab],getActiveId:()=>2,createTab:async()=>{},updateTab:async()=>{},removeTab:()=>{}});
+    const e={id:'frame-message',path:extRoot,resourceToken:'messagetoken',enabled:true,manifest,detectedApis:['tabs'],compatibility:compatibility(manifest,['tabs'])};
+    runtime.items.set(e.id,e);
+    const result=await runtime.sendTabMessage(e,tab,{hello:'frame'},{frameId:34});
+    assert.deepEqual(result,{frame:'ok'});
+  }finally{fs.rmSync(root,{recursive:true,force:true})}
+});
+
 test('MAIN-world scripting executes packaged files without the isolated API bootstrap', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'aegis-main-world-'));
   try{
