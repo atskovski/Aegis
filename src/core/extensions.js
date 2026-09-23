@@ -890,11 +890,12 @@ class AegisExtensionRuntime{
     this.emitEventAll('tabs.onUpdated',(e)=>{const value=this.publicTab(e,tab);return value?[tab.id,{...changeInfo},value]:null});
   }
   notifyTabRemoved(tabId,wasVisible=true){if(!wasVisible)return;this.emitEventAll('tabs.onRemoved',[Number(tabId),{windowId:1,isWindowClosing:false}])}
-  notifyNavigation(type,tab,url,error=''){
-    const eventName=String(type||'');
+  notifyNavigation(type,tab,url,error='',frame=null){
+    const eventName=String(type||''),main=tab?.view?.webContents?.mainFrame;
+    const frameId=frame&&frame!==main?Number(frame.routingId||0):0,parentFrameId=frameId?Number(frame?.parent?.routingId??0):-1;
     this.emitEventAll(eventName,(e)=>{
       if(!permissions(e.manifest).includes('webNavigation')||!this.publicTab(e,tab))return null;
-      return [{tabId:tab.id,url:String(url||''),frameId:0,parentFrameId:-1,timeStamp:Date.now(),error:String(error||'')}];
+      return [{tabId:tab.id,url:String(url||''),frameId,parentFrameId,timeStamp:Date.now(),error:String(error||'')}];
     });
   }
   commandMatchesInput(shortcut,input={}){
