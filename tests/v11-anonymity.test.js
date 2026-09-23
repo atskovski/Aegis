@@ -45,3 +45,13 @@ test('network hardening disables QUIC to avoid UDP route bypass',()=>{
 test('anonymous tabs default to JavaScript disabled',()=>{
   assert.match(main,/securityDomain === 'anonymous'.*disableJavaScript/s);
 });
+
+
+test('protected compartments cannot be weakened by per-tab UI controls',()=>{
+  assert.match(main,/Privacy shields are locked on in this security compartment/);
+  assert.match(main,/HTTP downgrade is locked off in this security compartment/);
+  assert.match(main,/Compatibility mode cannot weaken a hardened or anonymous compartment/);
+  assert.match(main,/JavaScript is locked off by the anonymous compartment policy/);
+  assert.match(app,/protectedCompartment/);
+  assert.match(app,/compartmentLocked/);
+});
