@@ -1616,16 +1616,28 @@ function wireIpc() {
     if (!assertUiSender(event) || !extensionRuntime) return {ok:false,error:'IPC sender denied'};
     const input=String(rawUrl||'').trim();
     const chromeIdPattern=/^[a-p]{32}$/;
-    let expectedChromeId='',downloadUrl='';
+    let expectedChromeId='',expectedFirefoxId='',downloadUrl='',store='direct';
     if(chromeIdPattern.test(input)){
-      expectedChromeId=input;
+      expectedChromeId=input;store='chrome';
     }else{
-      let parsed;try{parsed=new URL(input)}catch{return {ok:false,error:'Enter a valid HTTPS extension URL, Chrome Web Store URL, or 32-character Chrome extension ID.'}}
+      let parsed;try{parsed=new URL(input)}catch{return {ok:false,error:'Enter a valid HTTPS extension URL, Chrome Web Store URL, Firefox Add-ons URL, or 32-character Chrome extension ID.'}}
       if(parsed.protocol!=='https:')return {ok:false,error:'Extension downloads must use HTTPS.'};
       if(parsed.hostname==='chromewebstore.google.com'||parsed.hostname==='chrome.google.com'){
         const match=parsed.pathname.match(/\/(?:webstore\/)?detail\/(?:[^/]+\/)?([a-p]{32})(?:\/|$)/);
         if(!match)return {ok:false,error:'Could not find a Chrome extension ID in that Web Store URL.'};
-        expectedChromeId=match[1];
+        expectedChromeId=match[1];store='chrome';
+      }else if(parsed.hostname==='addons.mozilla.org'){
+        const match=parsed.pathname.match(/\/firefox\/addon\/([^/]+)(?:\/|$)/i);
+        if(!match)return {ok:false,error:'Could not find a Firefox add-on slug in that Mozilla Add-ons URL.'};
+        const slug=decodeURIComponent(match[1]);
+        try{
+          const apiUrl='https://addons.mozilla.org/api/v5/addons/addon/'+encodeURIComponent(slug)+'/?lang=en-US';
+          const metaResponse=await browserRuntime.fetch(apiUrl,{method:'GET',redirect:'follow',cache:'no-store'});
+          if(!metaResponse?.ok)throw new Error('Mozilla Add-ons lookup failed with HTTP '+String(metaResponse?.status||'unknown'));
+          const meta=await metaResponse.json(),fileUrl=String(meta?.current_version?.file?.url||'');
+          if(!fileUrl||!/^https:\/\//i.test(fileUrl))throw new Error('Mozilla Add-ons did not return a downloadable current XPI.');
+          downloadUrl=fileUrl;expectedFirefoxId=String(meta?.guid||'');store='firefox';
+        }catch(err){return {ok:false,error:err.message}}
       }else{
         const lower=parsed.pathname.toLowerCase();
         if(!['.crx','.xpi','.zip'].some((ext)=>lower.endsWith(ext)))return {ok:false,error:'Direct URLs must point to a .crx, .xpi, or .zip package.'};
@@ -1638,7 +1650,7 @@ function wireIpc() {
       downloadUrl='https://clients2.google.com/service/update2/crx?response=redirect&prodversion='+encodeURIComponent(chromeVersion)+'&acceptformat=crx2,crx3&x='+x;
     }
     const dir=path.join(app.getPath('userData'),'extension-staging');fs.mkdirSync(dir,{recursive:true,mode:0o700});
-    const suffix=expectedChromeId?'.crx':(new URL(downloadUrl).pathname.toLowerCase().endsWith('.zip')?'.zip':(new URL(downloadUrl).pathname.toLowerCase().endsWith('.xpi')?'.xpi':'.crx'));
+    const suffix=expectedChromeId?'.crx':(store==='firefox'?'.xpi':(new URL(downloadUrl).pathname.toLowerCase().endsWith('.zip')?'.zip':(new URL(downloadUrl).pathname.toLowerCase().endsWith('.xpi')?'.xpi':'.crx')));
     const file=path.join(dir,'download-'+crypto.randomUUID()+suffix);
     try{
       const response=await browserRuntime.fetch(downloadUrl,{method:'GET',redirect:'follow',cache:'no-store'});
@@ -1655,7 +1667,14 @@ function wireIpc() {
         extensionRuntime.cancelStage(staged.token);
         throw new Error('Chrome Web Store package signature verification failed.');
       }
-      return {ok:true,...staged,sourceUrl:input,chromeWebStore:Boolean(expectedChromeId)};
+      if(expectedFirefoxId){
+        const normalize=(value)=>String(value||'').toLowerCase().replace(/[^a-z0-9@._-]/g,'-').slice(0,120);
+        if(normalize(staged.summary.id)!==normalize(expectedFirefoxId)){
+          extensionRuntime.cancelStage(staged.token);
+          throw new Error('Firefox package identity mismatch. Expected '+expectedFirefoxId+' but package reported '+staged.summary.id+'.');
+        }
+      }
+      return {ok:true,...staged,sourceUrl:input,chromeWebStore:store==='chrome',firefoxAddons:store==='firefox'};
     }catch(err){try{fs.rmSync(file,{force:true})}catch{}return {ok:false,error:err.message}}
   });
   ipcMain.handle('extensions:cancel-install', (event, token) => {
