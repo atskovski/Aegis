@@ -242,6 +242,8 @@ function updateDownloadRecord(rec, item, state) {
 }
 
 async function runNetworkTest() {
+  const tab = activeTab();
+  const effective = tab ? tabSettings(tab) : settings;
   // Diagnostics deliberately use a disposable Chromium session. This keeps the
   // test working even when the current tab renderer/session is unhealthy and
   // prevents a proxy reset from interrupting a page the user is viewing.
