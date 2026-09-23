@@ -251,7 +251,7 @@ class AegisExtensionRuntime{
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const manifest=normalizeManifest(readJson(path.join(row.path,'manifest.json')));this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
   save(){writeStore(this.indexFile,[...this.items.values()].map(({manifest,compatibility,...r})=>r))}
   healthFor(id){
-    if(!this.runtimeHealth.has(id))this.runtimeHealth.set(id,{errors:[],lastStartedAt:'',lastInjectionAt:''});
+    if(!this.runtimeHealth.has(id))this.runtimeHealth.set(id,{errors:[],lastStartedAt:'',lastInjectionAt:'',lastDiagnostic:null});
     return this.runtimeHealth.get(id);
   }
   noteRuntimeError(id,scope,error){
@@ -273,7 +273,7 @@ class AegisExtensionRuntime{
       source:e.source||'xpi',digest:e.digest||'',permissions:permissions(e.manifest),hostPermissions:hostPermissions(e.manifest),
       optionalPermissions:[...(Array.isArray(e.manifest.optional_permissions)?e.manifest.optional_permissions:[]),...(Array.isArray(e.manifest.optional_host_permissions)?e.manifest.optional_host_permissions:[])],
       detectedApis:Array.isArray(e.detectedApis)?e.detectedApis:[],
-      runtime:{backgroundExpected,backgroundRunning:backgroundExpected?Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed()):false,status:e.enabled===false?'disabled':(health.errors.length?'degraded':(backgroundExpected?(this.backgroundHosts.has(e.id)?'running':'stopped'):'ready')),errors:[...health.errors],lastStartedAt:health.lastStartedAt,lastInjectionAt:health.lastInjectionAt},
+      runtime:{backgroundExpected,backgroundRunning:backgroundExpected?Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed()):false,status:e.enabled===false?'disabled':(health.errors.length?'degraded':(backgroundExpected?(this.backgroundHosts.has(e.id)?'running':'stopped'):'ready')),errors:[...health.errors],lastStartedAt:health.lastStartedAt,lastInjectionAt:health.lastInjectionAt,lastDiagnostic:health.lastDiagnostic},
       action:action?{...action,title:String(state.title||action.title),badgeText:String(state.badgeText||''),enabled:state.enabled!==false,iconUrl:String(state.iconUrl||(icon?extensionResourceUrl(e,icon):''))}:null,
       optionsPage:options?extensionResourceUrl(e,options):'',
       features:manifestFeatures(e.manifest)
@@ -318,9 +318,39 @@ class AegisExtensionRuntime{
     fs.rmSync(dest,{recursive:true,force:true}); fs.renameSync(x.root,dest); if(x.tmp!==x.root)try{fs.rmSync(x.tmp,{recursive:true,force:true})}catch{}
     const now=new Date().toISOString();
     const e={id,path:dest,worldId:extensionWorldId(id),resourceToken:previous?.resourceToken||crypto.randomBytes(18).toString('hex'),enabled:previous?.enabled!==false,source:'xpi',digest,installedAt:previous?.installedAt||now,updatedAt:now,manifest:x.manifest,detectedApis:x.detectedApis||[],compatibility:x.compatibility};
-    this.items.set(id,e);this.save();if(e.enabled)await this.startBackground(e);this.emitEvent(e,'runtime.onInstalled',[{reason:previous?'update':'install',previousVersion:previous?.manifest?.version||undefined}]);return this.publicRecord(e);
+    this.items.set(id,e);this.save();if(e.enabled)await this.startBackground(e);this.emitEvent(e,'runtime.onInstalled',[{reason:previous?'update':'install',previousVersion:previous?.manifest?.version||undefined}]);await this.diagnose(id,{repair:false});return this.publicRecord(e);
   }
-  async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled){await this.startBackground(e);this.emitEvent(e,'runtime.onStartup',[]);}else this.stopBackground(id);return this.publicRecord(e)}
+  async diagnose(id,{repair=false}={}){
+    const e=this.items.get(String(id||''));if(!e)throw new Error('Extension not found');
+    const checks=[];
+    const add=(id,label,status,evidence)=>checks.push({id,label,status,evidence});
+    try{normalizeManifest(e.manifest);add('manifest','Manifest','pass','Manifest V'+e.manifest.manifest_version+' parsed successfully.')}catch(err){add('manifest','Manifest','fail',err.message)}
+    try{new Function(this.backgroundBootstrap(e));add('bootstrap','Compatibility bootstrap','pass','Aegis WebExtension compatibility bootstrap compiles.')}catch(err){add('bootstrap','Compatibility bootstrap','fail',err.message)}
+    const refs=new Set();
+    const addRef=(value)=>{const rel=safeRel(value);if(rel)refs.add(rel)};
+    const bg=e.manifest?.background||{};addRef(bg.page);addRef(bg.service_worker);for(const x of Array.isArray(bg.scripts)?bg.scripts:[])addRef(x);
+    addRef(extensionAction(e.manifest)?.popup);addRef(optionsPage(e.manifest));
+    for(const entry of Array.isArray(e.manifest?.content_scripts)?e.manifest.content_scripts:[]){
+      for(const x of Array.isArray(entry.js)?entry.js:[])addRef(x);
+      for(const x of Array.isArray(entry.css)?entry.css:[])addRef(x);
+    }
+    let missing=0;
+    for(const rel of refs){try{this.extensionFile(e,rel)}catch{missing++;add('resource:'+rel,'Package resource','fail','Missing or unsafe referenced file: '+rel)}}
+    if(!missing)add('resources','Package resources','pass',refs.size+' referenced resource'+(refs.size===1?'':'s')+' verified.');
+    const unsupported=e.compatibility?.unsupported||[];
+    add('compatibility','API compatibility',unsupported.length?(e.compatibility?.score>=70?'warning':'fail'):'pass',unsupported.length?unsupported.map((x)=>x.api).join(', ')+' unsupported or restricted.':'No unsupported API namespaces detected by static inspection.');
+    const expected=Boolean(bg.page||bg.service_worker||(Array.isArray(bg.scripts)&&bg.scripts.length));
+    let running=Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed());
+    if(repair&&e.enabled!==false&&expected&&!running){await this.startBackground(e);running=Boolean(this.backgroundHosts.get(e.id)&&!this.backgroundHosts.get(e.id).isDestroyed())}
+    add('background','Background runtime',!expected?'pass':(running?'pass':'fail'),!expected?'No background runtime required.':(running?'Background runtime is running.':'Background runtime is expected but is not running.'));
+    const health=this.healthFor(e.id);
+    add('runtime-errors','Runtime errors',health.errors.length?'warning':'pass',health.errors.length?(health.errors[0].scope+': '+health.errors[0].message):'No recorded extension runtime errors.');
+    const counts=checks.reduce((acc,x)=>{acc[x.status]=(acc[x.status]||0)+1;return acc},{pass:0,warning:0,fail:0});
+    const status=counts.fail?'fail':(counts.warning?'warning':'pass');
+    const diagnostic={testedAt:new Date().toISOString(),status,counts,checks};
+    health.lastDiagnostic=diagnostic;return diagnostic;
+  }
+  async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled){await this.startBackground(e);this.emitEvent(e,'runtime.onStartup',[]);await this.diagnose(id,{repair:false});}else this.stopBackground(id);return this.publicRecord(e)}
   remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.actionState.delete(id);this.runtimeHealth.delete(id);this.activeGrants.delete(id);this.menuItems.delete(id);this.extensionNotifications.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
   enabled(){return [...this.items.values()].filter((e)=>e.enabled!==false)}
   extensionFor(id){const e=this.items.get(String(id||''));if(!e||e.enabled===false)throw new Error('Extension disabled or missing');return e}
