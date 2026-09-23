@@ -191,11 +191,11 @@ function extensionProtocolHandler(request) {
 function registerInternalProtocol(targetProtocol, label = 'session') {
   if (!targetProtocol) throw new Error(`Missing protocol object for ${label}`);
   if (!targetProtocol.isProtocolHandled('aegis')) {
-    targetProtocol.handle('aegis', internalProtocolHandler);
+    browserEngine.registerProtocol(targetProtocol,'aegis',internalProtocolHandler);
     startupLog(`Registered aegis:// protocol for ${label}.`);
   }
   if (extensionRuntime && !targetProtocol.isProtocolHandled('aegis-extension')) {
-    targetProtocol.handle('aegis-extension', extensionProtocolHandler);
+    browserEngine.registerProtocol(targetProtocol,'aegis-extension',extensionProtocolHandler);
     startupLog(`Registered aegis-extension:// protocol for ${label}.`);
   }
 }
