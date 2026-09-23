@@ -238,6 +238,10 @@ if ! run_node --check "$RUNTIME_DIR/src/main.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/control-registry.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/compartment.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/extensions.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/core/extension-shim.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/extension-bridge-preload.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/extension-host-preload.js" \
+  || ! run_node --check "$RUNTIME_DIR/src/extension-page-preload.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/safety.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/settings.js" \
   || ! run_node --check "$RUNTIME_DIR/src/core/site-intelligence.js" \
