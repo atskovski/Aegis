@@ -666,8 +666,8 @@ class AegisExtensionRuntime{
       const [,area,op]=m.split('.');
       const persistent=area==='local'||area==='sync';
       const file=path.join(this.dataDir,e.id,area==='sync'?'storage-sync.json':'storage.json');
-      const store=persistent?readStore(file):(this.sessionStores.get(e.id)||{});
-      const before={...store};if(!persistent)this.sessionStores.set(e.id,store);
+      const store=area==='managed'?{}:(persistent?readStore(file):(this.sessionStores.get(e.id)||{}));
+      const before={...store};if(!persistent&&area!=='managed')this.sessionStores.set(e.id,store);
       if(op==='get')return getKeys(store,a[0]);
       if(op==='getKeys')return Object.keys(store);
       if(op==='getBytesInUse'){
@@ -726,7 +726,7 @@ class AegisExtensionRuntime{
       }
       if(m==='cookies.set'){
         const url=requested||target.url;if(!networkAllowedByManifest(e.manifest,url)&&!this.activeGrants.get(e.id)?.has(target.id))throw new Error('Cookie write is outside declared host access.');
-        const payload={...details,url};delete payload.storeId;return ses.cookies.set(payload);
+        const payload={...details,url};delete payload.storeId;await ses.cookies.set(payload);const rows=await ses.cookies.get({url,name:String(payload.name||'')});return rows[0]||null;
       }
       if(m==='cookies.remove'){const url=requested||target.url;const rows=await ses.cookies.get({url,name:String(details.name||'')});await ses.cookies.remove(url,String(details.name||''));return rows[0]?{url,name:String(details.name||''),storeId:'aegis-private-'+target.id}:null}
       if(m==='cookies.getAllCookieStores')return [{id:'aegis-private-'+target.id,tabIds:[target.id],incognito:true}];
