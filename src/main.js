@@ -1753,25 +1753,28 @@ function wireIpc() {
 
   ipcMain.on('settings:profile', async (event, level) => {
     if (!assertUiSender(event) || !['standard', 'strict', 'maximum'].includes(level)) return;
-    settings = sanitizeSettings({ ...settings, ...profileDefaults(level) });
+    const profilePatch = preserveLockedSettings(settings, profileDefaults(level));
+    settings = sanitizeSettings({ ...settings, ...profilePatch, managedPolicy: settings.managedPolicy });
     saveSettings();
     relayout();
     await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
     await awaitCosmeticRefresh();
     emitState();
-    toast(`${level[0].toUpperCase() + level.slice(1)} privacy profile applied to every active tab.`, 'success');
+    toast(`${level[0].toUpperCase() + level.slice(1)} privacy profile applied to every active tab${settings.managedPolicy ? ' while preserving administrator-locked controls' : ''}.`, 'success');
   });
 
   ipcMain.on('settings:reset', async (event) => {
     if (!assertUiSender(event)) return;
-    settings = sanitizeSettings(cloneDefaults());
+    const resetPatch = preserveLockedSettings(settings, cloneDefaults());
+    settings = sanitizeSettings({ ...settings, ...resetPatch, managedPolicy: settings.managedPolicy });
     rebuildFilterRules();
     saveSettings();
     relayout();
     await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(browserRuntime.sessionOf(tab.view), {}, tab)));
+    await Promise.allSettled([...tabs.values()].map((tab) => replaceTabView(tab, tab.javascriptEnabled)));
     await awaitCosmeticRefresh();
     emitState();
-    toast('Aegis settings restored to hardened defaults.', 'success');
+    toast(settings.managedPolicy ? 'Unlocked settings restored to hardened defaults; administrator-locked controls were preserved.' : 'Aegis settings restored to hardened defaults.', 'success');
   });
 
   ipcMain.on('settings:update', async (event, patch) => {
