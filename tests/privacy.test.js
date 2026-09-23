@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildGenericUA, isRiskyDownload, makeTabStats, permissionKeys, permissionAllowed, permissionDecision } = require('../src/core/privacy');
+const { buildGenericUA, isRiskyDownload, makeTabStats, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled } = require('../src/core/privacy');
 
 test('generic UA hides Electron token and uses reduced Chromium version', () => {
   const ua = buildGenericUA('152.0.7977.130');
@@ -51,4 +51,13 @@ test('maps high-entropy permissions to explicit guarded categories', () => {
   assert.deepEqual(permissionKeys('local-fonts'), ['localFonts']);
   assert.deepEqual(permissionKeys('window-management'), ['windowManagement']);
   assert.deepEqual(permissionKeys('idle-detection'), ['idleDetection']);
+});
+
+
+test('tracker categories obey their own settings independently', () => {
+  const s={blockTrackers:false,blockAds:true,blockSocialTrackers:false,blockCryptominers:true};
+  assert.equal(categoryEnabled(s,'ads'),true);
+  assert.equal(categoryEnabled(s,'social'),false);
+  assert.equal(categoryEnabled(s,'cryptomining'),true);
+  assert.equal(categoryEnabled(s,'analytics'),false);
 });
