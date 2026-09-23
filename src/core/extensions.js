@@ -377,10 +377,10 @@ function getKeys(store,keys){
   if(typeof keys==='object')return Object.fromEntries(Object.entries(keys).map(([k,d])=>[k,Object.prototype.hasOwnProperty.call(store,k)?store[k]:d])); return {};
 }
 class AegisExtensionRuntime{
-  constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion,notifyExtension}){
+  constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion,notifyExtension,getSettings}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
-    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.notifyExtension=typeof notifyExtension==='function'?notifyExtension:null;
-    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.browserVersion=String(browserVersion||'1.1');
+    this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.notifyExtension=typeof notifyExtension==='function'?notifyExtension:null;this.getSettings=typeof getSettings==='function'?getSettings:(()=>({}));
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.dnrSessionRules=new Map();this.browserVersion=String(browserVersion||'1.1');
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const rawManifest=normalizeManifest(readJson(path.join(row.path,'manifest.json'))),manifest=localizeManifest(row.path,rawManifest);this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
@@ -415,6 +415,47 @@ class AegisExtensionRuntime{
     };
   }
   list(){return [...this.items.values()].map((e)=>this.publicRecord(e))}
+  dnrFile(e,name){const dir=path.join(this.dataDir,e.id);fs.mkdirSync(dir,{recursive:true,mode:0o700});return path.join(dir,name)}
+  dnrEnabledRulesets(e){
+    const resources=Array.isArray(e.manifest?.declarative_net_request?.rule_resources)?e.manifest.declarative_net_request.rule_resources:[];
+    const defaults=resources.filter((x)=>x?.enabled!==false&&x?.id).map((x)=>String(x.id));
+    try{const saved=readJson(this.dnrFile(e,'dnr-enabled.json'));return Array.isArray(saved)?saved.map(String):defaults}catch{return defaults}
+  }
+  dnrDynamicRules(e){try{return sanitizeDnrRules(readJson(this.dnrFile(e,'dnr-dynamic.json')))}catch{return []}}
+  dnrRules(e){
+    const out=[],enabled=new Set(this.dnrEnabledRulesets(e)),resources=Array.isArray(e.manifest?.declarative_net_request?.rule_resources)?e.manifest.declarative_net_request.rule_resources:[];
+    for(const resource of resources){
+      if(!resource?.id||!enabled.has(String(resource.id)))continue;const rel=safeRel(resource.path||'');if(!rel)continue;
+      try{out.push(...sanitizeDnrRules(readJson(this.extensionFile(e,rel))))}catch(err){this.noteRuntimeError(e.id,'dnr',err)}
+    }
+    out.push(...this.dnrDynamicRules(e),...sanitizeDnrRules(this.dnrSessionRules.get(e.id)||[]));
+    return out.slice(0,60000);
+  }
+  updateDnrRules(e,kind,details={}){
+    const session=kind==='session',current=session?sanitizeDnrRules(this.dnrSessionRules.get(e.id)||[]):this.dnrDynamicRules(e),remove=new Set((details.removeRuleIds||[]).map(Number));
+    const next=current.filter((x)=>!remove.has(Number(x.id))),byId=new Map(next.map((x)=>[Number(x.id),x]));for(const rule of sanitizeDnrRules(details.addRules||[]))byId.set(Number(rule.id),rule);
+    const value=[...byId.values()].slice(0,30000);if(session)this.dnrSessionRules.set(e.id,value);else writeStore(this.dnrFile(e,'dnr-dynamic.json'),value);return undefined;
+  }
+  updateDnrRulesets(e,details={}){
+    const set=new Set(this.dnrEnabledRulesets(e));for(const id of details.disableRulesetIds||[])set.delete(String(id));for(const id of details.enableRulesetIds||[])set.add(String(id));
+    const valid=new Set((e.manifest?.declarative_net_request?.rule_resources||[]).map((x)=>String(x.id)));const value=[...set].filter((x)=>valid.has(x));writeStore(this.dnrFile(e,'dnr-enabled.json'),value);return undefined;
+  }
+  networkDecision(tab,details={}){
+    if(!extensionVisibleTab(tab))return null;const rawUrl=String(details.url||''),topUrl=String(tab.topUrl||tab.url||rawUrl),rt=details.resourceType||'other';let best=null;
+    for(const e of this.enabled()){
+      const declared=new Set(permissions(e.manifest));if(!declared.has('declarativeNetRequest')&&!declared.has('declarativeNetRequestWithHostAccess'))continue;if(!networkAllowedByManifest(e.manifest,rawUrl))continue;
+      for(const rule of this.dnrRules(e)){if(!dnrRuleMatches(rule,rawUrl,topUrl,rt))continue;const type=String(rule.action?.type||''),rank={allow:5,allowAllRequests:5,block:4,upgradeScheme:3,redirect:2,modifyHeaders:1}[type]||0,candidate={e,rule,type,priority:Number(rule.priority)||1,rank};if(!best||candidate.priority>best.priority||(candidate.priority===best.priority&&candidate.rank>best.rank))best=candidate}
+    }
+    if(!best)return null;const {e,rule,type}=best;if(type==='block')return {action:'block',extensionId:e.id,ruleId:rule.id};if(type==='upgradeScheme'&&/^http:/i.test(rawUrl))return {action:'redirect',redirectURL:rawUrl.replace(/^http:/i,'https:'),extensionId:e.id,ruleId:rule.id};
+    if(type==='redirect'){const redir=rule.action?.redirect||{};let target='';if(typeof redir.url==='string'&&/^https?:\/\//i.test(redir.url))target=redir.url;else if(redir.extensionPath)target=extensionResourceUrl(e,redir.extensionPath);else if(redir.regexSubstitution&&rule.condition?.regexFilter){try{target=rawUrl.replace(new RegExp(rule.condition.regexFilter),String(redir.regexSubstitution))}catch{}}if(target)return {action:'redirect',redirectURL:target,extensionId:e.id,ruleId:rule.id}}
+    return {action:'allow',extensionId:e.id,ruleId:rule.id};
+  }
+  notifyWebRequest(type,tab,details={}){
+    if(!extensionVisibleTab(tab))return;const url=String(details.url||'');for(const e of this.enabled()){const declared=new Set(permissions(e.manifest));if(!declared.has('webRequest')||!networkAllowedByManifest(e.manifest,url))continue;this.emitEvent(e,String(type),[{requestId:String(details.id||details.requestId||''),url,method:String(details.method||'GET'),tabId:tab.id,type:DNR_RESOURCE_TYPES[details.resourceType]||String(details.resourceType||'other'),frameId:0,parentFrameId:-1,initiator:String(tab.topUrl||tab.url||''),timeStamp:Date.now()}])}
+  }
+  privacyValue(key){
+    const s=this.getSettings()||{};switch(String(key||'')){case 'network.webRTCIPHandlingPolicy':return 'disable_non_proxied_udp';case 'network.networkPredictionEnabled':return false;case 'services.passwordSavingEnabled':case 'services.autofillAddressEnabled':case 'services.autofillCreditCardEnabled':return false;case 'websites.thirdPartyCookiesAllowed':return s.blockThirdPartyCookies===false;case 'websites.hyperlinkAuditingEnabled':return s.blockTrackingBeacons===false;case 'websites.referrersEnabled':return s.stripCrossSiteReferrers===false;case 'websites.protectedContentEnabled':return false;default:return undefined}}
+  privacySetting(key){const value=this.privacyValue(key);return {value,levelOfControl:'not_controllable'}}
   bridgeArguments(){return this.enabled().map((e)=>'--aegis-extension-world='+encodeURIComponent(e.id)+':'+String(e.worldId||extensionWorldId(e.id)))}
   inspectionSummary(x,digest){
     const id=extensionId(x.manifest,digest,x.packageInfo||{});
@@ -501,7 +542,7 @@ class AegisExtensionRuntime{
     health.lastDiagnostic=diagnostic;return diagnostic;
   }
   async setEnabled(id,v){const e=this.items.get(id);if(!e)throw new Error('Extension not found');e.enabled=Boolean(v);this.save();if(e.enabled){await this.startBackground(e);this.emitEvent(e,'runtime.onStartup',[]);await this.diagnose(id,{repair:false});}else this.stopBackground(id);return this.publicRecord(e)}
-  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.actionState.delete(id);this.runtimeHealth.delete(id);this.activeGrants.delete(id);this.menuItems.delete(id);this.extensionNotifications.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
+  remove(id){const e=this.items.get(id);if(!e)return false;this.stopBackground(id);this.clearAllAlarms(id);this.items.delete(id);this.sessionStores.delete(id);this.dnrSessionRules.delete(id);this.actionState.delete(id);this.runtimeHealth.delete(id);this.activeGrants.delete(id);this.menuItems.delete(id);this.extensionNotifications.delete(id);this.save();try{fs.rmSync(e.path,{recursive:true,force:true})}catch{}try{fs.rmSync(path.join(this.dataDir,id),{recursive:true,force:true})}catch{}return true}
   enabled(){return [...this.items.values()].filter((e)=>e.enabled!==false)}
   extensionFor(id){const e=this.items.get(String(id||''));if(!e||e.enabled===false)throw new Error('Extension disabled or missing');return e}
   tabById(id){return this.getTabs().find((t)=>t.id===Number(id))}
@@ -810,6 +851,19 @@ class AegisExtensionRuntime{
     if(m==='permissions.getAll')return {permissions:permissions(e.manifest).filter((x)=>!/:\/\//.test(x)&&x!=='<all_urls>'),origins:hostPermissions(e.manifest)};
     if(m==='permissions.request')return false;
     if(m==='permissions.remove')return false;
+
+    if(m.startsWith('privacy.')){
+      if(!declared.has('privacy'))throw new Error('Extension lacks privacy permission.');const match=m.match(/^privacy\.(network|services|websites)\.([A-Za-z0-9_]+)\.(get|set|clear)$/);if(!match)throw new Error('Unsupported privacy API: '+m);const key=match[1]+'.'+match[2],op=match[3];
+      if(op==='get')return this.privacySetting(key);if(op==='clear')return undefined;const requested=a[0]?.value,current=this.privacyValue(key);if(requested===current)return undefined;throw new Error('Aegis security policy owns '+key+' and will not let an extension weaken it.');
+    }
+
+    if(m.startsWith('declarativeNetRequest.')){
+      if(!declared.has('declarativeNetRequest')&&!declared.has('declarativeNetRequestWithHostAccess'))throw new Error('Extension lacks declarativeNetRequest permission.');
+      if(m==='declarativeNetRequest.getDynamicRules')return this.dnrDynamicRules(e);if(m==='declarativeNetRequest.getSessionRules')return sanitizeDnrRules(this.dnrSessionRules.get(e.id)||[]);if(m==='declarativeNetRequest.getEnabledRulesets')return this.dnrEnabledRulesets(e);
+      if(m==='declarativeNetRequest.updateDynamicRules')return this.updateDnrRules(e,'dynamic',a[0]||{});if(m==='declarativeNetRequest.updateSessionRules')return this.updateDnrRules(e,'session',a[0]||{});if(m==='declarativeNetRequest.updateEnabledRulesets')return this.updateDnrRulesets(e,a[0]||{});
+      if(m==='declarativeNetRequest.isRegexSupported'){try{new RegExp(String(a[0]?.regex||''));return {isSupported:true}}catch(err){return {isSupported:false,reason:String(err.message||err)}}}
+      if(m==='declarativeNetRequest.getMatchedRules')return {rulesMatchedInfo:[]};if(m==='declarativeNetRequest.setExtensionActionOptions')return undefined;
+    }
 
     if(m.startsWith('storage.')){
       const [,area,op]=m.split('.');
