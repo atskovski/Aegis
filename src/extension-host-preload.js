@@ -7,6 +7,7 @@ try { extensionId = decodeURIComponent(String(arg || '').slice('--aegis-extensio
 
 const listeners = new Set();
 const eventListeners = new Set();
+const blockingRequestListeners = new Set();
 const validMethod = (name) => Boolean(name && name.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(name));
 const bridge = {
   call(method, args) {
@@ -20,10 +21,22 @@ const bridge = {
   onEvent(callback) {
     if (typeof callback === 'function') eventListeners.add(callback);
   },
+  onBlockingRequest(callback) {
+    if (typeof callback === 'function') blockingRequestListeners.add(callback);
+  },
+  respondBlockingRequest(requestId, response) {
+    ipcRenderer.send('extension:blocking-webrequest-response', { extensionId, requestId:String(requestId || ''), response:response && typeof response === 'object' ? response : null });
+  },
   respond(messageId, response) {
     ipcRenderer.send('extension:message-response', { extensionId, messageId: String(messageId || ''), response });
   }
 };
+
+ipcRenderer.on('extension:blocking-webrequest', (_event, payload) => {
+  if (String(payload?.extensionId || '') !== extensionId) return;
+  const safe = { requestId:String(payload?.requestId || ''), type:String(payload?.type || ''), details:payload?.details && typeof payload.details === 'object' ? payload.details : {} };
+  for (const callback of [...blockingRequestListeners]) { try { callback(safe); } catch {} }
+});
 
 ipcRenderer.on('extension:runtime-message', (_event, payload) => {
   if (String(payload?.extensionId || '') !== extensionId) return;
