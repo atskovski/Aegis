@@ -247,18 +247,18 @@ async function runNetworkTest() {
   // prevents a proxy reset from interrupting a page the user is viewing.
   const ses = electronSession.fromPartition(`aegis-diagnostic-${crypto.randomUUID()}`, { cache: false });
   try {
-    const route = await applyProxyCore(ses, settings.proxy || {}, {
+    const route = await applyProxyCore(ses, effective.proxy || {},  {
       failClosedFixedProxy: false,
-      freshSession: (settings.proxy?.mode || 'system') === 'system'
+      freshSession: (effective.proxy?.mode || 'system') === 'system'
     });
-    const result = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: settings.proxy?.mode || 'system' });
+    const result = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: effective.proxy?.mode || 'system' });
     result.routeWarnings = route.warnings || [];
     result.usedDisposableSession = true;
     lastNetworkTest = result;
     emitState();
     return result;
   } catch (err) {
-    const result = { ok: false, error: err.message, testedAt: new Date().toISOString(), proxyMode: settings.proxy?.mode || 'system', elapsedMs: 0, usedDisposableSession: true };
+    const result = { ok: false, error: err.message, testedAt: new Date().toISOString(), proxyMode: effective.proxy?.mode || 'system', elapsedMs: 0, usedDisposableSession: true };
     lastNetworkTest = result; emitState(); return result;
   } finally {
     try { await ses.clearData(); } catch {}
@@ -291,6 +291,7 @@ function clearTemporaryPermissionsForOrigin(origin, tabId = null) {
 
 async function runSecuritySuite() {
   const tab = activeTab();
+  const effective = tab ? tabSettings(tab) : settings;
   const checks = [];
   const testedAt = new Date().toISOString();
 
@@ -303,11 +304,11 @@ async function runSecuritySuite() {
         : 'One or more required renderer-isolation controls are not active.', 'runtime-policy'));
     checks.push(makeCheck('permission-firewall', 'Permission firewall', tab.permissionFirewallReady ? 'pass' : 'fail',
       tab.permissionFirewallReady ? 'Permission request and permission check handlers are installed for this private tab session.' : 'Permission handlers are not confirmed for the active tab.', 'runtime-policy'));
-    const fpNeeded = settings.privacyLevel !== 'standard';
+    const fpNeeded = effective.privacyLevel !== 'standard';
     checks.push(makeCheck('fingerprint-defense', 'Fingerprint normalization', (!fpNeeded || tab.fingerprintReady) ? 'pass' : 'fail',
       fpNeeded ? (tab.fingerprintReady ? 'Anti-fingerprint preload and CDP locale/timezone normalization initialized.' : 'Strict/Maximum fingerprint defenses did not report ready.') : 'Standard mode intentionally uses reduced fingerprint normalization.', 'runtime'));
-    checks.push(makeCheck('cosmetic-filtering', 'Cosmetic ad filtering', settings.cosmeticFiltering === false ? 'warning' : (tab.cosmeticFilteringReady || String(tab.url || '').startsWith('aegis://') ? 'pass' : 'not-tested'),
-      settings.cosmeticFiltering === false ? 'Cosmetic filtering is disabled in Settings.' : (tab.cosmeticFilteringReady ? 'User-origin CSS filtering is active in the current document.' : 'No remote document is ready for cosmetic-filter verification.'), 'runtime'));
+    checks.push(makeCheck('cosmetic-filtering', 'Cosmetic ad filtering', effective.cosmeticFiltering === false ? 'warning' : (tab.cosmeticFilteringReady || String(tab.url || '').startsWith('aegis://') ? 'pass' : 'not-tested'),
+      effective.cosmeticFiltering === false ? 'Cosmetic filtering is disabled in Settings.' : (tab.cosmeticFilteringReady ? 'User-origin CSS filtering is active in the current document.' : 'No remote document is ready for cosmetic-filter verification.'), 'runtime'));
     checks.push(makeCheck('https-first', 'HTTPS-first navigation', (!tab.allowHttp && !String(tab.url || '').startsWith('http://')) ? 'pass' : 'fail',
       (!tab.allowHttp && !String(tab.url || '').startsWith('http://')) ? 'HTTP downgrade is not enabled for this tab.' : 'This tab currently allows or is using insecure HTTP.', 'runtime'));
 
@@ -315,21 +316,21 @@ async function runSecuritySuite() {
     if (surface.status === 'pass') {
       const v = surface.values || {};
       const guardedSurfacesHidden = !v.bluetooth && !v.usb && !v.serial && !v.hid && !v.localFonts && !v.joinAdInterestGroup && !v.runAdAuction && !v.privateToken;
-      checks.push(makeCheck('privacy-api-guard', 'High-entropy & ad API guard', settings.privacyApiGuard === false ? 'warning' : (guardedSurfacesHidden ? 'pass' : 'fail'),
-        settings.privacyApiGuard === false
+      checks.push(makeCheck('privacy-api-guard', 'High-entropy & ad API guard', effective.privacyApiGuard === false ? 'warning' : (guardedSurfacesHidden ? 'pass' : 'fail'),
+        effective.privacyApiGuard === false
           ? 'Privacy API Guard is disabled in Settings; exposed surfaces are not treated as a verification pass.'
           : (guardedSurfacesHidden
             ? 'Local font access, hardware-device APIs, Protected Audience and Private State Token surfaces are not exposed in the active renderer.'
             : `One or more guarded APIs remain exposed (fonts=${Boolean(v.localFonts)}, bluetooth=${Boolean(v.bluetooth)}, protectedAudience=${Boolean(v.joinAdInterestGroup || v.runAdAuction)}, privateToken=${Boolean(v.privateToken)}).`), 'behavioral-test'));
-      checks.push(makeCheck('gpc-signal', 'Global Privacy Control', settings.globalPrivacyControl === false ? 'warning' : (v.gpc ? 'pass' : 'fail'), settings.globalPrivacyControl === false ? 'Global Privacy Control is disabled in Settings.' : (v.gpc ? 'navigator.globalPrivacyControl reports true and Sec-GPC is sent by the network layer.' : 'The JavaScript GPC signal was not observed as true.'), 'behavioral-test'));
-      const screenOk = settings.privacyLevel === 'standard' || (Array.isArray(v.screen) && v.screen[0] === 1440 && v.screen[1] === 900 && v.screen[2] === 24 && v.screen[3] === 1);
+      checks.push(makeCheck('gpc-signal', 'Global Privacy Control', effective.globalPrivacyControl === false ? 'warning' : (v.gpc ? 'pass' : 'fail'), effective.globalPrivacyControl === false ? 'Global Privacy Control is disabled in Settings.' : (v.gpc ? 'navigator.globalPrivacyControl reports true and Sec-GPC is sent by the network layer.' : 'The JavaScript GPC signal was not observed as true.'), 'behavioral-test'));
+      const screenOk = effective.privacyLevel === 'standard' || (Array.isArray(v.screen) && v.screen[0] === 1440 && v.screen[1] === 900 && v.screen[2] === 24 && v.screen[3] === 1);
       checks.push(makeCheck('screen-normalization', 'Screen metric normalization', screenOk ? 'pass' : 'warning',
         screenOk ? `Observed standardized screen metrics: ${(v.screen || []).join(' × ')}.` : `Observed screen metrics differ from the Strict/Maximum standard: ${(v.screen || []).join(' × ')}.`, 'behavioral-test'));
       checks.push(makeCheck('webgl-debug-info', 'WebGL debug renderer exposure', v.debugRendererInfo === false ? 'pass' : 'warning',
         v.debugRendererInfo === false ? 'WEBGL_debug_renderer_info is unavailable to the page.' : 'WebGL debug renderer information may remain queryable.', 'behavioral-test'));
       checks.push(makeCheck('ua-product-leak', 'Browser product identifier', /Aegis/i.test(String(v.userAgent || '')) ? 'warning' : 'pass',
         /Aegis/i.test(String(v.userAgent || '')) ? 'The page-visible JavaScript user agent contains an Aegis product token.' : 'The page-visible JavaScript user agent does not contain an Aegis product token.', 'behavioral-test'));
-      const fontExpected = settings.privacyLevel !== 'standard';
+      const fontExpected = effective.privacyLevel !== 'standard';
       checks.push(makeCheck('font-metric-protection', 'CSS font enumeration resistance', !fontExpected ? 'info' : (v.fontMetricProtected ? 'pass' : 'fail'),
         !fontExpected ? 'Standard mode does not normalize off-screen CSS font metric probes.' : (v.fontMetricProtected ? 'Common off-screen font metric probes returned standardized geometry.' : 'Installed-font metric differences remain observable to the active page.'), 'behavioral-test'));
     } else {
@@ -337,7 +338,28 @@ async function runSecuritySuite() {
     }
 
     const webrtc = await testWebRtcLeakSurface((source) => tab.view.webContents.executeJavaScript(source, true));
-    checks.push(makeCheck('webrtc-behavior', 'WebRTC local-IP behavioral test', webrtc.status, webrtc.evidence, 'behavioral-test'));
+    const webrtcStatus = effective.disableWebRtc && webrtc.status === 'not-tested' ? 'pass' : webrtc.status;
+    const webrtcEvidence = effective.disableWebRtc && webrtc.status === 'not-tested'
+      ? 'WebRTC is removed from the anonymous compartment, so no peer-connection candidate surface is available.'
+      : webrtc.evidence;
+    checks.push(makeCheck('webrtc-behavior', 'WebRTC local-IP behavioral test', webrtcStatus, webrtcEvidence, 'behavioral-test'));
+
+    if (tab.securityDomain === 'hardened' || tab.securityDomain === 'anonymous') {
+      checks.push(makeCheck('compartment-policy', 'Compartment hardening', (tab.disableExtensions && !tab.allowHttp && !tab.compatibilityMode && effective.blockThirdPartyRequests) ? 'pass' : 'fail',
+        tab.disableExtensions && !tab.allowHttp && !tab.compatibilityMode && effective.blockThirdPartyRequests
+          ? 'Extensions are disabled, HTTP downgrade is off, compatibility mode is off, and all third-party requests are blocked.'
+          : 'One or more compartment hardening controls are not active.', 'runtime-policy'));
+      checks.push(makeCheck('compartment-service-workers', 'Service worker isolation', effective.disableServiceWorkers ? 'pass' : 'fail',
+        effective.disableServiceWorkers ? 'Service-worker registration is blocked by the compartment privacy preload.' : 'Service workers remain enabled.', 'runtime-policy'));
+    }
+    if (tab.securityDomain === 'anonymous') {
+      checks.push(makeCheck('anonymous-tor-route', 'Tor route verification', tab.torVerified ? 'pass' : 'fail',
+        tab.torVerified ? 'The Tor Project verification endpoint confirmed the active anonymous tab route.' : 'The anonymous tab has not verified its route as Tor and remains fail-closed.', 'external-proof'));
+      checks.push(makeCheck('anonymous-lan-block', 'Local-network isolation', effective.blockPrivateNetwork ? 'pass' : 'fail',
+        effective.blockPrivateNetwork ? 'localhost, .local, loopback, link-local and private IPv4/IPv6 literals are blocked in this compartment.' : 'Local/private-network blocking is disabled.', 'runtime-policy'));
+      checks.push(makeCheck('anonymous-downloads', 'Anonymous download isolation', effective.blockAllDownloads ? 'pass' : 'warning',
+        effective.blockAllDownloads ? 'Downloads are blocked so files cannot be casually opened outside the anonymous route.' : 'Downloads are allowed in the anonymous compartment.', 'runtime-policy'));
+    }
   } else {
     for (const [id,label] of [
       ['renderer-isolation','Renderer isolation'],['permission-firewall','Permission firewall'],['fingerprint-defense','Fingerprint normalization'],
@@ -351,10 +373,10 @@ async function runSecuritySuite() {
     'Chromium is launched with force-webrtc-ip-handling-policy=disable_non_proxied_udp.', 'startup-policy'));
   checks.push(makeCheck('site-isolation', 'Site-per-process isolation', 'pass',
     'Chromium is launched with site-per-process and every normal tab uses its own non-persistent session partition.', 'startup-policy'));
-  const assurance = new Map((tab ? controlAssurance(settings, tab) : []).map((item) => [item.key, item]));
+  const assurance = new Map((tab ? controlAssurance(effective, tab) : []).map((item) => [item.key, item]));
   const addControlCheck = (key, id, label) => {
     const item = assurance.get(key);
-    if (!settings[key]) return checks.push(makeCheck(id, label, 'warning', 'Disabled in Settings.', 'runtime-policy'));
+    if (!effective[key]) return checks.push(makeCheck(id, label, 'warning', 'Disabled in Settings.', 'runtime-policy'));
     if (!tab || !item) return checks.push(makeCheck(id, label, 'not-tested', 'No active web tab is available to confirm enforcement.', 'runtime-policy'));
     return checks.push(makeCheck(id, label, item.status === 'enforced' ? 'pass' : 'fail', item.evidence, 'runtime-policy'));
   };
@@ -376,14 +398,14 @@ async function runSecuritySuite() {
   let connectivity = null;
   let publicIp = { ok: false, status: 'not-tested', ip: '', provider: '', error: 'Not tested.' };
   try {
-    route = await applyProxyCore(ses, settings.proxy || {}, {
+    route = await applyProxyCore(ses, effective.proxy || {},  {
       failClosedFixedProxy: false,
-      freshSession: (settings.proxy?.mode || 'system') === 'system'
+      freshSession: (effective.proxy?.mode || 'system') === 'system'
     });
-    const routeStatus = routePrivacyStatus(settings.proxy?.mode || 'system', route);
+    const routeStatus = routePrivacyStatus(effective.proxy?.mode || 'system', route);
     checks.push(makeCheck('network-route', 'IP routing posture', routeStatus.status, routeStatus.evidence, 'runtime-policy'));
 
-    connectivity = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: settings.proxy?.mode || 'system' });
+    connectivity = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: effective.proxy?.mode || 'system' });
     checks.push(makeCheck('dns-https', 'DNS + HTTPS reachability', connectivity.ok ? 'pass' : 'fail',
       `Proxy ${connectivity.proxy || 'unknown'}; DNS ${connectivity.dns || 'unknown'}; HTTPS ${connectivity.https || 'unknown'}.`, 'behavioral-test'));
 
@@ -427,7 +449,8 @@ async function showLoadError(tab, raw, code, description) {
   tab.lastError = { url: raw, code: Number(code || 0), description: String(description || 'Page could not be loaded') };
   tab.stats.loadFailures += 1;
   emitState();
-  const offerHttp = settings.compatibilityAssistance && failedHttpsCanOfferHttp(raw, code);
+  const effective = tabSettings(tab);
+  const offerHttp = effective.compatibilityAssistance && !effective.anonymousRouteRequired && tab.securityDomain !== 'hardened' && failedHttpsCanOfferHttp(raw, code);
   try { await tab.view.webContents.loadURL(errorPageUrl(raw, code, description, offerHttp)); } catch {}
 }
 
@@ -479,7 +502,7 @@ function statePayload() {
     searchEngines: SEARCH_ENGINES,
     bookmarks,
     downloads: downloads.map(({ path: _path, ...item }) => item),
-    network: { lastTest: lastNetworkTest, proxyMode: settings.proxy?.mode || 'system' },
+    network: { lastTest: lastNetworkTest, proxyMode: effective.proxy?.mode || 'system' },
     securitySuite: lastSecuritySuite,
     extensions: extensionRuntime ? extensionRuntime.list() : [],
     privacyControls: controlAssurance(tabSettings(activeTab()), activeTab()),
