@@ -550,6 +550,13 @@ async function installFingerprintDefenses(tab) {
   components.runtime = await attempt('Runtime.enable', () => withTimeout(dbg.sendCommand('Runtime.enable'), 1800, 'Privacy Runtime.enable'));
   components.page = await attempt('Page.enable', () => withTimeout(dbg.sendCommand('Page.enable'), 1800, 'Privacy Page.enable'));
 
+  if (components.page && Array.isArray(tab.privacyScriptIds)) {
+    for (const identifier of tab.privacyScriptIds) {
+      await attempt('Remove stale privacy preload', () => dbg.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier }));
+    }
+  }
+  tab.privacyScriptIds = [];
+
   if (settings.siteIntelligence !== false && components.runtime) {
     const bindingName = `__aegisAudit_${tab.seed.slice(0, 12)}`;
     tab.auditBinding = bindingName;
@@ -574,25 +581,33 @@ async function installFingerprintDefenses(tab) {
     components.locale = true;
   }
 
-  if (components.page) {
-    components.antiFingerprint = await attempt('Anti-fingerprint preload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-      source: buildAntiFingerprintScript({ seed: `${identitySeed}:${tab.seed}`, chromiumMajor: chromiumMajor(), profile: settings.privacyLevel, disableServiceWorkers: settings.disableServiceWorkers, globalPrivacyControl: settings.globalPrivacyControl, doNotTrack: settings.doNotTrack })
-    }), 2200, 'Fingerprint preload'));
-
-    components.privacyApi = await attempt('Privacy API preload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-      source: buildPagePrivacyScript({
-        maximum: settings.privacyLevel === 'maximum',
-        privacyApiGuard: settings.privacyApiGuard !== false,
-        blockTrackingBeacons: settings.blockTrackingBeacons !== false,
-        globalPrivacyControl: settings.globalPrivacyControl !== false
-      })
-    }), 2200, 'Page privacy preload'));
-
-    if (settings.siteIntelligence !== false && tab.auditBinding) {
-      components.sentinel = await attempt('Sentinel preload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: buildSiteAuditScript({ bindingName: tab.auditBinding }) }), 1800, 'Privacy Intelligence preload'));
-    } else {
-      components.sentinel = settings.siteIntelligence === false;
+  const installScript = async (label, source, timeoutMs) => {
+    if (!components.page) return false;
+    try {
+      const result = await withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source }), timeoutMs, label);
+      if (result?.identifier) tab.privacyScriptIds.push(result.identifier);
+      return true;
+    } catch (err) {
+      components.errors.push(label + ': ' + String(err?.message || err).slice(0,180));
+      return false;
     }
+  };
+
+  components.antiFingerprint = await installScript('Fingerprint preload',
+    buildAntiFingerprintScript({ seed: `${identitySeed}:${tab.seed}`, chromiumMajor: chromiumMajor(), profile: settings.privacyLevel, disableServiceWorkers: settings.disableServiceWorkers, globalPrivacyControl: settings.globalPrivacyControl, doNotTrack: settings.doNotTrack }), 2200);
+
+  components.privacyApi = await installScript('Page privacy preload',
+    buildPagePrivacyScript({
+      maximum: settings.privacyLevel === 'maximum',
+      privacyApiGuard: settings.privacyApiGuard !== false,
+      blockTrackingBeacons: settings.blockTrackingBeacons !== false,
+      globalPrivacyControl: settings.globalPrivacyControl !== false
+    }), 2200);
+
+  if (settings.siteIntelligence !== false && tab.auditBinding) {
+    components.sentinel = await installScript('Privacy Intelligence preload', buildSiteAuditScript({ bindingName: tab.auditBinding }), 1800);
+  } else {
+    components.sentinel = settings.siteIntelligence === false;
   }
 
   tab.privacyComponents = components;
@@ -885,7 +900,9 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
     auditMessageHandler: null,
     cookieCleanupTimer: null,
     cosmeticCssKey: '',
-    cosmeticFilteringReady: false
+    cosmeticFilteringReady: false,
+    privacyScriptIds: [],
+    privacyComponents: {}
   };
 
   const view = createTabView(tab);
@@ -1305,6 +1322,7 @@ function wireIpc() {
 
   ipcMain.on('settings:update', async (event, patch) => {
     if (!assertUiSender(event) || !patch || typeof patch !== 'object') return;
+    const previousSettings = settings;
     const siteIntelligenceWasEnabled = settings.siteIntelligence !== false;
     settings = sanitizeSettings({
       ...settings,
@@ -1320,20 +1338,25 @@ function wireIpc() {
     const proxyResults = await Promise.allSettled([...tabs.values()].map((tab) => applyProxyToSession(tab.view.webContents.session)));
     const proxyFailures = proxyResults.filter((result) => result.status === 'rejected').length;
     await awaitCosmeticRefresh();
-    if (!siteIntelligenceWasEnabled && settings.siteIntelligence !== false) {
+
+    const newDocumentKeys = ['privacyLevel','disableServiceWorkers','privacyApiGuard','blockTrackingBeacons','globalPrivacyControl','doNotTrack','siteIntelligence'];
+    const privacyPolicyChanged = newDocumentKeys.some((key) => JSON.stringify(previousSettings?.[key]) !== JSON.stringify(settings?.[key]));
+
+    if (privacyPolicyChanged || (!siteIntelligenceWasEnabled && settings.siteIntelligence !== false)) {
       await Promise.allSettled([...tabs.values()].map(async (tab) => {
         await installFingerprintDefenses(tab);
-        if (tab.auditBinding && tab.url && !String(tab.url).startsWith('aegis://')) {
-          try { await tab.view.webContents.executeJavaScript(buildSiteAuditScript({ bindingName: tab.auditBinding }), false); } catch {}
+        if (tab.url && !String(tab.url).startsWith('aegis://')) {
+          try { await tab.view.webContents.reload(); } catch {}
         }
       }));
     } else if (siteIntelligenceWasEnabled && settings.siteIntelligence === false) {
       for (const tab of tabs.values()) resetSiteIntelligence(tab, tab.url, safeOrigin(tab.url));
     }
+
     emitState();
     toast(proxyFailures
       ? `Settings saved, but ${proxyFailures} tab network session${proxyFailures === 1 ? '' : 's'} could not apply the new routing. Run Diagnostics.`
-      : 'Settings saved. Network controls are live; fingerprint-profile changes fully apply to new tabs.', proxyFailures ? 'warning' : 'success');
+      : (privacyPolicyChanged ? 'Settings saved. Privacy policy was reinstalled and active web tabs were reloaded so the new protection is live.' : 'Settings saved. Runtime controls are live.'), proxyFailures ? 'warning' : 'success');
   });
 }
 
