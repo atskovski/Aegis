@@ -33,7 +33,7 @@ test('hardened and anonymous tabs exclude extension content scripts',()=>{
 
 test('maximum fingerprinting uses a cohort rather than a per-user perturbation seed',()=>{
   assert.match(fp,/const COHORT = 'aegis-cohort-v1'/);
-  assert.match(fp,/MAXIMUM \|\| ANONYMOUS \? COHORT : BASE/);
+  assert.match(fp,/STRICT \|\| ANONYMOUS \? COHORT : BASE/);
   assert.match(fp,/undef\(globalThis, 'RTCPeerConnection'\)/);
 });
 
