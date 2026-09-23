@@ -49,17 +49,16 @@ function extensionStoreSource(tab = activeTab()) {
   try{
     const u=new URL(raw),host=u.hostname.toLowerCase();
     if((host==='chromewebstore.google.com'||host==='chrome.google.com')&&/\/(?:webstore\/)?detail\//i.test(u.pathname))return raw;
-    if(host==='addons.mozilla.org'&&/\/firefox\/addon\//i.test(u.pathname))return raw;
   }catch{}
   return '';
 }
 
 function renderStoreInstallButton(tab = activeTab()) {
   const button=$('#storeInstall');if(!button)return;
-  const source=extensionStoreSource(tab),firefox=source.includes('addons.mozilla.org');
+  const source=extensionStoreSource(tab);
   button.classList.toggle('hidden',!source);
-  button.textContent=firefox?'⬡ Install Firefox add-on':'⬡ Install Chrome extension';
-  button.title=firefox?'Download, inspect and install this Firefox add-on in Aegis':'Download, inspect and install this Chrome Web Store extension in Aegis';
+  button.textContent='⬡ Install extension';
+  button.title='Download, verify and install this Chrome Web Store extension in Aegis';
 }
 
 function currentSitePermission(key) {
@@ -406,7 +405,7 @@ function renderAddonInstallReview() {
   const currentAddon = pendingAddonInstall.updateFor ? (state.extensions || []).find((addon) => addon.id === pendingAddonInstall.updateFor) : null;
   panel.classList.remove('hidden');
   $('#addonReviewName').textContent = currentAddon ? (summary.name + ' ' + currentAddon.version + ' → ' + summary.version) : (summary.name + ' ' + summary.version);
-  const ecosystem = summary.ecosystem === 'chrome' ? 'Chrome package' : (summary.ecosystem === 'firefox' ? 'Firefox package' : 'WebExtension package');
+  const ecosystem = 'Chrome extension package';
   $('#addonReviewMeta').textContent = '100% package installable · ' + ecosystem + ' · Manifest V' + (summary.manifestVersion || '?') + ' · API/runtime coverage ' + compat.score + '% · review expires ' + new Date(pendingAddonInstall.expiresAt).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
   $('#addonReviewDescription').textContent = summary.description || 'This extension does not provide a description.';
   const score = $('#addonReviewScore');
@@ -415,7 +414,7 @@ function renderAddonInstallReview() {
   $('#addonReviewId').textContent = summary.id || 'Generated after install';
   $('#addonReviewDigest').textContent = summary.digest || '—';
   $('#addonReviewSignature').textContent = summary.signature?.verified ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature verified') : (summary.signature?.metadataPresent ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature present · NOT verified') : 'Signature metadata not detected');
-  $('#confirmAddonInstall').textContent = currentAddon ? 'Install update' : 'Install add-on';
+  $('#confirmAddonInstall').textContent = currentAddon ? 'Install update' : 'Install extension';
 
   const featureBox = $('#addonReviewFeatures'); featureBox.replaceChildren();
   addonFeatureLabels(summary.features).forEach((item) => featureBox.append(makeAddonChip(item, 'supported')));
@@ -446,7 +445,7 @@ function renderAddonInstallReview() {
     warnings.forEach((item) => {
       const line = document.createElement('span'); line.className = 'addon-review-line warning';
       const b = document.createElement('b'); b.textContent = item.api;
-      const small = document.createElement('small'); small.textContent = item.reason || 'Compatibility differs from Firefox.';
+      const small = document.createElement('small'); small.textContent = item.reason || 'Runtime behavior differs from upstream Chrome.';
       line.append(b, small); unsupportedBox.append(line);
     });
   }
@@ -506,7 +505,7 @@ function renderExtensionActions() {
     const more = document.createElement('button');
     more.type = 'button'; more.className = 'extension-action extension-action-more';
     more.textContent = '+' + (addons.length - 7);
-    more.title = 'Open Add-ons manager';
+    more.title = 'Open Extensions manager';
     more.addEventListener('click', () => openSettings('addons'));
     bar.append(more);
   }
@@ -553,13 +552,13 @@ function renderAddons() {
   list.replaceChildren();
   if (!all.length) {
     const empty = document.createElement('div'); empty.className = 'suite-empty addon-empty';
-    const b = document.createElement('b'); b.textContent = 'No add-ons installed';
-    const s = document.createElement('span'); s.textContent = 'Choose a Chrome CRX, Firefox XPI, ZIP, unpacked extension, Chrome Web Store URL, or extension ID. Aegis installs the complete package and reports API coverage separately.';
+    const b = document.createElement('b'); b.textContent = 'No extensions installed';
+    const s = document.createElement('span'); s.textContent = 'Choose a Chrome CRX/ZIP, unpacked extension, Chrome Web Store URL, or extension ID. Aegis verifies the complete package before activation.';
     empty.append(b, s); list.append(empty); return;
   }
   if (!addons.length) {
     const empty = document.createElement('div'); empty.className = 'suite-empty addon-empty';
-    const b = document.createElement('b'); b.textContent = 'No add-ons match this view';
+    const b = document.createElement('b'); b.textContent = 'No extensions match this view';
     const s = document.createElement('span'); s.textContent = 'Change the search text or filter to see installed extensions.';
     empty.append(b, s); list.append(empty); return;
   }
@@ -731,9 +730,9 @@ function renderAddons() {
       toggle.disabled = true;
       const result = await window.aegis.invoke('extensions:set-enabled', { id:addon.id, enabled:!addon.enabled });
       if (result?.ok) {
-        showToast({title:addon.name,message:addon.enabled ? 'Add-on disabled.' : 'Add-on enabled and runtime started.',tone:'success'});
+        showToast({title:addon.name,message:addon.enabled ? 'Extension disabled.' : 'Extension enabled and runtime started.',tone:'success'});
         await refreshExtensions();
-      } else showToast({title:addon.name,message:'Could not update add-on: ' + (result?.error || 'unknown error'),tone:'danger'});
+      } else showToast({title:addon.name,message:'Could not update extension: ' + (result?.error || 'unknown error'),tone:'danger'});
       toggle.disabled = false;
     });
     actions.append(toggle);
@@ -742,16 +741,16 @@ function renderAddons() {
     remove.addEventListener('click', async () => {
       if (remove.dataset.confirm !== 'yes') {
         remove.dataset.confirm = 'yes'; remove.textContent = 'Confirm remove'; remove.classList.add('confirming');
-        showToast({title:'Remove ' + addon.name,message:'Click “Confirm remove” again to delete the add-on and its local extension data.',tone:'warning',duration:6500});
+        showToast({title:'Remove ' + addon.name,message:'Click “Confirm remove” again to delete the extension and its local data.',tone:'warning',duration:6500});
         setTimeout(() => { if (remove.isConnected) { remove.dataset.confirm = ''; remove.textContent = 'Remove'; remove.classList.remove('confirming'); } }, 7000);
         return;
       }
       remove.disabled = true;
       const result = await window.aegis.invoke('extensions:remove', addon.id);
       if (result?.ok) {
-        showToast({title:addon.name,message:'Add-on and local extension data removed.',tone:'success'});
+        showToast({title:addon.name,message:'Extension and local data removed.',tone:'success'});
         await refreshExtensions();
-      } else showToast({title:addon.name,message:result?.error || 'Could not remove add-on.',tone:'danger'});
+      } else showToast({title:addon.name,message:result?.error || 'Could not remove extension.',tone:'danger'});
     });
     actions.append(remove);
     card.append(actions);
@@ -1499,7 +1498,7 @@ $('#installXpi').addEventListener('click', async () => {
       showToast({title:'Package inspected',message:'Review compatibility, permissions and host access before installing ' + result.summary.name + '.',tone:'default'});
     } else if (!result?.canceled) showToast({title:'Package inspection failed',message:result?.error || 'Could not inspect extension package.',tone:'danger'});
   } catch (err) { showToast({title:'Package inspection failed',message:err.message,tone:'danger'}); }
-  finally { button.disabled = false; button.textContent = 'Choose CRX / XPI / ZIP'; }
+  finally { button.disabled = false; button.textContent = 'Choose CRX / ZIP'; }
 });
 $('#loadUnpackedExtension').addEventListener('click', async () => {
   const button=$('#loadUnpackedExtension');button.disabled=true;button.textContent='Inspecting…';
@@ -1516,7 +1515,7 @@ $('#loadUnpackedExtension').addEventListener('click', async () => {
 });
 $('#installAddonUrl').addEventListener('click', async () => {
   const button=$('#installAddonUrl'),input=$('#addonUrlInput'),url=String(input.value||'').trim();
-  if(!url){showToast({title:'Extension source required',message:'Paste a Chrome Web Store URL, Firefox Add-ons URL, Chrome extension ID, or direct HTTPS .crx/.xpi/.zip URL.',tone:'warning'});input.focus();return;}
+  if(!url){showToast({title:'Extension source required',message:'Paste a Chrome Web Store URL, Chrome extension ID, or direct HTTPS .crx/.zip URL.',tone:'warning'});input.focus();return;}
   button.disabled=true;button.textContent='Downloading…';
   try{
     const result=await window.aegis.invoke('extensions:install-url',url);
@@ -1543,7 +1542,7 @@ $('#cancelAddonInstall').addEventListener('click', async () => {
 $('#confirmAddonInstall').addEventListener('click', async () => {
   if (!pendingAddonInstall?.token) return;
   const button = $('#confirmAddonInstall'); button.disabled = true; button.textContent = 'Installing…';
-  const name = pendingAddonInstall.summary?.name || 'add-on';
+  const name = pendingAddonInstall.summary?.name || 'extension';
   const updatingId = pendingAddonInstall.updateFor || '';
   const previousAddon = updatingId ? (state.extensions || []).find((addon) => addon.id === updatingId) : null;
   try {
@@ -1553,15 +1552,15 @@ $('#confirmAddonInstall').addEventListener('click', async () => {
       let refreshError = '';
       try { await refreshExtensions(); } catch (err) { refreshError = String(err?.message || err || 'Unknown manager refresh error'); }
       showToast({
-        title: previousAddon ? 'Add-on updated' : 'Add-on installed',
+        title: previousAddon ? 'Extension updated' : 'Extension installed',
         message: previousAddon
-          ? (result.extension.name + ' updated from ' + previousAddon.version + ' to ' + result.extension.version + '. The package was re-verified before activation.' + (refreshError ? ' The Add-ons view could not refresh automatically: ' + refreshError : ''))
-          : (result.extension.name + ' ' + result.extension.version + ' is installed. Supported background, content, toolbar and options features are now active.' + (refreshError ? ' The Add-ons view could not refresh automatically: ' + refreshError : '')),
+          ? (result.extension.name + ' updated from ' + previousAddon.version + ' to ' + result.extension.version + '. The package was re-verified before activation.' + (refreshError ? ' The Extensions view could not refresh automatically: ' + refreshError : ''))
+          : (result.extension.name + ' ' + result.extension.version + ' is installed. Supported background, content, toolbar and options features are now active.' + (refreshError ? ' The Extensions view could not refresh automatically: ' + refreshError : '')),
         tone:refreshError?'warning':'success',duration:8000
       });
     } else showToast({title:'Extension install failed',message:result?.error || 'Unknown installation error.',tone:'danger'});
   } catch (err) { showToast({title:'Extension install failed',message:err.message,tone:'danger'}); }
-  finally { button.disabled = false; button.textContent = 'Install add-on'; renderAddonInstallReview(); }
+  finally { button.disabled = false; button.textContent = 'Install extension'; renderAddonInstallReview(); }
 });
 $('#refreshFilterLists')?.addEventListener('click',async()=>{const b=$('#refreshFilterLists');b.disabled=true;b.textContent='Updating…';const r=await window.aegis.invoke('adblock:refresh-lists');const ok=(r?.results||[]).filter(x=>x.ok).length,total=(r?.results||[]).length;$('#filterListStatus').textContent=total?`${ok}/${total} enabled filter lists updated and compiled.`:'No enabled filter lists.';showToast(r?.ok?'Filter lists updated.':'Some filter lists could not update.',r?.ok?'success':'warning');b.disabled=false;b.textContent='Update lists';});
 $('#pickAdElement')?.addEventListener('click',async()=>{closeSettings();const r=await window.aegis.invoke('adblock:pick-element');if(r?.ok)showToast('Blocked element with rule: '+r.rule,'success');else if(!r?.canceled)showToast(r?.error||'Element picker failed.','danger');});
