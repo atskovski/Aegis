@@ -53,7 +53,7 @@ ipcRenderer.on('extension:frame-inject', async (_event, payload) => {
   const worldId = Number(payload?.worldId);
   const requestedRoutingId = Number(payload?.frameRoutingId);
   const failures = [];
-  let scriptCount = 0, cssCount = 0;
+  let scriptCount = 0, cssCount = 0, lastResult;
 
   const respond = (extra = {}) => ipcRenderer.send('extension:frame-inject-result', {
     requestId,
@@ -91,8 +91,8 @@ ipcRenderer.on('extension:frame-inject', async (_event, payload) => {
       continue;
     }
     try {
-      if (world === 'MAIN') await webFrame.executeJavaScript(code, false);
-      else await webFrame.executeJavaScriptInIsolatedWorld(worldId, [{ code, url:String(item?.url || '') }], false);
+      if (world === 'MAIN') lastResult = await webFrame.executeJavaScript(code, false);
+      else lastResult = await webFrame.executeJavaScriptInIsolatedWorld(worldId, [{ code, url:String(item?.url || '') }], false);
       scriptCount += 1;
     } catch (err) {
       failures.push({ kind:'script', label, message:String(err?.message || err || 'Script execution failed.').slice(0,500) });
@@ -114,7 +114,7 @@ ipcRenderer.on('extension:frame-inject', async (_event, payload) => {
     }
   }
 
-  respond({ ok:true });
+  respond({ ok:true, result:lastResult });
 });
 
 
