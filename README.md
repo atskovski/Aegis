@@ -6,6 +6,30 @@ Aegis 1.1 is a local-first macOS privacy, security and managed-browser platform 
 
 Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or Tor Browser equivalence. It reduces attack surface and linkability, isolates high-risk activity, can fail closed for selected routes, and reports important residual exposure instead of converting limitations into green badges.
 
+## Native macOS application
+
+Aegis can now be packaged as a normal **Aegis Privacy Browser.app** with its own Aegis shield icon. Daily use no longer requires `Run-Aegis.command` or an open Terminal window.
+
+For a local build on the Mac that will run Aegis:
+
+```bash
+npm run install:mac:local
+```
+
+This creates an ad-hoc signed app bundle and installs it to `~/Applications/Aegis Privacy Browser.app`. Because the app is built locally, it is intended for development/personal installation on that Mac rather than public distribution.
+
+For a distributable build that passes Gatekeeper without the manual **Open Anyway / Allow application** flow, use the **Aegis macOS Release** GitHub Actions workflow. The release pipeline builds DMG + ZIP artifacts, signs the app with a Developer ID Application certificate, enables Hardened Runtime, notarizes it with Apple, staples the notarization ticket, and verifies the result with `codesign`, `spctl`, and `stapler`.
+
+Required GitHub Actions secrets:
+
+- `MAC_CSC_LINK` — base64-encoded Developer ID Application `.p12`
+- `MAC_CSC_KEY_PASSWORD`
+- `APPLE_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+- `APPLE_TEAM_ID`
+
+The `.command` launchers remain only as development/recovery tools.
+
 ## 1.3 — Chrome Extensions + Extension Runtime 5
 
 Aegis 1.3 adds first-class Chrome extension installation alongside Firefox-style WebExtensions.
