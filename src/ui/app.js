@@ -403,8 +403,9 @@ function renderAddonInstallReview() {
   }
   const summary = pendingAddonInstall.summary;
   const compat = compatibilityLabel(summary);
+  const currentAddon = pendingAddonInstall.updateFor ? (state.extensions || []).find((addon) => addon.id === pendingAddonInstall.updateFor) : null;
   panel.classList.remove('hidden');
-  $('#addonReviewName').textContent = summary.name + ' ' + summary.version;
+  $('#addonReviewName').textContent = currentAddon ? (summary.name + ' ' + currentAddon.version + ' → ' + summary.version) : (summary.name + ' ' + summary.version);
   const ecosystem = summary.ecosystem === 'chrome' ? 'Chrome package' : (summary.ecosystem === 'firefox' ? 'Firefox package' : 'WebExtension package');
   $('#addonReviewMeta').textContent = '100% package installable · ' + ecosystem + ' · Manifest V' + (summary.manifestVersion || '?') + ' · API/runtime coverage ' + compat.score + '% · review expires ' + new Date(pendingAddonInstall.expiresAt).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
   $('#addonReviewDescription').textContent = summary.description || 'This extension does not provide a description.';
@@ -414,6 +415,7 @@ function renderAddonInstallReview() {
   $('#addonReviewId').textContent = summary.id || 'Generated after install';
   $('#addonReviewDigest').textContent = summary.digest || '—';
   $('#addonReviewSignature').textContent = summary.signature?.verified ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature verified') : (summary.signature?.metadataPresent ? ((summary.signature?.format || summary.packageFormat || 'package').toUpperCase() + ' signature present · NOT verified') : 'Signature metadata not detected');
+  $('#confirmAddonInstall').textContent = currentAddon ? 'Install update' : 'Install add-on';
 
   const featureBox = $('#addonReviewFeatures'); featureBox.replaceChildren();
   addonFeatureLabels(summary.features).forEach((item) => featureBox.append(makeAddonChip(item, 'supported')));
@@ -687,6 +689,40 @@ function renderAddons() {
       reload.disabled = false; reload.textContent = 'Reload';
     });
     actions.append(reload);
+
+    if (addon.sourceUrl) {
+      const update = document.createElement('button'); update.className = 'secondary'; update.textContent = 'Check update';
+      update.title = 'Download the current package from the original source and review it before replacing this installed version.';
+      update.addEventListener('click', async () => {
+        update.disabled = true; update.textContent = 'Checking…';
+        try {
+          const result = await window.aegis.invoke('extensions:install-url', addon.sourceUrl);
+          if (!result?.ok) {
+            showToast({title:addon.name,message:result?.error || 'Could not check the extension source.',tone:'danger'});
+            return;
+          }
+          if (result.summary?.id !== addon.id) {
+            try { await window.aegis.invoke('extensions:cancel-install', result.token); } catch {}
+            showToast({title:addon.name,message:'Update rejected because the downloaded package identity does not match the installed extension.',tone:'danger',duration:8000});
+            return;
+          }
+          if (String(result.summary?.version || '') === String(addon.version || '')) {
+            try { await window.aegis.invoke('extensions:cancel-install', result.token); } catch {}
+            showToast({title:addon.name,message:'Already current at version ' + addon.version + '.',tone:'success'});
+            return;
+          }
+          pendingAddonInstall = {token:result.token,summary:result.summary,expiresAt:result.expiresAt,sourceUrl:result.sourceUrl,updateFor:addon.id};
+          renderAddonInstallReview();
+          $('#addonReview').scrollIntoView({behavior:state.settings.appearance?.reduceMotion?'auto':'smooth',block:'nearest'});
+          showToast({title:'Update available',message:addon.name + ' ' + addon.version + ' → ' + result.summary.version + '. Review permissions and compatibility before updating.',tone:'default',duration:8000});
+        } catch (err) {
+          showToast({title:addon.name,message:'Update check failed: ' + err.message,tone:'danger'});
+        } finally {
+          update.disabled = false; update.textContent = 'Check update';
+        }
+      });
+      actions.append(update);
+    }
 
     const toggle = document.createElement('button'); toggle.className = addon.enabled ? 'secondary addon-toggle active' : 'primary addon-toggle'; toggle.textContent = addon.enabled ? 'Disable' : 'Enable';
     toggle.addEventListener('click', async () => {
@@ -1506,12 +1542,20 @@ $('#confirmAddonInstall').addEventListener('click', async () => {
   if (!pendingAddonInstall?.token) return;
   const button = $('#confirmAddonInstall'); button.disabled = true; button.textContent = 'Installing…';
   const name = pendingAddonInstall.summary?.name || 'add-on';
+  const updatingId = pendingAddonInstall.updateFor || '';
+  const previousAddon = updatingId ? (state.extensions || []).find((addon) => addon.id === updatingId) : null;
   try {
     const result = await window.aegis.invoke('extensions:install-staged', pendingAddonInstall.token);
     if (result?.ok) {
       pendingAddonInstall = null;
       await refreshExtensions();
-      showToast({title:'Add-on installed',message:result.extension.name + ' ' + result.extension.version + ' is installed. Supported background, content, toolbar and options features are now active.',tone:'success',duration:8000});
+      showToast({
+        title: previousAddon ? 'Add-on updated' : 'Add-on installed',
+        message: previousAddon
+          ? (result.extension.name + ' updated from ' + previousAddon.version + ' to ' + result.extension.version + '. The package was re-verified before activation.')
+          : (result.extension.name + ' ' + result.extension.version + ' is installed. Supported background, content, toolbar and options features are now active.'),
+        tone:'success',duration:8000
+      });
     } else showToast({title:'Extension install failed',message:result?.error || 'Unknown installation error.',tone:'danger'});
   } catch (err) { showToast({title:'Extension install failed',message:err.message,tone:'danger'}); }
   finally { button.disabled = false; button.textContent = 'Install add-on'; renderAddonInstallReview(); }
