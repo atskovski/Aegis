@@ -16,7 +16,7 @@ const { TrackerLearner } = require('./core/tracker-learning');
 const { analyzeUrl } = require('./core/safety');
 const { youtubeVideoId, fetchSponsorSegments, sponsorSkipScript } = require('./core/sponsor');
 const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNetworkEvent, publicSiteIntelligence, buildSiteAuditScript } = require('./core/site-intelligence');
-const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
+const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, compareFingerprintCohort, testNetworkIdentity, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
 const { AegisExtensionRuntime } = require('./core/extensions');
 const { controlAssurance } = require('./core/control-registry');
 const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
@@ -361,6 +361,27 @@ async function runSecuritySuite() {
       for (const [id,label] of [['privacy-api-guard','High-entropy & ad API guard'],['gpc-signal','Global Privacy Control'],['screen-normalization','Screen metric normalization'],['webgl-debug-info','WebGL debug renderer exposure'],['ua-product-leak','Browser product identifier'],['font-metric-protection','CSS font enumeration resistance']]) checks.push(makeCheck(id,label,'not-tested',surface.evidence,'behavioral-test'));
     }
 
+    if (effective.privacyLevel !== 'standard' && tab.javascriptEnabled !== false) {
+      const fpOne = await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true));
+      const fpTwo = await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true));
+      if (fpOne.status === 'pass' && fpTwo.status === 'pass') {
+        const stability = compareFingerprintSnapshots(fpOne, fpTwo);
+        checks.push(makeCheck('fingerprint-stability', 'Fingerprint surface stability', stability.status, stability.evidence, 'behavioral-test'));
+        const v = fpOne.values || {};
+        const coherent = /Chrome\//.test(String(v.ua || '')) && !/Aegis|Electron/i.test(String(v.ua || '')) && v.timezone === 'UTC' && v.hardwareConcurrency === 4 && v.deviceMemory === 8;
+        checks.push(makeCheck('fingerprint-coherence', 'Fingerprint cohort coherence', coherent ? 'pass' : 'fail',
+          coherent
+            ? 'UA branding, timezone, CPU concurrency and memory report the standardized Aegis cohort values without Aegis/Electron product tokens.'
+            : `Fingerprint cohort is internally inconsistent (timezone=${v.timezone || 'unknown'}, cores=${v.hardwareConcurrency}, memory=${v.deviceMemory}, ua=${String(v.ua || '').slice(0,120)}).`, 'behavioral-test'));
+      } else {
+        checks.push(makeCheck('fingerprint-stability', 'Fingerprint surface stability', 'not-tested', fpOne.evidence || fpTwo.evidence, 'behavioral-test'));
+        checks.push(makeCheck('fingerprint-coherence', 'Fingerprint cohort coherence', 'not-tested', fpOne.evidence || fpTwo.evidence, 'behavioral-test'));
+      }
+    } else if (tab.javascriptEnabled === false) {
+      checks.push(makeCheck('fingerprint-stability', 'Fingerprint surface stability', 'info', 'JavaScript is disabled in this renderer, so script-based fingerprint sampling is intentionally unavailable.', 'behavioral-test'));
+      checks.push(makeCheck('fingerprint-coherence', 'Fingerprint cohort coherence', 'info', 'JavaScript is disabled; network-visible identity is evaluated separately from script-visible surfaces.', 'behavioral-test'));
+    }
+
     const webrtc = await testWebRtcLeakSurface((source) => tab.view.webContents.executeJavaScript(source, true));
     const webrtcStatus = effective.disableWebRtc && webrtc.status === 'not-tested' ? 'pass' : webrtc.status;
     const webrtcEvidence = effective.disableWebRtc && webrtc.status === 'not-tested'
@@ -383,6 +404,11 @@ async function runSecuritySuite() {
         effective.blockPrivateNetwork ? 'localhost, .local, loopback, link-local and private IPv4/IPv6 literals are blocked in this compartment.' : 'Local/private-network blocking is disabled.', 'runtime-policy'));
       checks.push(makeCheck('anonymous-downloads', 'Anonymous download isolation', effective.blockAllDownloads ? 'pass' : 'warning',
         effective.blockAllDownloads ? 'Downloads are blocked so files cannot be casually opened outside the anonymous route.' : 'Downloads are allowed in the anonymous compartment.', 'runtime-policy'));
+      const anonymousJsOff = tab.javascriptEnabled === false;
+      checks.push(makeCheck('anonymous-javascript', 'Anonymous active-content isolation', effective.javascriptDefault === false ? (anonymousJsOff ? 'pass' : 'fail') : 'warning',
+        effective.javascriptDefault === false
+          ? (anonymousJsOff ? 'JavaScript is disabled in this anonymous renderer, sharply reducing active fingerprinting and script attack surface.' : 'Anonymous policy requests JavaScript shutdown, but the active renderer still reports JavaScript enabled.')
+          : 'JavaScript is intentionally enabled for anonymous browsing compatibility; this increases fingerprinting and active-content exposure.', 'runtime-policy'));
     }
   } else {
     for (const [id,label] of [
@@ -411,8 +437,38 @@ async function runSecuritySuite() {
   addControlCheck('blockCryptominers', 'cryptominer-blocking', 'Cryptominer filtering');
   addControlCheck('blockFingerprintingScripts', 'fingerprinting-script-blocking', 'Fingerprinting-script filtering');
   addControlCheck('blockTrackingBeacons', 'tracking-beacons', 'Tracking beacon guard');
+  if (tab?.securityDomain === 'hardened' || tab?.securityDomain === 'anonymous') {
+    addControlCheck('blockThirdPartyRequests', 'third-party-request-isolation', 'All third-party request isolation');
+    addControlCheck('letterbox', 'viewport-letterbox', 'Viewport letterboxing');
+  }
+  if (tab?.securityDomain === 'anonymous') {
+    addControlCheck('disableWebRtc', 'webrtc-shutdown', 'WebRTC exposure shutdown');
+    addControlCheck('blockPrivateNetwork', 'private-network-firewall', 'Private-network firewall');
+    addControlCheck('blockAllDownloads', 'download-shutdown', 'Anonymous download shutdown');
+  }
   checks.push(makeCheck('tls-fingerprint', 'TLS fingerprint visibility', 'info',
     'Sites can still observe Chromium TLS characteristics (for example JA3/JA4-style fingerprints). Aegis does not claim to rewrite the Chromium TLS stack.', 'known-limit'));
+
+  if (tab && effective.privacyLevel !== 'standard' && tab.javascriptEnabled !== false) {
+    const liveTabs = tabs.filter((candidate) =>
+      candidate?.id !== tab.id &&
+      candidate?.securityDomain === tab.securityDomain &&
+      candidate?.javascriptEnabled !== false &&
+      candidate?.fingerprintReady &&
+      candidate?.view?.webContents &&
+      !candidate.view.webContents.isDestroyed()
+    ).slice(0, 2);
+    if (liveTabs.length) {
+      const samples = [await captureFingerprintSnapshot((source) => tab.view.webContents.executeJavaScript(source, true))];
+      for (const candidate of liveTabs) {
+        samples.push(await captureFingerprintSnapshot((source) => candidate.view.webContents.executeJavaScript(source, true)));
+      }
+      const cohort = compareFingerprintCohort(samples);
+      checks.push(makeCheck('cross-tab-cohort', 'Cross-tab fingerprint cohort', cohort.status, cohort.evidence, 'behavioral-test'));
+    } else {
+      checks.push(makeCheck('cross-tab-cohort', 'Cross-tab fingerprint cohort', 'not-tested', 'Open a second tab in the same security compartment to compare the exposed fingerprint cohort across isolated renderer sessions.', 'behavioral-test'));
+    }
+  }
 
   const isolation = await testSessionIsolation((suffix) => electronSession.fromPartition(`aegis-suite-${suffix}-${crypto.randomUUID()}`, { cache: false }));
   checks.push(makeCheck('session-isolation', 'Ephemeral session isolation', isolation.status, isolation.evidence, 'behavioral-test'));
@@ -430,6 +486,18 @@ async function runSecuritySuite() {
     if (!route?.ok) throw new Error((route?.warnings || []).join(' | ') || 'Network route could not be applied.');
     const routeStatus = routePrivacyStatus(effective.proxy?.mode || 'system', route);
     checks.push(makeCheck('network-route', 'IP routing posture', routeStatus.status, routeStatus.evidence, 'runtime-policy'));
+
+    const expectedNetworkUa = buildGenericUA(process.versions.chrome);
+    configurePrivacySession({
+      ses, tab: { url:'https://example.com/', topUrl:'https://example.com/', stats:createStats() },
+      getSettings:()=>effective, chromiumVersion:process.versions.chrome, onStats:()=>{},
+      onPermissionBlocked:()=>{}, onPermissionPrompt:({ complete })=>complete(false),
+      onSensitiveAccess:()=>{}, onNetworkAccess:()=>{}, trackerLearner:null, getFilterRules:()=>null, isTemporarilyAllowed:()=>false
+    });
+    const networkIdentity = await testNetworkIdentity(ses, {
+      ua: expectedNetworkUa, doNotTrack: effective.doNotTrack, globalPrivacyControl: effective.globalPrivacyControl
+    });
+    checks.push(makeCheck('network-identity-coherence', 'Network / JavaScript identity coherence', networkIdentity.status, networkIdentity.evidence, 'behavioral-test'));
 
     connectivity = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: effective.proxy?.mode || 'system' });
     checks.push(makeCheck('dns-https', 'DNS + HTTPS reachability', connectivity.ok ? 'pass' : 'fail',
@@ -544,8 +612,8 @@ function statePayload() {
     },
     privacySummary: {
       ephemeralTabs: true,
-      fingerprinting: settings.privacyLevel,
-      webrtc: 'non-proxied UDP disabled',
+      fingerprinting: currentSettings.privacyLevel,
+      webrtc: currentSettings.disableWebRtc ? 'disabled in this compartment' : 'non-proxied UDP disabled',
       tlsMinimum: 'TLS 1.2',
       telemetry: 'off',
       history: 'not stored'
@@ -627,7 +695,8 @@ function relayout() {
   let x = 0;
   let y = TOOLBAR_H;
 
-  if (settings.letterbox && settings.privacyLevel !== 'standard') {
+  const effective = tabSettings(tab);
+  if (effective.letterbox && effective.privacyLevel !== 'standard') {
     w = Math.max(300, Math.floor(availableW / LETTERBOX_STEP) * LETTERBOX_STEP);
     h = Math.max(200, Math.floor(availableH / LETTERBOX_STEP) * LETTERBOX_STEP);
     x = Math.floor((availableW - w) / 2);
@@ -995,7 +1064,10 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
     disableExtensions: Boolean(options.disableExtensions)
   };
   if (tab.securityDomain === 'hardened') hardenTabState(tab);
-  if (tab.securityDomain === 'anonymous') anonymousTabState(tab, options.torProxy || '127.0.0.1:9050');
+  if (tab.securityDomain === 'anonymous') {
+    anonymousTabState(tab, options.torProxy || '127.0.0.1:9050');
+    tab.javascriptEnabled = settings.anonymity?.disableJavaScript === false ? Boolean(settings.javascriptDefault) : false;
+  }
 
   const view = createTabView(tab);
   tab.view = view;
@@ -1273,6 +1345,7 @@ function showTabContextMenu(tab, params = {}) {
   if (link) {
     template.push(
       { label: 'Open Link in New Isolated Tab', click: () => createTab(link, true) },
+      { label: 'Open Link in Anonymous Compartment', click: () => createAnonymousTab(link) },
       { label: 'Copy Clean Link', click: () => clipboard.writeText(link) }
     );
   } else if (selectedText) {
