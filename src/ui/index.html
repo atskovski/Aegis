@@ -164,6 +164,7 @@
         <button class="settings-nav-item" data-settings-target="network"><span>⇄</span>Network</button>
         <button class="settings-nav-item" data-settings-target="search"><span>⌕</span>Search</button>
         <button class="settings-nav-item" data-settings-target="appearance"><span>✦</span>Appearance</button>
+        <button class="settings-nav-item" data-settings-target="extensions"><span>⊞</span>Extensions</button>
         <button class="settings-nav-item" data-settings-target="diagnostics"><span>⌁</span>Diagnostics</button>
         <button class="settings-nav-item" data-settings-target="about"><span>i</span>About</button>
       </nav>
@@ -289,6 +290,23 @@
             <label class="check-row"><input id="showScoreToggle" type="checkbox"><span><b>Show privacy score</b><small>Displays the local posture score in the site privacy panel.</small></span></label>
             <label class="check-row"><input id="reduceMotionToggle" type="checkbox"><span><b>Reduce UI motion</b><small>Minimizes nonessential browser-shell transitions.</small></span></label>
           </div>
+        </section>
+
+        <section class="settings-page" data-settings-page="extensions">
+          <div class="page-title"><h3>Extensions</h3><p>Install compatible WebExtensions or inspect Firefox XPI packages. Aegis refuses packages whose requested APIs cannot be enforced by the active engine.</p></div>
+          <div class="settings-card grouped-card">
+            <div class="settings-group-head"><span class="settings-group-icon">⊞</span><div><b>Aegis Extension Runtime</b><small>Static compatible content-script extensions run in isolated worlds inside ephemeral tabs. Firefox-only APIs require the Gecko edition.</small></div></div>
+            <div class="extension-install-row">
+              <div><b>Install XPI / WebExtension</b><small>Aegis validates paths, archive limits, manifest capabilities, requested permissions, SHA-256, and content-script API usage before installation.</small></div>
+              <button id="installXpi" class="primary" type="button">Choose XPI…</button>
+            </div>
+            <div id="extensionInstallResult" class="extension-result hidden"></div>
+          </div>
+          <div class="settings-card grouped-card">
+            <div class="settings-group-head"><span class="settings-group-icon">◇</span><div><b>Installed extensions</b><small>Only packages that the current compatibility runtime can execute are shown as installed.</small></div></div>
+            <div id="extensionsList" class="extensions-list"><div class="signal-empty"><b>No extensions installed</b><span>Choose an XPI package to validate and install.</span></div></div>
+          </div>
+          <div class="info-callout"><b>Why some Firefox add-ons are rejected</b><span>Electron does not implement Firefox's full WebExtensions API. Add-ons using background execution, proxy, contextual identities, native messaging, or other Gecko services are marked <strong>Requires Gecko</strong> instead of being installed in a broken state.</span></div>
         </section>
 
         <section class="settings-page" data-settings-page="diagnostics">
