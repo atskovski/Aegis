@@ -197,6 +197,7 @@ const webRequest = {
   OnBeforeRequestOptions:Object.freeze({ BLOCKING:'blocking', REQUEST_BODY:'requestBody' }),
   OnBeforeSendHeadersOptions:Object.freeze({ REQUEST_HEADERS:'requestHeaders', BLOCKING:'blocking', EXTRA_HEADERS:'extraHeaders' }),
   OnHeadersReceivedOptions:Object.freeze({ RESPONSE_HEADERS:'responseHeaders', BLOCKING:'blocking', EXTRA_HEADERS:'extraHeaders' }),
+  OnResponseStartedOptions:Object.freeze({ RESPONSE_HEADERS:'responseHeaders', EXTRA_HEADERS:'extraHeaders' }),
   onBeforeRequest:webRequestEvent('webRequest.onBeforeRequest'),
   onBeforeSendHeaders:webRequestEvent('webRequest.onBeforeSendHeaders'),
   onSendHeaders:webRequestEvent('webRequest.onSendHeaders'),
@@ -289,8 +290,8 @@ const api = {
   declarativeNetRequest,
   privacy: {
     network:{webRTCIPHandlingPolicy:privacySetting('network','webRTCIPHandlingPolicy'),networkPredictionEnabled:privacySetting('network','networkPredictionEnabled')},
-    services:{passwordSavingEnabled:privacySetting('services','passwordSavingEnabled'),autofillAddressEnabled:privacySetting('services','autofillAddressEnabled'),autofillCreditCardEnabled:privacySetting('services','autofillCreditCardEnabled')},
-    websites:{thirdPartyCookiesAllowed:privacySetting('websites','thirdPartyCookiesAllowed'),hyperlinkAuditingEnabled:privacySetting('websites','hyperlinkAuditingEnabled'),referrersEnabled:privacySetting('websites','referrersEnabled'),protectedContentEnabled:privacySetting('websites','protectedContentEnabled')}
+    services:{passwordSavingEnabled:privacySetting('services','passwordSavingEnabled'),autofillAddressEnabled:privacySetting('services','autofillAddressEnabled'),autofillCreditCardEnabled:privacySetting('services','autofillCreditCardEnabled'),alternateErrorPagesEnabled:privacySetting('services','alternateErrorPagesEnabled')},
+    websites:{thirdPartyCookiesAllowed:privacySetting('websites','thirdPartyCookiesAllowed'),hyperlinkAuditingEnabled:privacySetting('websites','hyperlinkAuditingEnabled'),referrersEnabled:privacySetting('websites','referrersEnabled'),protectedContentEnabled:privacySetting('websites','protectedContentEnabled'),topicsEnabled:privacySetting('websites','topicsEnabled'),adMeasurementEnabled:privacySetting('websites','adMeasurementEnabled'),fledgeEnabled:privacySetting('websites','fledgeEnabled')}
   },
   notifications: {
     create:(...args)=>call('notifications.create',...args),
