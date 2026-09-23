@@ -12,12 +12,20 @@ function decodeJson(value, fallback = {}) {
 }
 
 let extensionId = '';
-let resourceToken = '';
 try { extensionId = decodeURIComponent(arg('aegis-extension-id')); } catch {}
-try { resourceToken = decodeURIComponent(arg('aegis-extension-token')); } catch {}
-const manifest = Object.freeze(decodeJson(arg('aegis-extension-manifest'), {}));
-const messages = Object.freeze(decodeJson(arg('aegis-extension-messages'), {}));
 const context = String(arg('aegis-extension-context') || 'page');
+let bootstrap = {};
+try {
+  const value = ipcRenderer.sendSync('extension:bootstrap-data', { extensionId, context });
+  if (value && typeof value === 'object') bootstrap = value;
+} catch {}
+let resourceToken = String(bootstrap.resourceToken || '');
+const manifest = Object.freeze(bootstrap.manifest && typeof bootstrap.manifest === 'object'
+  ? bootstrap.manifest
+  : decodeJson(arg('aegis-extension-manifest'), {}));
+const messages = Object.freeze(bootstrap.messages && typeof bootstrap.messages === 'object'
+  ? bootstrap.messages
+  : decodeJson(arg('aegis-extension-messages'), {}));
 
 const events = new Map();
 const eventList = (name) => {
