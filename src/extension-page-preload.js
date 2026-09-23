@@ -50,6 +50,10 @@ const actionApi = (root) => ({
   setBadgeBackgroundColor: (details={}) => call(root + '.setBadgeBackgroundColor', details),
   setPopup: (details={}) => call(root + '.setPopup', details),
   getPopup: (details={}) => call(root + '.getPopup', details),
+  setIcon: (details={}) => call(root + '.setIcon', details),
+  enable: (tabId) => call(root + '.enable', tabId),
+  disable: (tabId) => call(root + '.disable', tabId),
+  isEnabled: (tabId) => call(root + '.isEnabled', tabId),
   openPopup: () => call(root + '.openPopup'),
   onClicked: event(root + '.onClicked')
 });
@@ -68,6 +72,7 @@ const runtime = {
   getURL: (p='') => 'aegis-extension://' + resourceToken + '/' + String(p).replace(/^\/+/, ''),
   getPlatformInfo: () => call('runtime.getPlatformInfo'),
   getBrowserInfo: () => call('runtime.getBrowserInfo'),
+  getContexts: (filter={}) => call('runtime.getContexts', filter),
   openOptionsPage: () => call('runtime.openOptionsPage'),
   reload: () => call('runtime.reload'),
   sendMessage: (...args) => call('runtime.sendMessage', ...args),
@@ -87,6 +92,9 @@ const tabs = {
   executeScript: (...args) => call('tabs.executeScript', ...args),
   insertCSS: (...args) => call('tabs.insertCSS', ...args),
   removeCSS: (...args) => call('tabs.removeCSS', ...args),
+  getZoom: (id) => call('tabs.getZoom', id),
+  setZoom: (...args) => call('tabs.setZoom', ...args),
+  captureVisibleTab: (...args) => call('tabs.captureVisibleTab', ...args),
   onCreated: event('tabs.onCreated'),
   onUpdated: event('tabs.onUpdated'),
   onRemoved: event('tabs.onRemoved'),
@@ -95,8 +103,26 @@ const tabs = {
 const api = {
   runtime,
   extension: { getURL: runtime.getURL },
-  storage: { local:area('local'), session:area('session'), onChanged:event('storage.onChanged') },
+  storage: { local:area('local'), sync:area('sync'), session:area('session'), onChanged:event('storage.onChanged') },
   tabs,
+  windows: {
+    get:(id,info={})=>call('windows.get',id,info),
+    getCurrent:(info={})=>call('windows.getCurrent',info),
+    getLastFocused:(info={})=>call('windows.getLastFocused',info),
+    getAll:(info={})=>call('windows.getAll',info),
+    update:(id,info={})=>call('windows.update',id,info),
+    onFocusChanged:event('windows.onFocusChanged'),
+    onCreated:event('windows.onCreated'),
+    onRemoved:event('windows.onRemoved')
+  },
+  cookies: {
+    get:(details={})=>call('cookies.get',details),
+    getAll:(details={})=>call('cookies.getAll',details),
+    set:(details={})=>call('cookies.set',details),
+    remove:(details={})=>call('cookies.remove',details),
+    getAllCookieStores:()=>call('cookies.getAllCookieStores'),
+    onChanged:event('cookies.onChanged')
+  },
   permissions: {
     contains: (p={}) => call('permissions.contains', p),
     getAll: () => call('permissions.getAll'),
