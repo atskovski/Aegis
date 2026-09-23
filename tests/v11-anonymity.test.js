@@ -20,7 +20,7 @@ test('anonymous compartment controls are present and wired',()=>{
 
 test('Harden This Site is backed by destructive compartment enforcement',()=>{
   assert.match(main,/hardenTabState\(tab\)/);
-  assert.match(main,/clearData\(\{ dataTypes:\['cookies','localStorage','indexedDB','serviceWorkers','cache','cacheStorage'\]/);
+  assert.match(main,/browserRuntime\.clearData\(tab\.privateSession, \{ dataTypes:\['cookies','localStorage','indexedDB','serviceWorkers','cache','cacheStorage'\]/);
   assert.match(main,/replaceTabView\(tab, true\)/);
   assert.match(main,/SENSITIVE_PERMISSION_KEYS/);
 });
