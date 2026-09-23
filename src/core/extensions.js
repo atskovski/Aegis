@@ -167,7 +167,7 @@ class AegisExtensionRuntime{
   async call(sender,p={}){
     const e=this.items.get(String(p.extensionId||'')); if(!e||e.enabled===false)throw new Error('Extension disabled or missing'); const m=String(p.method||''),a=Array.isArray(p.args)?p.args:[],tabs=this.getTabs(),source=tabs.find((t)=>t.view?.webContents===sender);
     if(m==='runtime.getManifest')return e.manifest;
-    if(m==='runtime.getURL')return 'aegis-extension://ext/'+e.resourceToken+'/'+String(a[0]||'').replace(/^\\/+/, '');
+    if(m==='runtime.getURL')return 'aegis-extension://ext/'+e.resourceToken+'/'+String(a[0]||'').replace(/^\/+/, '');
     if(m==='runtime.getPlatformInfo')return {os:process.platform==='darwin'?'mac':'unknown',arch:process.arch==='arm64'?'arm':'x86-64'};
     if(m==='permissions.contains'){const set=new Set(permissions(e.manifest));return [...(a[0]?.permissions||[]),...(a[0]?.origins||[])].every((x)=>set.has(x))}
     if(m.startsWith('storage.')){const [,area,op]=m.split('.'),file=path.join(this.dataDir,e.id,'storage.json'),store=area==='local'?readStore(file):(this.sessionStores.get(e.id)||{});this.sessionStores.set(e.id,store);if(op==='get')return getKeys(store,a[0]);if(op==='set')Object.assign(store,a[0]||{});if(op==='remove')for(const k of Array.isArray(a[0])?a[0]:[a[0]])delete store[k];if(op==='clear')for(const k of Object.keys(store))delete store[k];if(area==='local'&&op!=='get')writeStore(file,store);return;}
