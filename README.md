@@ -1,12 +1,12 @@
 <p align="center"><img src="assets/brand/aegis-lockup.svg" alt="Aegis Privacy Browser" width="430"></p>
 
-# Aegis Privacy Browser 1.3 — Security Kernel + Extension Runtime 4
+# Aegis Privacy Browser 1.3 — Security Kernel + Extension Runtime 5
 
 Aegis 1.1 is a local-first macOS privacy, security and managed-browser platform built on Electron/Chromium. Its design rule is simple: a security setting is not treated as protection merely because a toggle is enabled. Aegis couples policy, browser-process enforcement, behavioral runtime checks and user-visible evidence.
 
 Aegis does **not** promise anonymity, a zero fingerprint, malware immunity, or Tor Browser equivalence. It reduces attack surface and linkability, isolates high-risk activity, can fail closed for selected routes, and reports important residual exposure instead of converting limitations into green badges.
 
-## 1.3 — Chrome Extensions + Extension Runtime 4
+## 1.3 — Chrome Extensions + Extension Runtime 5
 
 Aegis 1.3 adds first-class Chrome extension installation alongside Firefox-style WebExtensions.
 
@@ -19,7 +19,7 @@ Aegis 1.3 adds first-class Chrome extension installation alongside Firefox-style
 - Add Chrome-style callback APIs alongside Promise APIs, including `chrome.runtime.lastError`, so older callback-based Chrome extensions and modern Promise-based extensions can use the same bridge.
 - Add synchronous Chrome-compatible IDs for `contextMenus.create()` / `menus.create()` while keeping the underlying browser menu owned by Aegis.
 - Runtime 4 continues to provide long-lived `runtime.connect` / `tabs.connect` Ports, storage.local/sync/session/managed, tabs, windows, host-scoped cookies, action/browserAction/pageAction, scripting, alarms, commands, webNavigation, notifications and context menus.
-- Add direct Chrome package source/trust reporting in the Add-ons manager, plus search, filters, health checks, repair, reload, enable/disable and removal controls.
+- Add direct Chrome package source/trust reporting in the Add-ons manager, plus search, filters, reviewed source updates, health checks, repair, reload, enable/disable and removal controls.
 - Extend the macOS launch preflight to syntax-check the complete extension shim, bridge preload, background host preload and extension page preload before Aegis starts.
 
 Security boundary: Chrome extensions still cannot replace Aegis routing, disable the privacy firewall or Security Kernel, use native messaging, attach privileged debugger/devtools APIs, manage other extensions, or execute inside hardened/anonymous compartments.
@@ -280,6 +280,6 @@ Native macOS GUI behavior, real-world fingerprint comparison populations, live l
 
 ## 1.1 status
 
-The repository version is **1.1.0**. Aegis 1.1 now contains the Runtime Guardian architecture, isolated browsing compartments, enterprise policy engine, signed managed-policy verification, Aegis Extension Runtime, runtime Security Suite, Sentinel evidence model, tracking/storage defenses, fingerprint-reduction framework, download integrity evidence, secret-safe diagnostics and expanded appearance system.
+The repository version is **1.3.0**. Aegis 1.1 now contains the Runtime Guardian architecture, isolated browsing compartments, enterprise policy engine, signed managed-policy verification, Aegis Extension Runtime, runtime Security Suite, Sentinel evidence model, tracking/storage defenses, fingerprint-reduction framework, download integrity evidence, secret-safe diagnostics and expanded appearance system.
 
 The repository should still distinguish a feature-complete codebase from a publicly trusted binary release: broad native compatibility testing, Apple signing/notarization, signed update distribution, reproducible release provenance and independent security review are distribution/release-assurance steps rather than claims the source tree can make by itself.
