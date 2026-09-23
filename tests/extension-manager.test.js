@@ -18,11 +18,13 @@ test('Add-ons manager exposes staged review and installed-extension controls',()
   for(const id of [
     'extensionActions','installXpi','loadUnpackedExtension','addonUrlInput','installAddonUrl','addonRuntimeSummary','addonHealthyCount','addonDegradedCount',
     'addonReview','addonReviewName','addonReviewScore','addonReviewPermissions','addonReviewHosts','addonReviewUnsupported','addonReviewFeatures',
-    'addonReviewId','addonReviewDigest','confirmAddonInstall','cancelAddonInstall','addonSearch','addonFilter','refreshAddons','addonList','addonManagerStatus'
+    'addonReviewId','addonReviewDigest','confirmAddonInstall','cancelAddonInstall','addonSearch','addonFilter','refreshAddons','addonList','addonManagerStatus','storeInstall'
   ]) assert.match(html,new RegExp('id="'+id+'"'));
   assert.match(ui,/extensions:pick-package/);
   assert.match(ui,/extensions:pick-unpacked/);
   assert.match(ui,/extensions:install-url/);
+  assert.match(ui,/extensionStoreSource/);
+  assert.match(ui,/storeInstall/);
   assert.match(ui,/extensions:install-staged/);
   assert.match(ui,/extensions:diagnose/);
   assert.match(ui,/extensions:cancel-install/);
