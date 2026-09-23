@@ -447,7 +447,11 @@
     </div>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite" aria-atomic="true">
+    <span id="toastIcon" class="toast-icon" aria-hidden="true">✓</span>
+    <span class="toast-copy"><b id="toastTitle">Confirmed</b><span id="toastMessage"></span></span>
+    <button id="toastClose" class="toast-close" type="button" aria-label="Dismiss notification">×</button>
+  </div>
   <script src="aegis://app/app.js"></script>
 </body>
 </html>
