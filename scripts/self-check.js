@@ -37,6 +37,75 @@ for (const [label, ok] of architectureChecks) {
   if (!ok) { console.error('Architecture hardening check failed:', label); bad = true; }
 }
 
+const uiSource = fs.readFileSync(path.join(root, 'src/ui/app.js'), 'utf8');
+const preloadSource = fs.readFileSync(path.join(root, 'src/preload.js'), 'utf8');
+const uiHtml = fs.readFileSync(path.join(root, 'src/ui/index.html'), 'utf8');
+
+function unique(values) { return [...new Set(values)].sort(); }
+function channelMatches(source, rx) { return unique([...source.matchAll(rx)].map((m) => m[1])); }
+function setValues(source, name) {
+  const match = source.match(new RegExp(name + ' = new Set\\(\\[([\\s\\S]*?)\\]\\)'));
+  return match ? unique([...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1])) : [];
+}
+
+const uiSends = channelMatches(uiSource, /window\.aegis\.send\('([^']+)'/g);
+const uiInvokes = channelMatches(uiSource, /window\.aegis\.invoke\('([^']+)'/g);
+const allowedSends = setValues(preloadSource, 'allowedSend');
+const allowedInvokes = setValues(preloadSource, 'allowedInvoke');
+const mainOns = channelMatches(mainSource, /ipcMain\.on\('([^']+)'/g);
+const mainHandles = channelMatches(mainSource, /ipcMain\.handle\('([^']+)'/g);
+
+for (const channel of uiSends) {
+  if (!allowedSends.includes(channel) || !mainOns.includes(channel)) {
+    console.error('UI send channel is not fully wired:', channel);
+    bad = true;
+  }
+}
+for (const channel of uiInvokes) {
+  if (!allowedInvokes.includes(channel) || !mainHandles.includes(channel)) {
+    console.error('UI invoke channel is not fully wired:', channel);
+    bad = true;
+  }
+}
+
+const draftBlock = uiSource.match(/const draftControlIds = \[([\s\S]*?)\];/);
+if (!draftBlock) {
+  console.error('Settings draft control registry missing.');
+  bad = true;
+} else {
+  const ids = [...draftBlock[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  for (const id of ids) {
+    if (!uiHtml.includes('id="' + id + '"') && !uiHtml.includes("id='" + id + "'")) {
+      console.error('Settings control missing from UI:', id);
+      bad = true;
+    }
+  }
+}
+
+const invalidSelectorIterations = uiSource.split('\n').filter((line) => /(^|[^$])\$\((['"])[^)\n]+\2\)\.forEach\(/.test(line));
+if (invalidSelectorIterations.length) {
+  console.error('Single-node selector iterated as a collection:', invalidSelectorIterations.join(' | '));
+  bad = true;
+}
+
+const mapNames = [...mainSource.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new Map\s*\(/g)].map((m) => m[1]);
+for (const name of mapNames) {
+  for (const method of ['filter','map','some','find','slice','reduce','includes','at','flatMap','sort']) {
+    if (new RegExp('\\b' + name + '\\.' + method + '\\s*\\(').test(mainSource)) {
+      console.error('Map collection uses Array-only method:', name + '.' + method);
+      bad = true;
+    }
+  }
+}
+if (/\bcreateStats\s*\(/.test(mainSource)) {
+  console.error('Stale Security Suite stats factory present: createStats().');
+  bad = true;
+}
+if (/candidate\?\.view\?\.webContents/.test(mainSource)) {
+  console.error('Security Suite bypasses BrowserRuntime with a direct candidate view webContents check.');
+  bad = true;
+}
+
 const launcher = fs.readFileSync(path.join(root, 'Run-Aegis.command'), 'utf8');
 for (const token of ['Library/Application Support','rsync','runtime-v$VERSION','44.4.3','codesign --verify --deep --strict','shasum -a 256','ELECTRON_RUN_AS_NODE=1','darwin-$ELECTRON_ARCH.zip']) {
   if (!launcher.includes(token)) { console.error('Launcher hardening token missing:', token); bad = true; }
