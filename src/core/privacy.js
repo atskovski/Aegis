@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const { isKnownTracker, explicitDomainMatches, explicitCategory, looksFingerprinting, isPublicCdn } = require('./blocklist');
 const { isThirdParty, stripTrackingParams } = require('./url');
-const { matchFilterRules } = require('./filter-rules');
+const { matchFilterRules, applyRemoveParamRules } = require('./filter-rules');
 const { isKnownScriptTrackerUrl, looksFirstPartyAnalytics } = require('./content-filter');
 const { isPrivateNetworkUrl } = require('./compartment');
 
@@ -94,7 +94,10 @@ function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onSta
     const thirdParty = isThirdParty(details.url, topUrl);
     if (thirdParty) tab.stats.thirdPartyRequests += 1;
 
-    const rule = matchFilterRules(details.url, typeof getFilterRules === 'function' ? getFilterRules() : null);
+    const activeRules = typeof getFilterRules === 'function' ? getFilterRules() : null;
+    const filteredUrl = settings.stripTrackingParams ? applyRemoveParamRules(details.url, activeRules, { topUrl, resourceType:details.resourceType }) : details.url;
+    if(filteredUrl!==details.url){tab.stats.trackingParamsRemoved+=1;onStats(tab);return callback({redirectURL:filteredUrl});}
+    const rule = matchFilterRules(details.url, activeRules, { topUrl, resourceType:details.resourceType });
     if (rule === 'block' && tab.shieldsEnabled && !tab.compatibilityMode) { tab.stats.blockedTrackers += 1; noteBlocked(tab, details.url); if (thirdParty && typeof onNetworkAccess === 'function') onNetworkAccess({ url: details.url, blocked: true, category: 'custom', resourceType: details.resourceType }); onStats(tab); return callback({ cancel: true }); }
     if (rule === 'allow') { if (thirdParty) { if (typeof onNetworkAccess === 'function') onNetworkAccess({ url: details.url, blocked: false, category: 'allow-rule', resourceType: details.resourceType }); onStats(tab); } return callback({}); }
 
