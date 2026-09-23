@@ -124,4 +124,50 @@ async function runConnectivityTest(ses, options = {}) {
   return result;
 }
 
-module.exports = { timeout, applyProxyToSession, runConnectivityTest };
+
+async function verifyTorRoute(ses, options = {}) {
+  if (!ses) return { ok:false, verified:false, error:'No Chromium session available.' };
+  const startedAt=Date.now();
+  const result={ok:false,verified:false,testedAt:new Date().toISOString(),provider:'Tor Project',exitIp:'',elapsedMs:0,error:''};
+  const attempts=[
+    {url:'https://check.torproject.org/api/ip',json:true},
+    {url:'https://check.torproject.org/',json:false}
+  ];
+  const errors=[];
+  for (const attempt of attempts) {
+    try {
+      const response=await timeout(ses.fetch(attempt.url,{method:'GET',redirect:'follow',cache:'no-store'}), options.timeoutMs || 10000, 'Tor route verification');
+      if (!response.ok) throw new Error('HTTP '+response.status);
+      const body=await timeout(response.text(),3000,'Tor verification response');
+      if (attempt.json) {
+        try {
+          const data=JSON.parse(body);
+          const isTor=data.IsTor === true || data.IsTor === 'true' || data.isTor === true;
+          const ip=String(data.IP || data.ip || '').trim();
+          if (isTor) {
+            result.ok=true; result.verified=true; result.exitIp=ip; result.elapsedMs=Date.now()-startedAt; return result;
+          }
+          throw new Error('Tor Project reported that this route is not Tor.');
+        } catch (err) {
+          if (/reported/.test(err.message)) throw err;
+          throw new Error('Invalid Tor JSON response');
+        }
+      }
+      const good=/Congratulations\.? This browser is configured to use Tor|This browser is configured to use Tor/i.test(body);
+      const bad=/Sorry\.? You are not using Tor/i.test(body);
+      if (good && !bad) {
+        result.ok=true; result.verified=true;
+        const ipMatch=body.match(/(?:Your IP address appears to be|IP Address[^<:]*)[:\s]+(?:<[^>]+>\s*)*([0-9a-f:.]{3,64})/i);
+        if (ipMatch) result.exitIp=ipMatch[1];
+        result.elapsedMs=Date.now()-startedAt; return result;
+      }
+      if (bad) throw new Error('Tor Project reported that this route is not Tor.');
+      throw new Error('Tor status could not be determined from the response.');
+    } catch (err) { errors.push(err.message); }
+  }
+  result.elapsedMs=Date.now()-startedAt;
+  result.error=errors.join(' | ').slice(0,600) || 'Tor verification failed.';
+  return result;
+}
+
+module.exports = { timeout, applyProxyToSession, runConnectivityTest, verifyTorRoute };
