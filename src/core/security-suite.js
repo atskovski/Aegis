@@ -199,6 +199,29 @@ async function testNetworkIdentity(ses, expected = {}) {
   }
 }
 
+async function testStorageResurrection(ses) {
+  if (!ses) return {status:'not-tested',ok:false,evidence:'Disposable session unavailable.'};
+  const origin='https://example.com';
+  try {
+    await ses.cookies.set({url:origin,name:'aegis_probe',value:'1',expirationDate:Math.floor(Date.now()/1000)+300});
+    const before=await ses.cookies.get({url:origin,name:'aegis_probe'});
+    await ses.clearData({dataTypes:['cookies','localStorage','indexedDB','serviceWorkers','cacheStorage'],origins:[origin],originMatchingMode:'origin-in-all-contexts'});
+    const after=await ses.cookies.get({url:origin,name:'aegis_probe'});
+    const ok=before.length===1&&after.length===0;
+    return {status:ok?'pass':'fail',ok,evidence:ok?'Disposable-session cookie state was created, cleared, and confirmed absent after cleanup.':'Cookie state remained after explicit storage cleanup.'};
+  } catch(err){return {status:'not-tested',ok:false,evidence:'Storage cleanup probe unavailable: '+err.message};}
+}
+
+async function testProcessIsolation(executeJavaScript, webPreferences={}) {
+  const staticOk=webPreferences.sandbox===true&&webPreferences.contextIsolation===true&&webPreferences.nodeIntegration===false&&webPreferences.webSecurity===true;
+  if(typeof executeJavaScript!=='function') return {status:staticOk?'pass':'fail',ok:staticOk,evidence:'Static renderer policy only; behavioral renderer probe unavailable.'};
+  try{
+    const v=await timeout(executeJavaScript(`({node:typeof process!=='undefined'&&!!process.versions?.node,require:typeof require==='function',isolated:typeof window.aegis==='undefined'})`),1800,'Process isolation');
+    const ok=staticOk&&!v.node&&!v.require;
+    return {status:ok?'pass':'fail',ok,evidence:ok?'Sandbox/context isolation are enabled and page JavaScript cannot observe Node.js or require().':'Renderer isolation invariant failed.'};
+  }catch(err){return {status:'not-tested',ok:false,evidence:'Process isolation probe unavailable: '+err.message};}
+}
+
 function routePrivacyStatus(proxyMode, route = null) {
   const mode = String(proxyMode || 'system');
   if (['socks5','http','https'].includes(mode)) {
@@ -224,5 +247,5 @@ function summarizeChecks(checks) {
 
 module.exports = {
   isPublicIp, fetchPublicIp, testSessionIsolation, candidateAddresses, isNumericLocalLeak,
-  testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, fingerprintSnapshotDigest, compareFingerprintCohort, testNetworkIdentity, routePrivacyStatus, makeCheck, summarizeChecks
+  testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, fingerprintSnapshotDigest, compareFingerprintCohort, testNetworkIdentity, testStorageResurrection, testProcessIsolation, routePrivacyStatus, makeCheck, summarizeChecks
 };
