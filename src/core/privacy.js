@@ -6,10 +6,11 @@ const { isKnownTracker, explicitDomainMatches, explicitCategory, looksFingerprin
 const { isThirdParty, stripTrackingParams } = require('./url');
 const { matchFilterRules } = require('./filter-rules');
 const { isKnownScriptTrackerUrl, looksFirstPartyAnalytics } = require('./content-filter');
+const { isPrivateNetworkUrl } = require('./compartment');
 
 function makeTabStats() {
   return {
-    blockedTrackers: 0, adsBlocked: 0, socialBlocked: 0, cryptominersBlocked: 0, fingerprintScriptsBlocked: 0,
+    blockedTrackers: 0, adsBlocked: 0, socialBlocked: 0, cryptominersBlocked: 0, fingerprintScriptsBlocked: 0, privateNetworkBlocks: 0,
     learnedTrackersBlocked: 0, blockedPermissions: 0, thirdPartyRequests: 0, thirdPartyCookiesBlocked: 0,
     trackingParamsRemoved: 0, httpsUpgrades: 0, blockedPopups: 0, blockedDownloads: 0, loadFailures: 0,
     etagProtections: 0, cdnIsolations: 0, sponsorSegmentsSkipped: 0, recentBlocked: []
@@ -55,6 +56,13 @@ function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onSta
 
   ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
     const settings = getSettings();
+    if (settings.blockPrivateNetwork && isPrivateNetworkUrl(details.url)) {
+      tab.stats.privateNetworkBlocks = (tab.stats.privateNetworkBlocks || 0) + 1;
+      noteBlocked(tab, details.url);
+      if (typeof onNetworkAccess === 'function') onNetworkAccess({ url: details.url, blocked: true, category: 'private-network', resourceType: details.resourceType });
+      onStats(tab);
+      return callback({ cancel: true });
+    }
     if (details.resourceType === 'mainFrame') tab.topUrl = details.url;
     const topUrl = tab.topUrl || tab.url || details.url;
     if (details.resourceType === 'mainFrame' && settings.stripTrackingParams) {
@@ -79,7 +87,8 @@ function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onSta
     // Known script hosts are telemetry evidence, but blocking still obeys the category-specific toggles above.
     // Do not let a generic script-host helper silently override Block Ads / Social / Trackers preferences.
     const uncategorizedScriptTracker = explicitScriptTracker && !category && settings.blockTrackers !== false;
-    const shouldBlock = tab.shieldsEnabled && !tab.compatibilityMode && ((thirdParty && (highConfidence || fpScript || learned || uncategorizedScriptTracker)) || firstPartyAnalytics);
+    const allThirdParty = Boolean(settings.blockThirdPartyRequests && thirdParty);
+    const shouldBlock = tab.shieldsEnabled && !tab.compatibilityMode && (allThirdParty || (thirdParty && (highConfidence || fpScript || learned || uncategorizedScriptTracker)) || firstPartyAnalytics);
     if (shouldBlock) {
       tab.stats.blockedTrackers += 1;
       if (category === 'ads') tab.stats.adsBlocked += 1;
@@ -88,7 +97,7 @@ function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onSta
       if (fpScript) tab.stats.fingerprintScriptsBlocked += 1;
       if (learned && !known) tab.stats.learnedTrackersBlocked += 1;
       if (firstPartyAnalytics) tab.stats.firstPartyAnalyticsBlocked = (tab.stats.firstPartyAnalyticsBlocked || 0) + 1;
-      noteBlocked(tab, details.url); if (typeof onNetworkAccess === 'function') onNetworkAccess({ url: details.url, blocked: true, category: category || (fpScript ? 'fingerprint' : (firstPartyAnalytics ? 'first-party-analytics' : (learned ? 'heuristic' : 'tracker'))), resourceType: details.resourceType }); onStats(tab); return callback({ cancel: true });
+      noteBlocked(tab, details.url); if (typeof onNetworkAccess === 'function') onNetworkAccess({ url: details.url, blocked: true, category: allThirdParty ? 'third-party-block' : (category || (fpScript ? 'fingerprint' : (firstPartyAnalytics ? 'first-party-analytics' : (learned ? 'heuristic' : 'tracker')))), resourceType: details.resourceType }); onStats(tab); return callback({ cancel: true });
     }
     if (thirdParty) { if (typeof onNetworkAccess === 'function') onNetworkAccess({ url: details.url, blocked: false, category: category || (fpScript ? 'fingerprint' : (known ? 'tracker' : 'third-party')), resourceType: details.resourceType }); onStats(tab); }
     callback({});
