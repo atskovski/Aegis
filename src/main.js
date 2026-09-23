@@ -41,6 +41,7 @@ app.enableSandbox();
 app.commandLine.appendSwitch('disable-background-networking');
 app.commandLine.appendSwitch('disable-breakpad');
 app.commandLine.appendSwitch('disable-sync');
+app.commandLine.appendSwitch('disable-quic');
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 app.commandLine.appendSwitch('site-per-process');
 app.commandLine.appendSwitch('no-pings');
@@ -948,7 +949,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
     stats: makeTabStats(),
     shieldsEnabled: true,
     allowHttp: false,
-    javascriptEnabled: settings.javascriptDefault,
+    javascriptEnabled: options.securityDomain === 'anonymous' && settings.anonymity?.disableJavaScript !== false ? false : settings.javascriptDefault,
     compatibilityMode: false,
     lastError: null,
     httpStatus: null,
