@@ -38,8 +38,18 @@ function categoryEnabled(settings, category) {
   if (category === 'cryptomining') return settings.blockCryptominers !== false;
   return settings.blockTrackers !== false;
 }
+function applyExtensionHeaderRemovals(headers, operations = []) {
+  const out = { ...(headers || {}) };
+  const remove = new Set((Array.isArray(operations) ? operations : [])
+    .filter((item) => item?.operation === 'remove')
+    .map((item) => String(item.header || '').trim().toLowerCase())
+    .filter(Boolean));
+  if (!remove.size) return out;
+  for (const key of Object.keys(out)) if (remove.has(String(key).toLowerCase())) delete out[key];
+  return out;
+}
 
-function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, onExtensionRequest, getExtensionNetworkDecision, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
+function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, onRequestHeaders, onExtensionRequest, getExtensionNetworkDecision, getExtensionHeaderModifications, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
   const genericUA = buildGenericUA(chromiumVersion);
   ses.setUserAgent(genericUA, 'en-US,en');
   ses.spellCheckerEnabled = false;
@@ -144,10 +154,14 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
       const cookieKey = Object.keys(h).find((k) => k.toLowerCase() === 'cookie');
       if (cookieKey) { delete h[cookieKey]; tab.stats.thirdPartyCookiesBlocked += 1; if (cdn) tab.stats.cdnIsolations += 1; onStats(tab); }
     }
+    const requestHeaderOps = typeof getExtensionHeaderModifications === 'function'
+      ? getExtensionHeaderModifications({ ...details, requestHeaders:{ ...h } }, 'request')
+      : [];
+    const outgoingHeaders = applyExtensionHeaderRemovals(h, requestHeaderOps);
     if (typeof onRequestHeaders === 'function') {
-      try { onRequestHeaders({ url: details.url, resourceType: details.resourceType, requestHeaders: { ...h } }); } catch {}
+      try { onRequestHeaders({ url: details.url, resourceType: details.resourceType, requestHeaders: { ...outgoingHeaders } }); } catch {}
     }
-    callback({ requestHeaders: h });
+    callback({ requestHeaders: outgoingHeaders });
   });
 
   ses.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
@@ -160,7 +174,10 @@ function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersio
       if ((lower === 'etag' || lower === 'last-modified') && thirdParty && settings.etagProtection && known) { delete headers[k]; tab.stats.etagProtections += 1; }
       if (lower === 'set-cookie' && ((thirdParty && settings.blockThirdPartyCookies && !tab.compatibilityMode) || cdn)) { const values = headers[k] || []; tab.stats.thirdPartyCookiesBlocked += Math.max(1, values.length); if (cdn) tab.stats.cdnIsolations += 1; delete headers[k]; onStats(tab); }
     }
-    callback({ responseHeaders: headers });
+    const responseHeaderOps = typeof getExtensionHeaderModifications === 'function'
+      ? getExtensionHeaderModifications({ ...details, responseHeaders:{ ...headers } }, 'response')
+      : [];
+    callback({ responseHeaders: applyExtensionHeaderRemovals(headers, responseHeaderOps) });
   });
 
   try {
@@ -180,4 +197,4 @@ function freshSeed() { return crypto.randomBytes(24).toString('hex'); }
 function safeDownloadName(name) { return String(name || 'download').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 180); }
 function isRiskyDownload(filename) { return /\.(?:dmg|pkg|app|exe|msi|scr|bat|cmd|com|ps1|vbs|js|jse|jar|sh|command|desktop|deb|rpm|apk|iso)$/i.test(filename || ''); }
 function defaultDownloadPath(app, filename) { return path.join(app.getPath('downloads'), 'Aegis Downloads', safeDownloadName(filename)); }
-module.exports = { makeTabStats, configurePrivacySession, buildGenericUA, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled };
+module.exports = { makeTabStats, configurePrivacySession, buildGenericUA, freshSeed, isRiskyDownload, defaultDownloadPath, safeOrigin, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled, applyExtensionHeaderRemovals };
