@@ -39,13 +39,13 @@ function categoryEnabled(settings, category) {
   return settings.blockTrackers !== false;
 }
 
-function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
+function configurePrivacySession({ ses, engine, tab, getSettings, chromiumVersion, onStats, onPermissionBlocked, onPermissionPrompt, onSensitiveAccess, onNetworkAccess, trackerLearner, getFilterRules, isTemporarilyAllowed }) {
   const genericUA = buildGenericUA(chromiumVersion);
   ses.setUserAgent(genericUA, 'en-US,en');
   ses.spellCheckerEnabled = false;
   try { ses.setSSLConfig({ minVersion: 'tls1.2', maxVersion: 'tls1.3' }); } catch {}
 
-  ses.setPermissionRequestHandler((webContents, permission, callback, details = {}) => {
+  const permissionRequest = (webContents, permission, callback, details = {}) => {
     const settings = getSettings(); const keys = permissionKeys(permission, details); const origin = requestOrigin(webContents, details); const decisions = keys.map((key) => (typeof isTemporarilyAllowed === 'function' && isTemporarilyAllowed(origin, key)) ? 'allow' : permissionDecision(settings, origin, key));
     if (typeof onSensitiveAccess === 'function') for (const key of keys) onSensitiveAccess({ category: key, action: 'requested', source: 'permission', detail: permission, frameHost: safeHost(origin) });
     const finish = (allowed) => {
@@ -53,8 +53,9 @@ function configurePrivacySession({ ses, tab, getSettings, chromiumVersion, onSta
       if (!allowed) { tab.stats.blockedPermissions += 1; onStats(tab); if (typeof onPermissionBlocked === 'function') onPermissionBlocked({ permission, origin, keys }); } callback(Boolean(allowed));
     };
     if (!keys.length || decisions.includes('block')) return finish(false); if (decisions.every((d) => d === 'allow')) return finish(true); if (decisions.includes('ask') && typeof onPermissionPrompt === 'function') return onPermissionPrompt({ permission, origin, keys, complete: finish }); finish(false);
-  });
-  ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details = {}) => { const settings = getSettings(); const merged = { ...details, requestingOrigin }; const keys = permissionKeys(permission, merged); const origin = safeOrigin(requestingOrigin) || requestOrigin(webContents, merged); return keys.length > 0 && keys.every((key) => (typeof isTemporarilyAllowed === 'function' && isTemporarilyAllowed(origin, key)) || permissionDecision(settings, origin, key) === 'allow'); });
+  };
+  const permissionCheck = (webContents, permission, requestingOrigin, details = {}) => { const settings = getSettings(); const merged = { ...details, requestingOrigin }; const keys = permissionKeys(permission, merged); const origin = safeOrigin(requestingOrigin) || requestOrigin(webContents, merged); return keys.length > 0 && keys.every((key) => (typeof isTemporarilyAllowed === 'function' && isTemporarilyAllowed(origin, key)) || permissionDecision(settings, origin, key) === 'allow'); };
+  if(engine?.installPermissionHandlers)engine.installPermissionHandlers(ses,{request:permissionRequest,check:permissionCheck});else{ses.setPermissionRequestHandler(permissionRequest);ses.setPermissionCheckHandler(permissionCheck);}
   ses.setDevicePermissionHandler(() => false);
   ses.on('select-hid-device', (event, details, callback) => { event.preventDefault(); callback(); });
   ses.on('select-serial-port', (event, portList, webContents, callback) => { event.preventDefault(); callback(''); });
