@@ -135,6 +135,35 @@ function compareFingerprintSnapshots(a, b) {
   };
 }
 
+function fingerprintSnapshotDigest(snapshot) {
+  const v = snapshot?.values || snapshot || {};
+  const normalized = {
+    ua:v.ua||'', uaData:v.uaData||{}, platform:v.platform||'', language:v.language||'',
+    languages:v.languages||[], hardwareConcurrency:v.hardwareConcurrency, deviceMemory:v.deviceMemory,
+    timezone:v.timezone||'', screen:v.screen||[], canvas:v.canvas||'', webgl:v.webgl||'', audio:v.audio||'',
+    webrtc:Boolean(v.webrtc), localFonts:Boolean(v.localFonts), plugins:v.plugins, mimeTypes:v.mimeTypes
+  };
+  const json = JSON.stringify(normalized);
+  let h = 2166136261 >>> 0;
+  for (let i=0;i<json.length;i++){ h ^= json.charCodeAt(i); h = Math.imul(h,16777619); }
+  return h.toString(16).padStart(8,'0');
+}
+
+function compareFingerprintCohort(samples = []) {
+  const usable = (Array.isArray(samples) ? samples : []).filter((x)=>x?.status==='pass');
+  if (usable.length < 2) return { status:'not-tested', ok:false, digests:[], evidence:'At least two successful renderer samples are required.' };
+  const digests = usable.map(fingerprintSnapshotDigest);
+  const unique = [...new Set(digests)];
+  return {
+    status: unique.length === 1 ? 'pass' : 'warning',
+    ok: unique.length === 1,
+    digests,
+    evidence: unique.length === 1
+      ? `${usable.length} renderer samples exposed the same normalized fingerprint cohort digest.`
+      : `Renderer cohort drift detected across ${usable.length} samples (${unique.length} distinct digests).`
+  };
+}
+
 function routePrivacyStatus(proxyMode, route = null) {
   const mode = String(proxyMode || 'system');
   if (['socks5','http','https'].includes(mode)) {
@@ -160,5 +189,5 @@ function summarizeChecks(checks) {
 
 module.exports = {
   isPublicIp, fetchPublicIp, testSessionIsolation, candidateAddresses, isNumericLocalLeak,
-  testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, routePrivacyStatus, makeCheck, summarizeChecks
+  testWebRtcLeakSurface, inspectPrivacySurfaces, captureFingerprintSnapshot, compareFingerprintSnapshots, fingerprintSnapshotDigest, compareFingerprintCohort, routePrivacyStatus, makeCheck, summarizeChecks
 };
