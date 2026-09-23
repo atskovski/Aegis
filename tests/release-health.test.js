@@ -12,6 +12,7 @@ const ui = read('src/ui/app.js');
 const preload = read('src/preload.js');
 const privacy = read('src/core/privacy.js');
 const suiteCore = read('src/core/security-suite.js');
+const browserRuntime = read('src/core/browser-runtime.js');
 const html = read('src/ui/index.html');
 const launcher = read('Run-Aegis.command');
 const pkg = JSON.parse(read('package.json'));
@@ -79,6 +80,12 @@ test('Security Suite uses current runtime factories and engine-neutral view chec
   assert.match(main, /stats:makeTabStats\(\)/);
   assert.doesNotMatch(main, /candidate\?\.view\?\.webContents/);
   assert.match(main, /suite-runtime-integrity/);
+});
+
+test('every BrowserRuntime operation used by main is exposed by the runtime contract', () => {
+  const used = unique([...main.matchAll(/\bbrowserRuntime\.([A-Za-z0-9_]+)\b/g)].map((m) => m[1]));
+  const exposed = unique([...browserRuntime.matchAll(/\b([A-Za-z0-9_]+)\s*:\s*\(/g)].map((m) => m[1]));
+  assert.deepEqual(used.filter((name) => !exposed.includes(name)), []);
 });
 
 test('privacy session uses one deterministic request-header pipeline', () => {
