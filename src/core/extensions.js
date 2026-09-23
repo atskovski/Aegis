@@ -63,7 +63,7 @@ function packageEcosystem(manifest,packageInfo={}){
 }
 function permissions(m){ return [...new Set([...(Array.isArray(m.permissions)?m.permissions:[]),...(Array.isArray(m.host_permissions)?m.host_permissions:[])])]; }
 function hostPermissions(m){
-  return permissions(m).filter((p)=>p === '<all_urls>' || /^(?:\*|https?):\/\//.test(String(p||'')));
+  return permissions(m).filter((p)=>p === '<all_urls>' || /^(?:\*|https?|wss?):\/\//.test(String(p||'')));
 }
 function networkAllowedByManifest(m,url){
   const patterns=hostPermissions(m);
@@ -279,10 +279,12 @@ function compatibility(m,detectedRoots=[]){
   return {score,status,supported,unsupported,warnings,contentScripts:features.contentScripts,background,features,detectedApis:[...new Set(detectedRoots)].sort()};
 }
 function matchPattern(url,p){
-  if(p==='<all_urls>') return /^https?:/.test(url);
+  if(p==='<all_urls>') return /^(?:https?|wss?):/i.test(String(url||''));
   let u; try{u=new URL(url);}catch{return false;}
-  const m=String(p||'').match(/^(\*|https?):\/\/([^/]+)(\/.*)$/); if(!m)return false;
-  if(m[1]!=='*'&&u.protocol!==m[1]+':')return false;
+  const m=String(p||'').match(/^(\*|https?|wss?):\/\/([^/]+)(\/.*)$/); if(!m)return false;
+  if(m[1]==='*'){
+    if(!/^https?:$/.test(u.protocol))return false;
+  }else if(u.protocol!==m[1]+':')return false;
   const h=m[2].toLowerCase(), host=u.hostname.toLowerCase();
   if(h!=='*' && !(h.startsWith('*.')?(host===h.slice(2)||host.endsWith('.'+h.slice(2))):host===h)) return false;
   const escaped=m[3].split('*').map((x)=>x.replace(/[.+?^$()|[\]\\]/g,'\\$&')).join('.*');
