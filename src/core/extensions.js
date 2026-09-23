@@ -52,7 +52,9 @@ function compatibility(m){
     if(SUPPORTED_ROOTS.has(root)) supported.push(root);
     else unsupported.push({api:root,reason:DENIED_ROOTS[root]||'API not implemented by Aegis Extension Runtime.'});
   }
-  const cs=Array.isArray(m.content_scripts)?m.content_scripts.length:0;
+  const contentEntries=Array.isArray(m.content_scripts)?m.content_scripts:[];
+  const cs=contentEntries.length;
+  if(contentEntries.some((e)=>e?.run_at==='document_start')) warnings.push({api:'content_scripts.run_at',reason:'document_start content scripts use Aegis DOM-ready fallback on Electron; exact pre-page-script timing is not available.'});
   const bg=m.background||{};
   let background='none', backgroundCredit=0;
   if(bg.page){
@@ -75,10 +77,33 @@ function matchPattern(url,p){
   const escaped=m[3].split('*').map((x)=>x.replace(/[.+?^$()|[\]\\]/g,'\\$&')).join('.*');
   return new RegExp('^'+escaped+'$').test(u.pathname+u.search);
 }
-function matchingContentScripts(m,url){
+function contentScriptPhase(entry){
+  const runAt=String(entry?.run_at||'document_idle');
+  if(runAt==='document_idle')return 'idle';
+  // Electron cannot inject this compatibility runtime before the page's own
+  // document-start scripts. document_start is therefore a documented,
+  // conservative DOM-ready fallback rather than a false compatibility claim.
+  return 'end';
+}
+function matchingContentScripts(m,url,phase=null){
   return (Array.isArray(m.content_scripts)?m.content_scripts:[]).filter((e)=>{
     const inc=Array.isArray(e.matches)?e.matches:[], exc=Array.isArray(e.exclude_matches)?e.exclude_matches:[];
-    return inc.some((p)=>matchPattern(url,p))&&!exc.some((p)=>matchPattern(url,p));
+    const matched=inc.some((p)=>matchPattern(url,p))&&!exc.some((p)=>matchPattern(url,p));
+    return matched && (!phase || contentScriptPhase(e)===phase);
+  });
+}
+function extensionResourceUrl(ext, rel){
+  const safe=safeRel(rel); if(!safe)return '';
+  return 'aegis-extension://ext/'+ext.resourceToken+'/'+safe.split('/').map(encodeURIComponent).join('/');
+}
+function rewriteCssUrls(css, ext, cssRel=''){
+  const base=path.posix.dirname(String(cssRel||'').replace(/\\/g,'/'));
+  return String(css||'').replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi,(whole,_quote,raw)=>{
+    const value=String(raw||'').trim();
+    if(!value||/^(?:data:|https?:|blob:|aegis-extension:|#|\/)/i.test(value))return whole;
+    const combined=path.posix.normalize(path.posix.join(base==='.'?'':base,value));
+    const resolved=extensionResourceUrl(ext,combined);
+    return resolved?'url("'+resolved.replace(/"/g,'%22')+'")':whole;
   });
 }
 function installRisk(m){
@@ -155,14 +180,37 @@ class AegisExtensionRuntime{
     if(!target.startsWith(root)||!fs.existsSync(target)||!fs.statSync(target).isFile())return null;
     return {extensionId:ext.id,path:target,relative:safe};
   }
-  async inject(tab){
+  async inject(tab,phase='idle'){
     if(!tab?.view?.webContents||tab.view.webContents.isDestroyed())return [];
-    const url=tab.view.webContents.getURL(); if(!/^https?:\/\//.test(url))return []; const done=[];
-    for(const e of this.enabled())for(const entry of matchingContentScripts(e.manifest,url)){
-      const scripts=[{code:bootstrap(e)}]; for(const rel of Array.isArray(entry.js)?entry.js:[]){const s=safeRel(rel),f=path.resolve(e.path,s);if(s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f))scripts.push({code:fs.readFileSync(f,'utf8')})}
-      if(scripts.length>1)try{await tab.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),scripts,false);done.push(e.id)}catch{}
-      const css=(Array.isArray(entry.css)?entry.css:[]).map((rel)=>{const s=safeRel(rel),f=path.resolve(e.path,s);return s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f)?fs.readFileSync(f,'utf8'):''}).filter(Boolean).join('\n'); if(css)try{await tab.view.webContents.insertCSS(css,{cssOrigin:'author'})}catch{}
-    } return [...new Set(done)];
+    const url=tab.view.webContents.getURL(); if(!/^https?:\/\//.test(url))return [];
+    if(!tab.extensionInjectionKeys)tab.extensionInjectionKeys=new Set();
+    const done=[];
+    for(const e of this.enabled()){
+      const all=Array.isArray(e.manifest.content_scripts)?e.manifest.content_scripts:[];
+      for(let index=0;index<all.length;index++){
+        const entry=all[index];
+        if(contentScriptPhase(entry)!==phase||!matchingContentScripts({content_scripts:[entry]},url,phase).length)continue;
+        const key=e.id+':'+index+':'+phase;
+        if(tab.extensionInjectionKeys.has(key))continue;
+        const scripts=[{code:bootstrap(e)}];
+        for(const rel of Array.isArray(entry.js)?entry.js:[]){
+          const s=safeRel(rel),f=path.resolve(e.path,s);
+          if(s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f))scripts.push({code:fs.readFileSync(f,'utf8')});
+        }
+        let scriptOk=scripts.length===1;
+        if(scripts.length>1){
+          try{await tab.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),scripts,false);scriptOk=true;done.push(e.id)}catch{}
+        }
+        const cssParts=[];
+        for(const rel of Array.isArray(entry.css)?entry.css:[]){
+          const s=safeRel(rel),f=path.resolve(e.path,s);
+          if(s&&f.startsWith(path.resolve(e.path)+path.sep)&&fs.existsSync(f))cssParts.push(rewriteCssUrls(fs.readFileSync(f,'utf8'),e,s));
+        }
+        if(cssParts.length)try{await tab.view.webContents.insertCSS(cssParts.join('\n'),{cssOrigin:'author'});done.push(e.id)}catch{}
+        if(scriptOk||cssParts.length)tab.extensionInjectionKeys.add(key);
+      }
+    }
+    return [...new Set(done)];
   }
   async call(sender,p={}){
     const e=this.items.get(String(p.extensionId||'')); if(!e||e.enabled===false)throw new Error('Extension disabled or missing'); const m=String(p.method||''),a=Array.isArray(p.args)?p.args:[],tabs=this.getTabs(),source=tabs.find((t)=>t.view?.webContents===sender);
@@ -231,4 +279,4 @@ class AegisExtensionRuntime{
   }
   stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear()}
 }
-module.exports={extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,matchPattern,matchingContentScripts,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
+module.exports={extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
