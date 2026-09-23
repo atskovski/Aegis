@@ -183,17 +183,17 @@ const api = {
   i18n: { getUILanguage:()=>'en-US', getMessage:localMessage },
   alarms: {
     create: (...args) => call('alarms.create', ...args),
-    get: (name) => call('alarms.get', name),
-    getAll: () => call('alarms.getAll'),
-    clear: (name) => call('alarms.clear', name),
-    clearAll: () => call('alarms.clearAll'),
+    get: (...args) => call('alarms.get', ...args),
+    getAll: (...args) => call('alarms.getAll', ...args),
+    clear: (...args) => call('alarms.clear', ...args),
+    clearAll: (...args) => call('alarms.clearAll', ...args),
     onAlarm: event('alarms.onAlarm')
   },
-  commands: { getAll:()=>call('commands.getAll'), onCommand:event('commands.onCommand') },
+  commands: { getAll:(...args)=>call('commands.getAll',...args), onCommand:event('commands.onCommand') },
   scripting: {
-    executeScript:(details={})=>call('scripting.executeScript',details),
-    insertCSS:(details={})=>call('scripting.insertCSS',details),
-    removeCSS:(details={})=>call('scripting.removeCSS',details)
+    executeScript:(...args)=>call('scripting.executeScript',...args),
+    insertCSS:(...args)=>call('scripting.insertCSS',...args),
+    removeCSS:(...args)=>call('scripting.removeCSS',...args)
   },
   webNavigation: {
     onBeforeNavigate:event('webNavigation.onBeforeNavigate'),
@@ -203,23 +203,23 @@ const api = {
   },
   notifications: {
     create:(...args)=>call('notifications.create',...args),
-    clear:(id)=>call('notifications.clear',id),
-    getAll:()=>call('notifications.getAll'),
+    clear:(...args)=>call('notifications.clear',...args),
+    getAll:(...args)=>call('notifications.getAll',...args),
     onClicked:event('notifications.onClicked'),
     onClosed:event('notifications.onClosed')
   },
   menus: {
-    create:(details={})=>call('menus.create',details),
-    update:(id,details={})=>call('menus.update',id,details),
-    remove:(id)=>call('menus.remove',id),
-    removeAll:()=>call('menus.removeAll'),
+    create:(details={},callback)=>{ const d={...(details||{})},id=d.id!==undefined?String(d.id):('aegis-menu-'+Math.random().toString(36).slice(2));d.id=id;call('menus.create',d,callback);return id; },
+    update:(...args)=>call('menus.update',...args),
+    remove:(...args)=>call('menus.remove',...args),
+    removeAll:(...args)=>call('menus.removeAll',...args),
     onClicked:event('menus.onClicked')
   },
   contextMenus: {
-    create:(details={})=>call('contextMenus.create',details),
-    update:(id,details={})=>call('contextMenus.update',id,details),
-    remove:(id)=>call('contextMenus.remove',id),
-    removeAll:()=>call('contextMenus.removeAll'),
+    create:(details={},callback)=>{ const d={...(details||{})},id=d.id!==undefined?String(d.id):('aegis-menu-'+Math.random().toString(36).slice(2));d.id=id;call('contextMenus.create',d,callback);return id; },
+    update:(...args)=>call('contextMenus.update',...args),
+    remove:(...args)=>call('contextMenus.remove',...args),
+    removeAll:(...args)=>call('contextMenus.removeAll',...args),
     onClicked:event('contextMenus.onClicked')
   },
   action:actionApi('action'),
