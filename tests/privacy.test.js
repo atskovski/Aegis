@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildGenericUA, isRiskyDownload, makeTabStats, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled } = require('../src/core/privacy');
+const { buildGenericUA, isRiskyDownload, makeTabStats, permissionKeys, permissionAllowed, permissionDecision, categoryEnabled, applyExtensionHeaderRemovals } = require('../src/core/privacy');
 
 test('generic UA hides Electron token and uses reduced Chromium version', () => {
   const ua = buildGenericUA('152.0.7977.130');
@@ -60,4 +60,18 @@ test('tracker categories obey their own settings independently', () => {
   assert.equal(categoryEnabled(s,'social'),false);
   assert.equal(categoryEnabled(s,'cryptomining'),true);
   assert.equal(categoryEnabled(s,'analytics'),false);
+});
+
+
+test('extension header removals are case-insensitive and removal-only', () => {
+  const headers={Cookie:'a=1',Referer:'https://example.com/',ETag:'abc','User-Agent':'Aegis'};
+  const out=applyExtensionHeaderRemovals(headers,[
+    {header:'cookie',operation:'remove'},
+    {header:'REFERER',operation:'remove'},
+    {header:'user-agent',operation:'set'}
+  ]);
+  assert.equal(out.Cookie,undefined);
+  assert.equal(out.Referer,undefined);
+  assert.equal(out.ETag,'abc');
+  assert.equal(out['User-Agent'],'Aegis');
 });
