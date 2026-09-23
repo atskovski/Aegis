@@ -591,10 +591,12 @@ function renderAddons() {
     head.append(iconWrap, identity, score); card.append(head);
 
     const healthRow = document.createElement('div'); healthRow.className = 'addon-health';
+    const installBadge = document.createElement('span'); installBadge.className = 'addon-health-badge pass'; installBadge.textContent = Number(addon.installability?.packageCoverage || 0) === 100 ? '100% package installed' : 'Package installed';
+    installBadge.title = 'Package installation is complete. API/runtime compatibility is reported separately.';
     const healthBadge = document.createElement('span'); healthBadge.className = 'addon-health-badge ' + (health.status === 'disabled' ? 'warning' : health.status); healthBadge.textContent = health.label;
     const runtimeBadge = document.createElement('span'); runtimeBadge.className = 'addon-health-badge ' + (addon.runtime?.backgroundExpected && !addon.runtime?.backgroundRunning && addon.enabled ? 'fail' : 'pass');
     runtimeBadge.textContent = addon.runtime?.backgroundExpected ? (addon.runtime?.backgroundRunning ? 'Background running' : 'Background stopped') : 'No background needed';
-    healthRow.append(healthBadge, runtimeBadge);
+    healthRow.append(installBadge, healthBadge, runtimeBadge);
     if (addon.compatibility?.background) healthRow.append(makeAddonChip(addon.compatibility.background, 'quiet'));
     card.append(healthRow);
 
