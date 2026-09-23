@@ -217,6 +217,40 @@ test('generated WebExtension bootstrap exposes Runtime 3 APIs', () => {
   assert.doesNotThrow(()=>new Function(source));
 });
 
+test('generated Chrome bridge supports callbacks, Promises, runtime.lastError and synchronous menu ids', async () => {
+  const vm=require('node:vm');
+  const source=bootstrap({
+    id:'chrome-callback@example',
+    resourceToken:'callbacktoken',
+    path:__dirname,
+    manifest:{manifest_version:3,name:'Chrome Callback',version:'1',permissions:['tabs','storage','contextMenus']}
+  });
+  const context={
+    __aegisExtensionBridge:{
+      call:(method)=>method==='tabs.get'?Promise.reject(new Error('tab missing')):Promise.resolve(method==='tabs.query'?[{id:1}]:true),
+      onMessage:()=>{},
+      onEvent:()=>{}
+    }
+  };
+  vm.runInNewContext(source,context);
+  const promised=await context.browser.tabs.query({});
+  assert.equal(promised[0].id,1);
+  await new Promise((resolve,reject)=>{
+    const returned=context.chrome.tabs.query({},(tabs)=>{
+      try{assert.equal(tabs[0].id,1);assert.equal(context.chrome.runtime.lastError,null);resolve()}catch(err){reject(err)}
+    });
+    assert.equal(returned,undefined);
+  });
+  await new Promise((resolve,reject)=>{
+    context.chrome.tabs.get(99,()=>{
+      try{assert.match(context.chrome.runtime.lastError.message,/tab missing/);resolve()}catch(err){reject(err)}
+    });
+  });
+  assert.equal(context.chrome.runtime.lastError,null);
+  const menuId=context.chrome.contextMenus.create({title:'Test'});
+  assert.match(menuId,/^aegis-menu-/);
+});
+
 test('extension popup preload exposes the same Runtime 3 API families', () => {
   const fs=require('node:fs'),path=require('node:path');
   const source=fs.readFileSync(path.join(__dirname,'..','src','extension-page-preload.js'),'utf8');
@@ -232,6 +266,8 @@ test('extension popup preload exposes the same Runtime 3 API families', () => {
   assert.match(source,/captureVisibleTab/);
   assert.match(source,/getContexts/);
   assert.match(source,/setIcon/);
+  assert.match(source,/runtimeLastError/);
+  assert.match(source,/get lastError/);
 });
 
 test('installed extension diagnostics verify package resources and bootstrap health', async () => {
