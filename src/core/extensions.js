@@ -7,7 +7,10 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
 const execFileAsync = promisify(execFile);
-const SUPPORTED_ROOTS = new Set(['runtime','storage','tabs','permissions','i18n','activeTab']);
+const SUPPORTED_ROOTS = new Set([
+  'runtime','storage','tabs','permissions','i18n','activeTab',
+  'action','browserAction','pageAction','alarms','commands','scripting','webNavigation'
+]);
 const DENIED_ROOTS = Object.freeze({
   webRequest:'Aegis owns the network firewall; blocking webRequest is not exposed.',
   webRequestBlocking:'Aegis owns the network firewall; blocking webRequest is not exposed.',
@@ -16,7 +19,11 @@ const DENIED_ROOTS = Object.freeze({
   nativeMessaging:'Native messaging is disabled.',
   cookies:'Cookie API is withheld until per-tab cookie-store scoping is complete.',
   history:'Aegis deliberately does not keep a browsing-history database.',
-  management:'Extensions cannot manage other extensions.'
+  management:'Extensions cannot manage other extensions.',
+  debugger:'The Chrome debugger API is not exposed to add-ons.',
+  devtools:'DevTools extension pages are not supported by the Aegis shell.',
+  experiments:'Firefox experiment APIs are not supported.',
+  telemetry:'Browser telemetry APIs are not exposed.'
 });
 
 function readJson(file){ return JSON.parse(fs.readFileSync(file,'utf8')); }
@@ -54,7 +61,49 @@ function apiRoots(m){
   const roots=new Set();
   for(const p of permissions(m)) if(!/^(?:\*|https?|file):\/\//.test(p)) roots.add(p);
   if(m.background||m.content_scripts) roots.add('runtime');
+  if(m.action) roots.add('action');
+  if(m.browser_action) roots.add('browserAction');
+  if(m.page_action) roots.add('pageAction');
+  if(m.commands) roots.add('commands');
   return [...roots];
+}
+function extensionAction(m){
+  const value=m?.action||m?.browser_action||m?.page_action||null;
+  if(!value||typeof value!=='object')return null;
+  return {
+    kind:m?.action?'action':(m?.browser_action?'browserAction':'pageAction'),
+    title:String(value.default_title||m.name||'Extension').slice(0,160),
+    popup:safeRel(value.default_popup||''),
+    icon:value.default_icon||m.icons||null
+  };
+}
+function optionsPage(m){
+  const raw=m?.options_ui?.page||m?.options_page||'';
+  return safeRel(raw);
+}
+function iconPath(m){
+  const source=extensionAction(m)?.icon||m?.icons||null;
+  if(typeof source==='string')return safeRel(source);
+  if(!source||typeof source!=='object')return '';
+  const ranked=Object.entries(source).map(([size,value])=>({size:Number(size)||0,value:safeRel(value)})).filter((x)=>x.value).sort((a,b)=>b.size-a.size);
+  return ranked[0]?.value||'';
+}
+function manifestFeatures(m){
+  const action=extensionAction(m);
+  const bg=m?.background||{};
+  return {
+    manifestVersion:Number(m?.manifest_version||0),
+    contentScripts:Array.isArray(m?.content_scripts)?m.content_scripts.length:0,
+    action:Boolean(action),
+    actionKind:action?.kind||'',
+    popup:Boolean(action?.popup),
+    options:Boolean(optionsPage(m)),
+    commands:Object.keys(m?.commands||{}).length,
+    backgroundPage:Boolean(bg.page),
+    backgroundScripts:Array.isArray(bg.scripts)?bg.scripts.length:0,
+    serviceWorker:Boolean(bg.service_worker),
+    webAccessibleResources:Array.isArray(m?.web_accessible_resources)?m.web_accessible_resources.length:0
+  };
 }
 function compatibility(m){
   const unsupported=[],supported=[],warnings=[];
@@ -62,20 +111,30 @@ function compatibility(m){
     if(SUPPORTED_ROOTS.has(root)) supported.push(root);
     else unsupported.push({api:root,reason:DENIED_ROOTS[root]||'API not implemented by Aegis Extension Runtime.'});
   }
+  const features=manifestFeatures(m);
   const contentEntries=Array.isArray(m.content_scripts)?m.content_scripts:[];
-  const cs=contentEntries.length;
-  if(contentEntries.some((e)=>e?.run_at==='document_start')) warnings.push({api:'content_scripts.run_at',reason:'document_start content scripts use Aegis DOM-ready fallback on Electron; exact pre-page-script timing is not available.'});
+  if(contentEntries.some((e)=>e?.run_at==='document_start')) warnings.push({api:'content_scripts.run_at',reason:'document_start uses the earliest Electron DOM-ready compatible phase; exact Firefox pre-page-script timing is not guaranteed.'});
+  if(contentEntries.some((e)=>e?.all_frames)) warnings.push({api:'content_scripts.all_frames',reason:'Aegis currently injects into the top-level document only.'});
+  if(Array.isArray(m.optional_permissions)&&m.optional_permissions.length) warnings.push({api:'optional_permissions',reason:'Optional permissions require explicit user approval in Aegis and are not auto-granted.'});
+  if(Array.isArray(m.optional_host_permissions)&&m.optional_host_permissions.length) warnings.push({api:'optional_host_permissions',reason:'Optional host access requires explicit user approval in Aegis and is not auto-granted.'});
   const bg=m.background||{};
   let background='none', backgroundCredit=0;
   if(bg.page){
-    background='unsupported-page';
-    unsupported.push({api:'background.page',reason:'Custom Firefox background HTML pages are not supported yet.'});
+    background='sandboxed-page'; backgroundCredit=1;
+    warnings.push({api:'background.page',reason:'Background pages run in a sandboxed Aegis extension window with Aegis WebExtension APIs; Firefox browser internals remain unavailable.'});
   } else if((Array.isArray(bg.scripts)&&bg.scripts.length)||bg.service_worker){
     background='sandboxed-emulation'; backgroundCredit=1;
-    warnings.push({api:'background',reason:bg.service_worker?'MV3 service-worker code runs in a sandboxed persistent Aegis background host; service-worker lifecycle semantics differ.':'Background scripts run in a sandboxed, non-persistent Aegis host.'});
+    warnings.push({api:'background',reason:bg.service_worker?'MV3 service-worker code runs in a sandboxed persistent Aegis background host; service-worker suspension semantics differ from Chromium.':'Background scripts run in a sandboxed Aegis background host.'});
   }
-  const score=Math.round(100*(supported.length+(cs?1:0)+backgroundCredit)/Math.max(1,apiRoots(m).length+(cs?1:0)+(background!=='none'?1:0)));
-  return {score,supported,unsupported,warnings,contentScripts:cs,background};
+  if(m.sidebar_action) unsupported.push({api:'sidebarAction',reason:'Firefox sidebar_action is not implemented in the Aegis shell yet.'});
+  if(m.omnibox) unsupported.push({api:'omnibox',reason:'Extension omnibox keyword providers are not implemented yet.'});
+  if(m.devtools_page) unsupported.push({api:'devtools_page',reason:'DevTools extension pages are disabled because remote DevTools is not exposed.'});
+  const capabilityCount=apiRoots(m).length+(features.contentScripts?1:0)+(background!=='none'?1:0)+(features.action?1:0)+(features.options?1:0);
+  const supportedCount=supported.length+(features.contentScripts?1:0)+backgroundCredit+(features.action?1:0)+(features.options?1:0);
+  const penalty=Math.min(unsupported.length,Math.max(1,capabilityCount));
+  const score=Math.max(0,Math.min(100,Math.round(100*(supportedCount/Math.max(1,capabilityCount+penalty*0.6)))));
+  const status=unsupported.length===0?(warnings.length?'good':'excellent'):(score>=70?'partial':'limited');
+  return {score,status,supported,unsupported,warnings,contentScripts:features.contentScripts,background,features};
 }
 function matchPattern(url,p){
   if(p==='<all_urls>') return /^https?:/.test(url);
