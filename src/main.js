@@ -1595,7 +1595,7 @@ function wireIpc() {
     const pick = await dialog.showOpenDialog(mainWindow, {
       title:'Select a WebExtension package',
       properties:['openFile'],
-      filters:[{name:'WebExtension package',extensions:['xpi','zip']}]
+      filters:[{name:'Browser extension package',extensions:['crx','xpi','zip']}]
     });
     if (pick.canceled || !pick.filePaths?.[0]) return { ok:false, canceled:true };
     try {
@@ -1603,21 +1603,53 @@ function wireIpc() {
       return { ok:true, ...staged };
     } catch (err) { return { ok:false, error:err.message }; }
   });
+  ipcMain.handle('extensions:pick-unpacked', async (event) => {
+    if (!assertUiSender(event) || !extensionRuntime) return {ok:false,error:'IPC sender denied'};
+    const pick=await dialog.showOpenDialog(mainWindow,{title:'Select unpacked Chrome/WebExtension folder',properties:['openDirectory']});
+    if(pick.canceled||!pick.filePaths?.[0])return {ok:false,canceled:true};
+    try{return {ok:true,...extensionRuntime.stageDirectory(pick.filePaths[0])}}
+    catch(err){return {ok:false,error:err.message}}
+  });
   ipcMain.handle('extensions:install-url', async (event, rawUrl) => {
     if (!assertUiSender(event) || !extensionRuntime) return {ok:false,error:'IPC sender denied'};
-    let url;try{url=new URL(String(rawUrl||'').trim())}catch{return {ok:false,error:'Enter a valid HTTPS XPI/ZIP URL.'}}
-    if(url.protocol!=='https:')return {ok:false,error:'Extension downloads must use HTTPS.'};
-    const lower=url.pathname.toLowerCase();if(!lower.endsWith('.xpi')&&!lower.endsWith('.zip'))return {ok:false,error:'URL must point to a .xpi or .zip WebExtension package.'};
+    const input=String(rawUrl||'').trim();
+    const chromeIdPattern=/^[a-p]{32}$/;
+    let expectedChromeId='',downloadUrl='';
+    if(chromeIdPattern.test(input)){
+      expectedChromeId=input;
+    }else{
+      let parsed;try{parsed=new URL(input)}catch{return {ok:false,error:'Enter a valid HTTPS extension URL, Chrome Web Store URL, or 32-character Chrome extension ID.'}}
+      if(parsed.protocol!=='https:')return {ok:false,error:'Extension downloads must use HTTPS.'};
+      if(parsed.hostname==='chromewebstore.google.com'){
+        const match=parsed.pathname.match(/\/detail\/(?:[^/]+\/)?([a-p]{32})(?:\/|$)/);
+        if(!match)return {ok:false,error:'Could not find a Chrome extension ID in that Web Store URL.'};
+        expectedChromeId=match[1];
+      }else{
+        const lower=parsed.pathname.toLowerCase();
+        if(!['.crx','.xpi','.zip'].some((ext)=>lower.endsWith(ext)))return {ok:false,error:'Direct URLs must point to a .crx, .xpi, or .zip package.'};
+        downloadUrl=parsed.toString();
+      }
+    }
+    if(expectedChromeId){
+      const chromeVersion=String(process.versions.chrome||'120.0.0.0');
+      const x=encodeURIComponent('id='+expectedChromeId+'&uc');
+      downloadUrl='https://clients2.google.com/service/update2/crx?response=redirect&prodversion='+encodeURIComponent(chromeVersion)+'&acceptformat=crx2,crx3&x='+x;
+    }
     const dir=path.join(app.getPath('userData'),'extension-staging');fs.mkdirSync(dir,{recursive:true,mode:0o700});
-    const file=path.join(dir,'download-'+crypto.randomUUID()+(lower.endsWith('.zip')?'.zip':'.xpi'));
+    const suffix=expectedChromeId?'.crx':(new URL(downloadUrl).pathname.toLowerCase().endsWith('.zip')?'.zip':(new URL(downloadUrl).pathname.toLowerCase().endsWith('.xpi')?'.xpi':'.crx'));
+    const file=path.join(dir,'download-'+crypto.randomUUID()+suffix);
     try{
-      const response=await browserRuntime.fetch(url.toString(),{method:'GET',redirect:'follow',cache:'no-store'});
+      const response=await browserRuntime.fetch(downloadUrl,{method:'GET',redirect:'follow',cache:'no-store'});
       if(!response?.ok)throw new Error('Download failed with HTTP '+String(response?.status||'unknown'));
       const declared=Number(response.headers?.get?.('content-length')||0);if(declared>64*1024*1024)throw new Error('Extension package exceeds the 64 MB download limit.');
       const data=Buffer.from(await response.arrayBuffer());if(data.length>64*1024*1024)throw new Error('Extension package exceeds the 64 MB download limit.');
       fs.writeFileSync(file,data,{mode:0o600});
-      const staged=await extensionRuntime.stage(file,{owned:true});
-      return {ok:true,...staged,sourceUrl:url.toString()};
+      const staged=await extensionRuntime.stage(file,{owned:true,sourceUrl:input});
+      if(expectedChromeId&&staged.summary.id!==expectedChromeId){
+        extensionRuntime.cancelStage(staged.token);
+        throw new Error('Chrome package identity mismatch. Expected '+expectedChromeId+' but package reported '+staged.summary.id+'.');
+      }
+      return {ok:true,...staged,sourceUrl:input,chromeWebStore:Boolean(expectedChromeId)};
     }catch(err){try{fs.rmSync(file,{force:true})}catch{}return {ok:false,error:err.message}}
   });
   ipcMain.handle('extensions:cancel-install', (event, token) => {
@@ -1639,7 +1671,7 @@ function wireIpc() {
   // Compatibility path for older Aegis UI builds.
   ipcMain.handle('extensions:install', async (event) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
-    const pick = await dialog.showOpenDialog(mainWindow,{title:'Install WebExtension package',properties:['openFile'],filters:[{name:'WebExtension package',extensions:['xpi','zip']}]});
+    const pick = await dialog.showOpenDialog(mainWindow,{title:'Install WebExtension package',properties:['openFile'],filters:[{name:'Browser extension package',extensions:['crx','xpi','zip']}]});
     if(pick.canceled||!pick.filePaths?.[0])return {ok:false,canceled:true};
     try{
       const staged=await extensionRuntime.stage(pick.filePaths[0]);
