@@ -902,7 +902,8 @@ function tabNavigationAllowed(tab, raw) {
 }
 
 function createTabView(tab) {
-  tab.rendererPolicy = { ...REMOTE_RENDERER_POLICY };
+  const subframeBridge = Boolean(!tab.extensionPageExtensionId && extensionRuntime?.requiresSubFramePreload(tab));
+  tab.rendererPolicy = { ...REMOTE_RENDERER_POLICY, nodeIntegrationInSubFrames:subframeBridge };
   let preload = path.join(__dirname, 'extension-bridge-preload.js');
   let additionalArguments = extensionRuntime ? extensionRuntime.bridgeArguments() : [];
   if (tab.extensionPageExtensionId && extensionRuntime) {
@@ -912,6 +913,7 @@ function createTabView(tab) {
   }
   const view = browserRuntime.view({
       ...REMOTE_RENDERER_POLICY,
+      nodeIntegrationInSubFrames: subframeBridge,
       preload,
       additionalArguments,
       session: tab.privateSession,
@@ -1018,6 +1020,26 @@ function wireTabView(tab, view) {
     const isMainFrame = navigationIsMainFrame(event, legacyIsMainFrame);
     if (!url || !tabNavigationAllowed(tab, url) || (isMainFrame && !shouldAllowInternalNavigation(browserRuntime.url(view), url))) event.preventDefault();
   });
+  browserRuntime.on(view,'frame-created', (_event, details) => {
+    const frame = details?.frame;
+    if (!frame || frame === view.webContents.mainFrame || !extensionRuntime?.requiresSubFramePreload(tab)) return;
+    let started = false;
+    const injectCreatedFrame = async () => {
+      if (started || frame.isDestroyed?.()) return;
+      started = true;
+      const ids = [];
+      for (const phase of ['start','end','idle']) {
+        try { ids.push(...await extensionRuntime.injectFrame(tab, frame, phase)); }
+        catch (err) { console.warn('Extension subframe injection failed:', err.message); }
+      }
+      if (ids.length) {
+        tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
+        emitState();
+      }
+    };
+    try { frame.once('dom-ready', () => injectCreatedFrame().catch(()=>{})); } catch {}
+    setTimeout(() => injectCreatedFrame().catch(()=>{}), 150);
+  });
   browserRuntime.on(view,'will-redirect', (event, legacyDetails) => {
     const original = navigationUrl(event, legacyDetails);
     const effective = tabSettings(tab);
@@ -1040,10 +1062,14 @@ function wireTabView(tab, view) {
   });
   browserRuntime.on(view,'did-start-loading', () => { tab.loading = true; extensionRuntime?.notifyTabUpdated(tab,{status:'loading'}); emitState(); });
   browserRuntime.on(view,'dom-ready', () => {
-    Promise.resolve(tab.extensionStartInjection).catch(()=>[]).then(() => extensionRuntime?.inject(tab, 'end')).then((ids) => {
-      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...(ids || [])])];
-      emitState();
-    }).catch((err) => console.warn('Extension document-end injection failed:', err.message));
+    Promise.resolve(tab.extensionStartInjection).catch(()=>[])
+      .then(() => extensionRuntime?.inject(tab, 'end'))
+      .then(async (ids) => {
+        const subStart = await extensionRuntime?.injectAllSubframes(tab, 'start') || [];
+        const subEnd = await extensionRuntime?.injectAllSubframes(tab, 'end') || [];
+        tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...(ids || []), ...subStart, ...subEnd])];
+        emitState();
+      }).catch((err) => console.warn('Extension document-end injection failed:', err.message));
   });
   browserRuntime.on(view,'did-stop-loading', () => { tab.loading = false; emitState(); });
   browserRuntime.on(view,'page-title-updated', (event, title) => {
@@ -1088,8 +1114,9 @@ function wireTabView(tab, view) {
     extensionRuntime?.notifyTabUpdated(tab,{status:'complete'});
     applyCosmeticFiltering(tab);
     applySponsorProtection(tab);
-    extensionRuntime?.inject(tab, 'idle').then((ids) => {
-      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids])];
+    extensionRuntime?.inject(tab, 'idle').then(async (ids) => {
+      const subIdle = await extensionRuntime?.injectAllSubframes(tab, 'idle') || [];
+      tab.extensionIds = [...new Set([...(tab.extensionIds || []), ...ids, ...subIdle])];
       emitState();
     }).catch((err) => console.warn('Extension document-idle injection failed:', err.message));
   });
@@ -1786,11 +1813,12 @@ function wireIpc() {
   });
   ipcMain.handle('extension:call', async (event, payload) => {
     if(!extensionRuntime) throw new Error('Extension runtime unavailable.');
-    const result=await extensionRuntime.call(event.sender,payload);
+    const result=await extensionRuntime.call(event.sender,payload,event.senderFrame);
     if(/^(?:action|browserAction|pageAction)\./.test(String(payload?.method||'')))emitState();
     return result;
   });
   ipcMain.on('extension:message-response', (event, payload) => { if (extensionRuntime) extensionRuntime.handleBackgroundResponse(event.sender, payload); });
+  ipcMain.on('extension:frame-inject-result', (event, payload) => { if (extensionRuntime) extensionRuntime.handleFrameInjectionResult(event.sender, event.senderFrame, payload); });
 
   ipcMain.on('nav', (event, value) => { if (assertUiSender(event)) navigateTab(activeTab(), value); });
   ipcMain.on('tab:new', (event, value) => { if (assertUiSender(event)) createTab(value || settings.homePage || 'https://duckduckgo.com/'); });
