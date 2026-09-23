@@ -64,6 +64,9 @@ test('extension runtime hosts the major WebExtension execution surfaces',()=>{
   assert.match(runtime,/notifyTabUpdated/);
   assert.match(runtime,/notifyNavigation/);
   assert.match(runtime,/clearActiveGrantForTab/);
+  assert.match(runtime,/Aegis isolated-world bridge was not ready for this document/);
+  assert.match(runtime,/content-script:'\+rel/);
+  assert.match(runtime,/sourceURL='\+extensionResourceUrl/);
   assert.match(runtime,/bg\.page/);
 });
 
