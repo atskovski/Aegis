@@ -83,6 +83,15 @@ let uiLayer = { mode: 'none', reserveRight: 0 };
 let trackerLearner = new TrackerLearner();
 let filterRules = parseFilterRules('');
 let extensionRuntime = null;
+const SECURITY_TEST_TARGETS = Object.freeze({
+  eff: 'https://coveryourtracks.eff.org/',
+  ip: 'https://browserleaks.com/ip',
+  webrtc: 'https://browserleaks.com/webrtc',
+  canvas: 'https://browserleaks.com/canvas',
+  webgl: 'https://browserleaks.com/webgl',
+  tls: 'https://browserleaks.com/tls',
+  javascript: 'https://browserleaks.com/javascript'
+});
 let stateEmitTimer = null;
 
 function tabSettings(tab) { return effectiveSettings(settings, tab); }
@@ -1304,6 +1313,15 @@ function wireIpc() {
     }
   });
   ipcMain.handle('security-suite:run', (event) => assertUiSender(event) ? runSecuritySuite() : { testedAt: new Date().toISOString(), checks: [], summary: { pass: 0, warning: 0, info: 0, fail: 0, 'not-tested': 0, total: 0 }, error: 'IPC sender denied' });
+  ipcMain.handle('security-test:open', async (event, key) => {
+    if (!assertUiSender(event)) return { ok:false, error:'IPC sender denied' };
+    const url=SECURITY_TEST_TARGETS[String(key||'')];
+    if (!url) return { ok:false, error:'Unknown security test.' };
+    try {
+      const tab=await createTab(url,true,false,{securityDomain:'hardened',disableExtensions:true});
+      return {ok:true,tabId:tab.id,url};
+    } catch (err) { return {ok:false,error:err.message}; }
+  });
   ipcMain.handle('extensions:list', (event) => assertUiSender(event) && extensionRuntime ? extensionRuntime.list() : []);
   ipcMain.handle('extensions:install', async (event) => {
     if (!assertUiSender(event) || !extensionRuntime) return { ok:false, error:'IPC sender denied' };
