@@ -445,6 +445,53 @@ function renderLibrary() {
   });
 }
 
+function renderExtensions() {
+  const list = $('#extensionsList');
+  if (!list) return;
+  const items = state.extensions || [];
+  list.replaceChildren();
+  if (!items.length) {
+    const empty=document.createElement('div'); empty.className='signal-empty';
+    const b=document.createElement('b'); b.textContent='No extensions installed';
+    const span=document.createElement('span'); span.textContent='Choose an XPI package to validate and install.';
+    empty.append(b,span); list.append(empty); return;
+  }
+  for (const item of items) {
+    const row=document.createElement('div'); row.className='extension-row';
+    const copy=document.createElement('div');
+    const b=document.createElement('b'); b.textContent=item.metadata?.name || item.report?.name || 'Extension';
+    const small=document.createElement('small'); small.textContent=(item.metadata?.version ? 'v'+item.metadata.version+' · ' : '') + 'SHA-256 '+String(item.metadata?.hash||'').slice(0,16)+'…';
+    copy.append(b,small);
+    const badge=document.createElement('span'); badge.className='extension-capability'; badge.textContent='Compatible';
+    row.append(copy,badge); list.append(row);
+  }
+}
+
+async function installXpi() {
+  const button=$('#installXpi'), result=$('#extensionInstallResult');
+  button.disabled=true; button.textContent='Validating…';
+  try {
+    const out=await window.aegis.invoke('extension:install-xpi');
+    if (!out || out.mode==='cancelled') return;
+    result.classList.remove('hidden','warning','danger');
+    if (out.installed) {
+      result.textContent='Installed '+(out.metadata?.name||out.report?.name||'extension')+'. Its compatible content scripts will run in an isolated world on matching pages.';
+      const latest=await window.aegis.invoke('extensions:list'); state.extensions=latest||[]; renderExtensions();
+    } else if (out.mode==='requires-gecko') {
+      result.classList.add('warning');
+      const missing=(out.report?.unsupported||[]).join(', ');
+      result.textContent='Requires Gecko. This XPI is valid, but the Chromium edition cannot fulfill: '+(missing||'one or more Firefox extension capabilities')+'. Aegis did not install it in a broken state.';
+    } else {
+      result.classList.add('danger');
+      result.textContent='Extension rejected: '+(out.error || (out.report?.errors||[]).join('; ') || 'package validation failed');
+    }
+  } catch (err) {
+    result.classList.remove('hidden','warning'); result.classList.add('danger'); result.textContent='Extension install failed: '+err.message;
+  } finally {
+    button.disabled=false; button.textContent='Choose XPI…';
+  }
+}
+
 function renderNetworkDiagnostics() {
   const r = state.network?.lastTest;
   $('#diagProxy').textContent = r?.proxy || titleCase(state.network?.proxyMode || state.settings?.proxy?.mode || 'system');
@@ -534,6 +581,7 @@ function render() {
   renderPrivacyPanel(tab);
   renderEngineInfo();
   renderLibrary();
+  renderExtensions();
   renderNetworkDiagnostics();
   renderSecuritySuite();
   if (!$('#settingsPanel').classList.contains('hidden') && !draftSettings) draftSettings = deepClone(state.settings);
@@ -894,6 +942,7 @@ $('#resetSitePermissions').addEventListener('click', () => window.aegis.send('si
 $('#clearDownloads').addEventListener('click', () => window.aegis.send('downloads:clear'));
 $('#runNetworkTest').addEventListener('click', runNetworkTest);
 $('#runSecuritySuite').addEventListener('click', runSecuritySuite);
+$('#installXpi').addEventListener('click', installXpi);
 $('#networkTestFromNetwork').addEventListener('click', () => { openSettings('diagnostics'); runNetworkTest(); });
 $$('[data-site-permission]').forEach((el) => el.addEventListener('change', () => window.aegis.send('site-permission:set', { key: el.dataset.sitePermission, value: el.value })));
 
