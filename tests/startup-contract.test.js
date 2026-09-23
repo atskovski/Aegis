@@ -16,13 +16,13 @@ test('internal aegis protocol is registered for default and private tab sessions
 
 test('browser chrome becomes visible before first private tab initialization', () => {
   const showAt = source.indexOf('mainWindow.show();');
-  const firstTabAt = source.indexOf("await withTimeout(createTab(smokeUrl, true, Boolean(process.env.AEGIS_SMOKE_TEST_URL))");
+  const firstTabAt = source.indexOf("await withTimeout(createTab(smokeUrl, true, true)");
   assert.ok(showAt > 0 && firstTabAt > showAt, 'window must be shown before first tab initialization');
 });
 
 test('startup has explicit milestones and smoke-test exit', () => {
   assert.match(source, /Browser window opened successfully/);
-  assert.match(source, /First private tab initialized/);
+  assert.match(source, /First private tab initialized and page rendered/);
   assert.match(source, /AEGIS_SMOKE_TEST/);
   assert.match(source, /AEGIS_SMOKE_TEST_URL/);
   assert.match(source, /External website smoke test passed/);
