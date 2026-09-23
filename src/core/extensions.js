@@ -53,8 +53,56 @@ function extensionWorldId(id){
   const h=crypto.createHash('sha256').update(String(id)).digest();
   return 1100 + (h.readUInt32BE(0) % 50000);
 }
-function extensionId(m,digest){
-  const id=m?.browser_specific_settings?.gecko?.id||m?.applications?.gecko?.id||('xpi-'+digest.slice(0,32));
+function chromeIdFromBytes(bytes){
+  const alphabet='abcdefghijklmnop',b=Buffer.from(bytes||[]);
+  if(b.length<16)return '';
+  return [...b.subarray(0,16)].map((value)=>alphabet[(value>>4)&15]+alphabet[value&15]).join('');
+}
+function chromeIdFromManifestKey(m){
+  const raw=String(m?.key||'').trim();if(!raw)return '';
+  try{return chromeIdFromBytes(crypto.createHash('sha256').update(Buffer.from(raw,'base64')).digest().subarray(0,16))}catch{return ''}
+}
+function readProtoVarint(buf,state){
+  let value=0,shift=0;
+  while(state.i<buf.length&&shift<56){const byte=buf[state.i++];value+=(byte&0x7f)*2**shift;if(!(byte&0x80))return value;shift+=7}
+  throw new Error('Invalid CRX protobuf varint.');
+}
+function protoLengthField(buf,field){
+  const state={i:0};
+  while(state.i<buf.length){
+    const tag=readProtoVarint(buf,state),number=Math.floor(tag/8),wire=tag&7;
+    if(wire===0){readProtoVarint(buf,state);continue}
+    if(wire===1){state.i+=8;continue}
+    if(wire===5){state.i+=4;continue}
+    if(wire!==2)throw new Error('Unsupported CRX protobuf wire type.');
+    const len=readProtoVarint(buf,state);if(len<0||state.i+len>buf.length)throw new Error('Invalid CRX protobuf field length.');
+    const value=buf.subarray(state.i,state.i+len);state.i+=len;
+    if(number===field)return value;
+  }
+  return null;
+}
+function parseCrxBuffer(buffer){
+  const buf=Buffer.from(buffer||[]);
+  if(buf.length<12||buf.subarray(0,4).toString('ascii')!=='Cr24')return null;
+  const version=buf.readUInt32LE(4);
+  if(version===2){
+    if(buf.length<16)throw new Error('Invalid CRX2 header.');
+    const publicKeyLength=buf.readUInt32LE(8),signatureLength=buf.readUInt32LE(12),zipOffset=16+publicKeyLength+signatureLength;
+    if(publicKeyLength>4*1024*1024||signatureLength>4*1024*1024||zipOffset>=buf.length)throw new Error('Invalid CRX2 header lengths.');
+    const publicKey=buf.subarray(16,16+publicKeyLength);
+    return {format:'crx2',version,zipOffset,id:chromeIdFromBytes(crypto.createHash('sha256').update(publicKey).digest().subarray(0,16)),signatureMetadata:true,verified:false};
+  }
+  if(version===3){
+    const headerLength=buf.readUInt32LE(8),zipOffset=12+headerLength;
+    if(headerLength>16*1024*1024||zipOffset>=buf.length)throw new Error('Invalid CRX3 header length.');
+    const header=buf.subarray(12,zipOffset),signedData=protoLengthField(header,10000),crxId=signedData?protoLengthField(signedData,1):null;
+    const id=crxId&&crxId.length===16?chromeIdFromBytes(crxId):'';
+    return {format:'crx3',version,zipOffset,id,signatureMetadata:true,verified:false};
+  }
+  throw new Error('Unsupported CRX package version: '+version);
+}
+function extensionId(m,digest,packageInfo={}){
+  const id=m?.browser_specific_settings?.gecko?.id||m?.applications?.gecko?.id||packageInfo?.id||chromeIdFromManifestKey(m)||('webext-'+digest.slice(0,32));
   return String(id).toLowerCase().replace(/[^a-z0-9@._-]/g,'-').slice(0,120);
 }
 function apiRoots(m){
@@ -183,11 +231,19 @@ function installRisk(m){
   return permissions(m).map((p)=>({permission:p,level:(p==='<all_urls>'||p==='*://*/*'||DENIED_ROOTS[p])?'high':(/:\/\//.test(p)||['tabs','activeTab','storage'].includes(p)?'medium':'low')}));
 }
 async function zipEntries(file){
-  const st=fs.statSync(file); if(!st.isFile()||st.size>64*1024*1024) throw new Error('XPI must be smaller than 64 MB.');
+  const st=fs.statSync(file); if(!st.isFile()||st.size>64*1024*1024) throw new Error('Extension package must be smaller than 64 MB.');
   const r=await execFileAsync('/usr/bin/unzip',['-Z1',file],{maxBuffer:4*1024*1024});
-  const entries=r.stdout.split(/\r?\n/).map((x)=>x.trim()).filter(Boolean); if(!entries.length||entries.length>5000)throw new Error('Invalid XPI file count.');
-  for(const e of entries) if(!safeRel(e.replace(/\/$/,'')))throw new Error('Unsafe XPI path: '+e);
+  const entries=r.stdout.split(/\r?\n/).map((x)=>x.trim()).filter(Boolean); if(!entries.length||entries.length>5000)throw new Error('Invalid extension package file count.');
+  for(const e of entries) if(!safeRel(e.replace(/\/$/,'')))throw new Error('Unsafe extension package path: '+e);
   return entries;
+}
+function preparePackageArchive(file,tmpRoot){
+  const input=fs.readFileSync(file);if(input.length>64*1024*1024)throw new Error('Extension package must be smaller than 64 MB.');
+  const crx=parseCrxBuffer(input);
+  if(!crx)return {archive:file,packageInfo:{format:path.extname(file).toLowerCase()==='.xpi'?'xpi':'zip',id:'',signatureMetadata:false,verified:false},ownedArchive:false};
+  const archive=path.join(tmpRoot,'crx-payload-'+crypto.randomUUID()+'.zip');
+  fs.mkdirSync(tmpRoot,{recursive:true,mode:0o700});fs.writeFileSync(archive,input.subarray(crx.zipOffset),{mode:0o600});
+  return {archive,packageInfo:crx,ownedArchive:true};
 }
 function scanUsedApiRoots(root){
   const roots=new Set(),extensions=new Set(['.js','.mjs','.cjs','.html','.htm']),maxFile=2*1024*1024,maxTotal=12*1024*1024;
@@ -221,17 +277,23 @@ function validateExtractedTree(root){
   };
   walk(root); return {files:count,bytes:total};
 }
-async function inspectXpi(file,tmpRoot){
-  const entries=await zipEntries(file); const tmp=path.join(tmpRoot,'inspect-'+crypto.randomUUID()); fs.mkdirSync(tmp,{recursive:true,mode:0o700});
+async function inspectPackage(file,tmpRoot){
+  const prepared=preparePackageArchive(file,tmpRoot),entries=await zipEntries(prepared.archive),tmp=path.join(tmpRoot,'inspect-'+crypto.randomUUID());fs.mkdirSync(tmp,{recursive:true,mode:0o700});
   try{
-    await execFileAsync('/usr/bin/unzip',['-qq','-o',file,'-d',tmp],{maxBuffer:4*1024*1024});
+    await execFileAsync('/usr/bin/unzip',['-qq','-o',prepared.archive,'-d',tmp],{maxBuffer:4*1024*1024});
     validateExtractedTree(tmp);
-    let root=tmp; if(!fs.existsSync(path.join(root,'manifest.json'))){const dirs=fs.readdirSync(tmp,{withFileTypes:true}).filter((x)=>x.isDirectory()); if(dirs.length===1)root=path.join(tmp,dirs[0].name);}
-    const manifest=normalizeManifest(readJson(path.join(root,'manifest.json')));
-    const detectedApis=scanUsedApiRoots(root);
-    const signatureMetadata=entries.some((e)=>/^META-INF\/(?:mozilla\.rsa|mozilla\.sf|manifest\.mf)$/i.test(e));
-    return {root,tmp,manifest,detectedApis,compatibility:compatibility(manifest,detectedApis),risk:installRisk(manifest),signature:{metadataPresent:signatureMetadata,verified:false}};
-  }catch(err){try{fs.rmSync(tmp,{recursive:true,force:true});}catch{} throw err;}
+    let root=tmp;if(!fs.existsSync(path.join(root,'manifest.json'))){const dirs=fs.readdirSync(tmp,{withFileTypes:true}).filter((x)=>x.isDirectory());if(dirs.length===1)root=path.join(tmp,dirs[0].name);}
+    const manifest=normalizeManifest(readJson(path.join(root,'manifest.json'))),detectedApis=scanUsedApiRoots(root);
+    const mozillaMetadata=entries.some((e)=>/^META-INF\/(?:mozilla\.rsa|mozilla\.sf|manifest\.mf)$/i.test(e));
+    const packageInfo={...prepared.packageInfo,signatureMetadata:Boolean(prepared.packageInfo.signatureMetadata||mozillaMetadata)};
+    return {root,tmp,manifest,detectedApis,packageInfo,compatibility:compatibility(manifest,detectedApis),risk:installRisk(manifest),signature:{metadataPresent:packageInfo.signatureMetadata,verified:Boolean(packageInfo.verified),format:packageInfo.format||'zip'}};
+  }catch(err){try{fs.rmSync(tmp,{recursive:true,force:true});}catch{}throw err}
+  finally{if(prepared.ownedArchive)try{fs.rmSync(prepared.archive,{force:true})}catch{}}
+}
+function inspectUnpackedDirectory(dir){
+  const root=path.resolve(String(dir||''));const stat=fs.statSync(root);if(!stat.isDirectory())throw new Error('Unpacked extension path is not a directory.');
+  validateExtractedTree(root);const manifest=normalizeManifest(readJson(path.join(root,'manifest.json'))),detectedApis=scanUsedApiRoots(root);
+  return {root,manifest,detectedApis,packageInfo:{format:'unpacked',id:chromeIdFromManifestKey(manifest),signatureMetadata:false,verified:false},compatibility:compatibility(manifest,detectedApis),risk:installRisk(manifest),signature:{metadataPresent:false,verified:false,format:'unpacked'}};
 }
 function bootstrap(ext){ return webExtensionBootstrap(ext,'__aegisExtensionBridge'); }
 function readStore(file){try{return readJson(file)}catch{return {}}}
