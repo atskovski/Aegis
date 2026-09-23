@@ -19,6 +19,7 @@ const { makeSiteIntelligence, resetSiteIntelligence, recordSiteSignal, recordNet
 const { fetchPublicIp, testSessionIsolation, testWebRtcLeakSurface, inspectPrivacySurfaces, routePrivacyStatus, makeCheck, summarizeChecks } = require('./core/security-suite');
 const { AegisExtensionRuntime } = require('./core/extensions');
 const { controlAssurance } = require('./core/control-registry');
+const { effectiveSettings, hardenTabState, anonymousTabState, domainLabel, isPrivateNetworkUrl, SENSITIVE_PERMISSION_KEYS } = require('./core/compartment');
 
 app.setName('Aegis Privacy Browser');
 // Keep the wire-level User-Agent generic. Product branding belongs in browser chrome, not in requests sites can fingerprint.
@@ -71,6 +72,13 @@ let uiLayer = { mode: 'none', reserveRight: 0 };
 let trackerLearner = new TrackerLearner();
 let filterRules = parseFilterRules('');
 let extensionRuntime = null;
+let stateEmitTimer = null;
+
+function tabSettings(tab) { return effectiveSettings(settings, tab); }
+function scheduleStateEmit(delay = 35) {
+  if (stateEmitTimer) return;
+  stateEmitTimer = setTimeout(() => { stateEmitTimer = null; emitState(); }, Math.max(0, delay));
+}
 
 function startupLog(message, extra = '') {
   const suffix = extra ? ` ${String(extra)}` : '';
@@ -451,6 +459,12 @@ function serializeTab(tab) {
     extensionIds: Array.isArray(tab.extensionIds) ? tab.extensionIds : [],
     privacySessionReady: Boolean(tab.privacySessionReady),
     networkRoute: tab.networkRoute || null,
+    securityDomain: tab.securityDomain || 'private',
+    securityDomainLabel: domainLabel(tab),
+    hardenedAt: tab.hardenedAt || null,
+    anonymousAt: tab.anonymousAt || null,
+    disableExtensions: Boolean(tab.disableExtensions),
+    torVerified: Boolean(tab.torVerified),
     sponsorSegments: tab.sponsorSegments || 0,
     siteIntelligence: publicSiteIntelligence(tab),
     stats: tab.stats
@@ -468,7 +482,7 @@ function statePayload() {
     network: { lastTest: lastNetworkTest, proxyMode: settings.proxy?.mode || 'system' },
     securitySuite: lastSecuritySuite,
     extensions: extensionRuntime ? extensionRuntime.list() : [],
-    privacyControls: controlAssurance(settings, activeTab()),
+    privacyControls: controlAssurance(tabSettings(activeTab()), activeTab()),
     engine: {
       appVersion: app.getVersion(),
       electron: process.versions.electron,
@@ -575,6 +589,7 @@ function relayout() {
 function chromiumMajor() { return String(process.versions.chrome || '152').split('.')[0]; }
 
 async function installFingerprintDefenses(tab) {
+  const effective = tabSettings(tab);
   const dbg = tab?.view?.webContents?.debugger;
   tab.fingerprintStatus = { debugger:false, page:false, timezone:false, locale:false, fingerprintPreload:false, privacyPreload:false, sentinelPreload:false, errors:[] };
   if (!dbg) { tab.fingerprintStatus.errors.push('Debugger interface unavailable.'); return false; }
@@ -593,30 +608,30 @@ async function installFingerprintDefenses(tab) {
   await step('page', () => withTimeout(dbg.sendCommand('Page.enable'), 1800, 'Fingerprint Page.enable'), true);
   await step('runtime', () => withTimeout(dbg.sendCommand('Runtime.enable'), 1800, 'Privacy Runtime.enable'));
 
-  if (settings.privacyLevel !== 'standard') {
+  if (effective.privacyLevel !== 'standard') {
     await step('timezone', () => withTimeout(dbg.sendCommand('Emulation.setTimezoneOverride', { timezoneId: 'UTC' }), 1400, 'Timezone defense'));
     await step('locale', () => withTimeout(dbg.sendCommand('Emulation.setLocaleOverride', { locale: 'en-US' }), 1400, 'Locale defense'));
   }
 
-  const fpSource = buildAntiFingerprintScript({ seed: identitySeed + ':' + tab.seed, chromiumMajor: chromiumMajor(), profile: settings.privacyLevel, disableServiceWorkers: settings.disableServiceWorkers, globalPrivacyControl: settings.globalPrivacyControl, doNotTrack: settings.doNotTrack });
+  const fpSource = buildAntiFingerprintScript({ seed: identitySeed + ':' + tab.seed, chromiumMajor: chromiumMajor(), profile: effective.privacyLevel, disableServiceWorkers: effective.disableServiceWorkers, globalPrivacyControl: effective.globalPrivacyControl, doNotTrack: effective.doNotTrack, anonymousMode: effective.anonymousRouteRequired === true, disableWebRtc: effective.disableWebRtc === true });
   await step('fingerprintPreload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: fpSource }), 1800, 'Fingerprint preload'), true);
 
   const privacySource = buildPagePrivacyScript({
-    maximum: settings.privacyLevel === 'maximum',
-    privacyApiGuard: settings.privacyApiGuard !== false,
-    blockTrackingBeacons: settings.blockTrackingBeacons !== false,
-    globalPrivacyControl: settings.globalPrivacyControl !== false
+    maximum: effective.privacyLevel === 'maximum',
+    privacyApiGuard: effective.privacyApiGuard !== false,
+    blockTrackingBeacons: effective.blockTrackingBeacons !== false,
+    globalPrivacyControl: effective.globalPrivacyControl !== false
   });
   await step('privacyPreload', () => withTimeout(dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: privacySource }), 1800, 'Page privacy preload'), true);
 
-  if (settings.siteIntelligence !== false) {
+  if (effective.siteIntelligence !== false) {
     const bindingName = '__aegisAudit_' + tab.seed.slice(0, 12);
     tab.auditBinding = bindingName;
     const bindingReady = await step('sentinelBinding', () => withTimeout(dbg.sendCommand('Runtime.addBinding', { name: bindingName }), 1400, 'Sentinel binding'));
     if (bindingReady) {
       if (!tab.auditMessageHandler && typeof dbg.on === 'function') {
         tab.auditMessageHandler = (_event, method, params) => {
-          if (settings.siteIntelligence === false || method !== 'Runtime.bindingCalled' || params?.name !== tab.auditBinding) return;
+          if (tabSettings(tab).siteIntelligence === false || method !== 'Runtime.bindingCalled' || params?.name !== tab.auditBinding) return;
           try { const payload = JSON.parse(String(params.payload || '{}')); if (recordSiteSignal(tab, payload)) emitState(); } catch {}
         };
         dbg.on('message', tab.auditMessageHandler);
@@ -632,8 +647,16 @@ async function installFingerprintDefenses(tab) {
 
 function applySessionDownloadPolicy(tab) {
   tab.view.webContents.session.on('will-download', (event, item) => {
+    const effective = tabSettings(tab);
     const filename = item.getFilename();
-    if (settings.blockRiskyDownloads && isRiskyDownload(filename)) {
+    if (effective.blockAllDownloads) {
+      event.preventDefault();
+      tab.stats.blockedDownloads += 1;
+      scheduleStateEmit();
+      toast('Downloads are blocked in the anonymous compartment. Open the page in a normal private tab if you intentionally need a file.', 'warning');
+      return;
+    }
+    if (effective.blockRiskyDownloads && isRiskyDownload(filename)) {
       event.preventDefault();
       tab.stats.blockedDownloads += 1;
       emitState();
@@ -655,9 +678,11 @@ function applySessionDownloadPolicy(tab) {
   });
 }
 
-async function applyProxyToSession(ses, options = {}) {
-  const result = await applyProxyCore(ses, settings.proxy || {}, {
-    failClosedFixedProxy: Boolean(settings.proxy?.failClosedFixedProxy),
+async function applyProxyToSession(ses, options = {}, tab = null) {
+  const effective = tabSettings(tab);
+  const proxy = effective.proxy || settings.proxy || {};
+  const result = await applyProxyCore(ses, proxy, {
+    failClosedFixedProxy: Boolean(proxy?.failClosedFixedProxy),
     freshSession: Boolean(options.freshSession)
   });
   if (result.warnings?.length) console.warn('Aegis network routing warning:', result.warnings.join(' | '));
@@ -729,7 +754,8 @@ async function applyCosmeticFiltering(tab) {
     try { await tab.view.webContents.removeInsertedCSS(tab.cosmeticCssKey); } catch {}
     tab.cosmeticCssKey = '';
   }
-  const enabled = settings.cosmeticFiltering !== false && tab.shieldsEnabled && !tab.compatibilityMode;
+  const effective = tabSettings(tab);
+  const enabled = effective.cosmeticFiltering !== false && tab.shieldsEnabled && !tab.compatibilityMode;
   if (!enabled) { tab.cosmeticFilteringReady = false; return false; }
   try {
     tab.cosmeticCssKey = await tab.view.webContents.insertCSS(cosmeticCss(filterRules.cosmetic || []), { cssOrigin: 'user' });
@@ -743,10 +769,11 @@ async function applyCosmeticFiltering(tab) {
 }
 
 async function applySponsorProtection(tab) {
-  if (!settings.sponsorBlock?.enabled || !tab?.url) return;
+  const effective = tabSettings(tab);
+  if (!effective.sponsorBlock?.enabled || !tab?.url) return;
   const videoId = youtubeVideoId(tab.url); if (!videoId) return;
   try {
-    const segments = await fetchSponsorSegments(tab.privateSession, videoId, settings.sponsorBlock.categories);
+    const segments = await fetchSponsorSegments(tab.privateSession, videoId, effective.sponsorBlock.categories);
     if (!segments.length || tab.view.webContents.isDestroyed()) return;
     await tab.view.webContents.executeJavaScript(sponsorSkipScript(segments), true);
     tab.sponsorSegments = segments.length;
@@ -766,15 +793,16 @@ function wireTabView(tab, view) {
 
   view.webContents.on('will-navigate', (event, legacyDetails) => {
     const original = navigationUrl(event, legacyDetails);
-    const url = cleanNavigationUrl(original, { strip: settings.stripTrackingParams, unwrap: settings.unwrapTrackingLinks });
-    if (!url || !isAllowedNavigation(url) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) {
+    const effective = tabSettings(tab);
+    const url = cleanNavigationUrl(original, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
+    if (!url || !isAllowedNavigation(url) || (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) || !shouldAllowInternalNavigation(view.webContents.getURL(), url)) {
       event.preventDefault(); toast(`Blocked unsafe navigation${url ? `: ${String(url).split(':')[0]}:` : '.'}`, 'danger'); return;
     }
     if (url !== original) {
       event.preventDefault(); tab.stats.trackingParamsRemoved += 1; emitState();
       view.webContents.loadURL(url).catch((err) => showLoadError(tab, url, err?.errno, err?.message)); return;
     }
-    tab.safety = settings.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+    tab.safety = effective.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
     if (tab.safety.risk >= 50) toast(`Caution: ${tab.safety.warnings[0]}`, 'warning');
     if (shouldUpgradeHttp(url, tab.allowHttp)) {
       event.preventDefault(); tab.stats.httpsUpgrades += 1; emitState();
@@ -872,7 +900,7 @@ async function replaceTabView(tab, javascriptEnabled) {
   emitState();
 }
 
-async function createTab(raw = null, activate = true, waitForNavigation = false) {
+async function createTab(raw = null, activate = true, waitForNavigation = false, options = {}) {
   const id = nextId++;
   const partition = `aegis-tab-${crypto.randomUUID()}`; // no persist: prefix = memory-only session
   const privateSession = electronSession.fromPartition(partition, { cache: false });
@@ -906,8 +934,16 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
     auditMessageHandler: null,
     cookieCleanupTimer: null,
     cosmeticCssKey: '',
-    cosmeticFilteringReady: false
+    cosmeticFilteringReady: false,
+    securityDomain: options.securityDomain === 'anonymous' ? 'anonymous' : (options.securityDomain === 'hardened' ? 'hardened' : 'private'),
+    hardenedAt: null,
+    anonymousAt: null,
+    torProxy: options.torProxy || '',
+    torVerified: false,
+    disableExtensions: Boolean(options.disableExtensions)
   };
+  if (tab.securityDomain === 'hardened') hardenTabState(tab);
+  if (tab.securityDomain === 'anonymous') anonymousTabState(tab, options.torProxy || '127.0.0.1:9050');
 
   const view = createTabView(tab);
   tab.view = view;
@@ -918,11 +954,11 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
   configurePrivacySession({
     ses: privateSession,
     tab,
-    getSettings: () => settings,
+    getSettings: () => tabSettings(tab),
     chromiumVersion: process.versions.chrome,
-    onStats: emitState,
-    onSensitiveAccess: (event) => { if (recordSiteSignal(tab, event)) emitState(); },
-    onNetworkAccess: (event) => { if (recordNetworkEvent(tab, event)) emitState(); },
+    onStats: () => scheduleStateEmit(),
+    onSensitiveAccess: (event) => { if (recordSiteSignal(tab, event)) scheduleStateEmit(); },
+    onNetworkAccess: (event) => { if (recordNetworkEvent(tab, event)) scheduleStateEmit(); },
     onPermissionBlocked: ({ keys }) => {
       const label = (keys && keys[0]) ? keys[0].replace(/([A-Z])/g, ' $1').toLowerCase() : 'permission';
       toast(`Blocked ${label} access. Change it in Site controls if you trust this site.`, 'warning');
@@ -942,12 +978,13 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
   // The work remains bounded and fail-soft so browser chrome stays usable if CDP is unavailable.
   tab.privacyReadyPromise = installFingerprintDefenses(tab).then((ready) => { emitState(); return ready; }).catch(() => false);
 
+  const effective = tabSettings(tab);
   const target = raw || settings.homePage || 'https://duckduckgo.com/';
-  const routeMustSet = (settings.proxy?.mode || 'system') !== 'system';
-  const fixedProxy = !['system','direct'].includes(settings.proxy?.mode || 'system');
-  let routePromise = applyProxyToSession(privateSession, { freshSession: true }).then((r) => { tab.networkRoute = r; emitState(); return r; }).catch((err) => {
+  const routeMustSet = (effective.proxy?.mode || 'system') !== 'system';
+  const fixedProxy = !['system','direct'].includes(effective.proxy?.mode || 'system');
+  let routePromise = applyProxyToSession(privateSession, { freshSession: true }, tab).then((r) => { tab.networkRoute = r; emitState(); return r; }).catch((err) => {
     tab.networkRoute = { ok: false, warnings: [err.message] }; emitState();
-    if (fixedProxy && settings.proxy?.failClosedFixedProxy) throw err;
+    if (fixedProxy && effective.proxy?.failClosedFixedProxy) throw err;
     return tab.networkRoute;
   });
 
@@ -970,9 +1007,16 @@ async function createTab(raw = null, activate = true, waitForNavigation = false)
 
 async function navigateTab(tab, raw) {
   if (!tab) return;
+  const effective = tabSettings(tab);
   let url = normalizeInput(raw, searchTemplateFor(settings));
-  url = cleanNavigationUrl(url, { strip: settings.stripTrackingParams, unwrap: settings.unwrapTrackingLinks });
-  tab.safety = settings.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
+  url = cleanNavigationUrl(url, { strip: effective.stripTrackingParams, unwrap: effective.unwrapTrackingLinks });
+  if (effective.blockPrivateNetwork && isPrivateNetworkUrl(url)) {
+    tab.stats.privateNetworkBlocks = (tab.stats.privateNetworkBlocks || 0) + 1;
+    scheduleStateEmit();
+    toast('Blocked local/private-network navigation in the anonymous compartment.', 'danger');
+    return false;
+  }
+  tab.safety = effective.threatProtection ? analyzeUrl(url) : { risk: 0, warnings: [] };
   if (!isAllowedNavigation(url)) {
     toast('That address uses a blocked protocol.', 'danger');
     return false;
