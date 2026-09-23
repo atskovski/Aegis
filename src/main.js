@@ -1176,6 +1176,12 @@ async function hardenTab(tab) {
   } catch (err) { console.warn('Harden cleanup warning:', err.message); }
 
   tab.javascriptEnabled = true;
+  // A hardened compartment is tab-scoped. Do not persist a global site exception:
+  // that would silently alter future ordinary tabs for the same origin.
+  if (origin && settings.sitePermissions[origin]) {
+    delete settings.sitePermissions[origin];
+    saveSettings();
+  }
   await replaceTabView(tab, true);
   await applyCosmeticFiltering(tab);
   emitState();
@@ -1194,7 +1200,8 @@ async function createAnonymousTab(raw = null) {
     deferNavigation:true
   });
   if (!tab) return null;
-  extensionRuntime?.suspendAll('anonymous-tabs');
+  // Extensions are excluded per-tab by the compartment policy. Do not globally
+  // suspend them just because an anonymous tab exists; ordinary tabs remain usable.
   try {
     const route = await applyProxyToSession(tab.privateSession, { freshSession:false }, tab);
     tab.networkRoute = route;
@@ -1255,7 +1262,8 @@ function showTabContextMenu(tab, params = {}) {
   if (template.length) template.push({ type: 'separator' });
   template.push(
     { label: 'Site Privacy Inspector', click: () => openBrowserUi({ panel: 'privacyPanel' }) },
-    { label: 'Harden This Site', enabled: Boolean(safeOrigin(tab.url)), click: () => hardenTab(tab) },
+    { label: tab.securityDomain === 'hardened' ? 'Site Hardened' : 'Harden This Site', enabled: Boolean(safeOrigin(tab.url)) && tab.securityDomain === 'private', click: () => hardenTab(tab) },
+    { label: 'Open Anonymous Compartment', click: () => createAnonymousTab(tab.url || null) },
     { label: 'Clear This Tab Data', click: () => clearTabData(tab) },
     { type: 'separator' },
     { label: 'Security Suite & Verification', click: () => openBrowserUi({ settingsPage: 'diagnostics' }) }
