@@ -1010,17 +1010,27 @@ class AegisExtensionRuntime{
     if(m==='tabs.query'){
       const q=a[0]||{},patterns=q.url==null?null:(Array.isArray(q.url)?q.url:[q.url]).map(String);
       const urlMatches=(raw)=>{
-        if(!patterns)return true;const value=String(raw||'');
+        if(!patterns)return true;
+        const value=String(raw||'');
         return patterns.some((pattern)=>{
           if(pattern==='<all_urls>')return /^https?:\/\//i.test(value);
           if(!pattern.includes('*'))return value===pattern;
-          const escaped=pattern.split('*').map((part)=>part.replace(/[.+?^$()|[\]\\]/g,'\\    if(m==='tabs.query'){
-      const q=a[0]||{};return tabs.filter(extensionVisibleTab).filter((t)=>!q.active||t.id===this.getActiveId()).map((t)=>this.publicTab(e,t));
+          const escaped=pattern.split('*').map((part)=>part.replace(/[-/\\^$+?.()|[\]{}]/g,'\\$&')).join('.*');
+          try{return new RegExp('^'+escaped+'$').test(value)}catch{return false}
+        });
+      };
+      return tabs.filter(extensionVisibleTab)
+        .filter((t)=>!q.active||t.id===this.getActiveId())
+        .filter((t)=>urlMatches(t.url))
+        .map((t)=>this.publicTab(e,t));
     }
     if(m==='tabs.get'){const t=this.tabById(a[0]);if(!extensionVisibleTab(t))throw new Error('Tab unavailable to extensions');return this.publicTab(e,t)}
     if(m==='tabs.getCurrent')return source?this.publicTab(e,source):null;
-    if(m==='tabs.create'){requireTabs();return this.publicTab(e,await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false))}')).join('.*');
-          try{return new RegExp('^'+escaped+'
+    if(m==='tabs.create'){
+      requireTabs();const raw=String(a[0]?.url||'aegis://app/start.html');let options={};
+      try{const u=new URL(raw);if(u.protocol==='aegis-extension:'&&u.hostname===e.resourceToken)options={extensionPageExtensionId:e.id}}catch{}
+      return this.publicTab(e,await this.createTab(raw,a[0]?.active!==false,false,options))
+    }
     if(m==='tabs.update'){
       requireTabs();const id=typeof a[0]==='number'?a[0]:source?.id,target=this.tabById(id);if(!extensionVisibleTab(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');
       await this.updateTab(id,typeof a[0]==='number'?(a[1]||{}):(a[0]||{}));
