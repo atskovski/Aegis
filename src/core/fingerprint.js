@@ -114,6 +114,46 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
     if (STRICT) {
       try { if (globalThis.speechSynthesis) speechSynthesis.getVoices = () => []; } catch {}
 
+      // Common font fingerprinting libraries compare off-screen span metrics across
+      // hundreds of candidate fonts. Normalize only that probe-shaped pattern so
+      // ordinary visible layout remains untouched.
+      try {
+        const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+        const heightDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+        const looksLikeFontProbe = (el) => {
+          try {
+            if (!el || !['SPAN','DIV'].includes(el.tagName)) return false;
+            const style = el.style || {};
+            const family = String(style.fontFamily || '');
+            const left = Number.parseFloat(style.left || '0');
+            const top = Number.parseFloat(style.top || '0');
+            const offscreen = left < -500 || top < -500 || style.visibility === 'hidden';
+            const fallbackPair = family.includes(',') && /(monospace|sans-serif|serif)/i.test(family);
+            return offscreen && fallbackPair && String(el.textContent || '').length >= 4;
+          } catch { return false; }
+        };
+        if (widthDesc?.get) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+          configurable: true,
+          get() {
+            if (looksLikeFontProbe(this)) {
+              const size = Number.parseFloat(getComputedStyle(this).fontSize || '16') || 16;
+              return Math.max(1, Math.round(String(this.textContent || '').length * size * 0.59));
+            }
+            return widthDesc.get.call(this);
+          }
+        });
+        if (heightDesc?.get) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+          configurable: true,
+          get() {
+            if (looksLikeFontProbe(this)) {
+              const size = Number.parseFloat(getComputedStyle(this).fontSize || '16') || 16;
+              return Math.max(1, Math.round(size * 1.22));
+            }
+            return heightDesc.get.call(this);
+          }
+        });
+      } catch {}
+
       try {
         const nativeGet = CanvasRenderingContext2D.prototype.getImageData;
         const nativePut = CanvasRenderingContext2D.prototype.putImageData;
@@ -228,7 +268,7 @@ function buildAntiFingerprintScript({ seed, chromiumMajor = '152', profile = 'st
       } catch {}
     }
 
-    if (MAXIMUM) {
+    if (STRICT) {
       try {
         if (document.fonts && document.fonts.check) {
           const nativeCheck = document.fonts.check.bind(document.fonts);
