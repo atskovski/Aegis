@@ -52,7 +52,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     requireTorVerification: true,
     blockPrivateNetwork: true,
     disableDownloads: true,
-    disableExtensions: true
+    disableExtensions: true,
+    disableJavaScript: true
   },
   proxy: {
     mode: 'system',
@@ -118,7 +119,8 @@ function sanitizeAnonymity(raw) {
     requireTorVerification: bool(raw?.requireTorVerification, d.requireTorVerification),
     blockPrivateNetwork: bool(raw?.blockPrivateNetwork, d.blockPrivateNetwork),
     disableDownloads: bool(raw?.disableDownloads, d.disableDownloads),
-    disableExtensions: bool(raw?.disableExtensions, d.disableExtensions)
+    disableExtensions: bool(raw?.disableExtensions, d.disableExtensions),
+    disableJavaScript: bool(raw?.disableJavaScript, d.disableJavaScript)
   };
 }
 
