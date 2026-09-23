@@ -518,18 +518,19 @@ async function runSecuritySuite() {
     checks.push(makeCheck('network-route', 'IP routing posture', routeStatus.status, routeStatus.evidence, 'runtime-policy'));
 
     const expectedNetworkUa = buildGenericUA(process.versions.chrome);
-    configurePrivacySession({
-      ses, engine: browserEngine, tab: { url:'https://example.com/', topUrl:'https://example.com/', stats:makeTabStats() },
-      getSettings:()=>effective, chromiumVersion:process.versions.chrome, onStats:()=>{},
-      onPermissionBlocked:()=>{}, onPermissionPrompt:({ complete })=>complete(false),
-      onSensitiveAccess:()=>{}, onNetworkAccess:()=>{}, trackerLearner:null, getFilterRules:()=>null, isTemporarilyAllowed:()=>false
-    });
     const storageProbe = await testStorageResurrection(ses);
     checks.push(makeCheck('storage-resurrection', 'Storage resurrection cleanup', storageProbe.status, storageProbe.evidence, 'behavioral-test'));
 
+    const suiteProbeTab = { url:'https://example.com/', topUrl:'https://example.com/', stats:makeTabStats(), shieldsEnabled:true, compatibilityMode:false };
     const networkIdentity = await testNetworkIdentity(ses, {
       ua: expectedNetworkUa, doNotTrack: effective.doNotTrack, globalPrivacyControl: effective.globalPrivacyControl
-    });
+    }, (observeHeaders) => configurePrivacySession({
+      ses, engine: browserEngine, tab: suiteProbeTab,
+      getSettings:()=>effective, chromiumVersion:process.versions.chrome, onStats:()=>{},
+      onPermissionBlocked:()=>{}, onPermissionPrompt:({ complete })=>complete(false),
+      onSensitiveAccess:()=>{}, onNetworkAccess:()=>{}, onRequestHeaders:observeHeaders,
+      trackerLearner:null, getFilterRules:()=>null, isTemporarilyAllowed:()=>false
+    }));
     checks.push(makeCheck('network-identity-coherence', 'Network / JavaScript identity coherence', networkIdentity.status, networkIdentity.evidence, 'behavioral-test'));
 
     connectivity = await runConnectivityTest(ses, { target: 'https://duckduckgo.com/', proxyMode: effective.proxy?.mode || 'system' });
