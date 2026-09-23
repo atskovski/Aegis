@@ -113,3 +113,12 @@ Sentinel is intentionally split across trust boundaries:
 5. The renderer computes presentation-only posture/exposure summaries. No Sentinel data is uploaded or persisted as browsing history.
 
 The audit plane is explanatory rather than authoritative security telemetry. A malicious page may avoid or alter observable JavaScript API usage, and browser-engine behavior can change. Protection enforcement remains in the main-process session/request/permission layers rather than relying on the audit script.
+
+
+## Browser-host roadmap
+
+Aegis 1.1 treats Electron as the current Chromium host, not as the product architecture. Remote browsing behavior must cross `BrowserRuntime -> BrowserEngine`; portable security/privacy modules must not import Electron or depend on `webContents` event shapes.
+
+The next native host target is a Chromium embedding layer such as CEF or a maintained direct-Chromium shell. A conforming host must provide the engine contract, Chromium multi-process sandboxing, per-site renderer isolation, permission mediation, certificate policy, download mediation, network interception, isolated execution worlds, renderer crash lifecycle, and DevTools-protocol evidence hooks. The existing Electron host remains supported until the replacement host passes the same behavioral Security Suite.
+
+A host migration is complete only when both implementations pass identical Aegis conformance tests. Engine substitution must not silently weaken the Security Kernel, compartment isolation, Sentinel evidence, fingerprint cohort, extension capability broker, or network policy.
