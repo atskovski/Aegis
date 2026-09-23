@@ -854,24 +854,54 @@ class AegisExtensionRuntime{
         const entryId=entry.__registered?('registered:'+entry.id):String(index),key=e.id+':'+entryId+':'+phase;
         if(tab.extensionInjectionKeys.has(key))continue;
         const js=(Array.isArray(entry.js)?entry.js:[]).map(safeRel).filter(Boolean),world=String(entry.world||'ISOLATED').toUpperCase();
-        let scriptOk=!js.length;
+        let scriptOk=!js.length,scriptRan=false;
         if(js.length){
-          try{
-            if(world==='MAIN'){
-              for(const rel of js){
+          if(world==='MAIN'){
+            let failures=0;
+            for(const rel of js){
+              try{
                 const source=fs.readFileSync(this.extensionFile(e,rel),'utf8')+'\n//# sourceURL='+extensionResourceUrl(e,rel);
                 await contents.executeJavaScript(source,false);
-              }
-            }else{
-              await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:bootstrap(e),url:extensionResourceUrl(e,'__aegis_content_bootstrap.js')}],false);
-              for(const rel of js){
-                const source=fs.readFileSync(this.extensionFile(e,rel),'utf8');
-                try{await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:source,url:extensionResourceUrl(e,rel)}],false)}
-                catch(err){this.noteRuntimeError(e.id,'content-script:'+rel,err);throw err}
+                scriptRan=true;
+              }catch(err){
+                failures+=1;
+                this.noteRuntimeError(e.id,'content-script:'+rel,err);
               }
             }
-            scriptOk=true;done.push(e.id);const health=this.healthFor(e.id);health.lastInjectionAt=new Date().toISOString();this.clearRuntimeErrors(e.id,'content-script');
-          }catch(err){if(!this.healthFor(e.id).errors.some((x)=>x.scope.startsWith('content-script:')&&x.message===String(err?.message||err)))this.noteRuntimeError(e.id,'content-script',err)}
+            scriptOk=failures===0;
+          }else{
+            let bridgeReady=false,lastBridgeError=null;
+            for(const delay of [0,20,60]){
+              if(delay)await new Promise((resolve)=>setTimeout(resolve,delay));
+              try{
+                await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:bootstrap(e),url:extensionResourceUrl(e,'__aegis_content_bootstrap.js')}],false);
+                bridgeReady=Boolean(await contents.executeJavaScriptInIsolatedWorld(
+                  e.worldId||extensionWorldId(e.id),
+                  [{code:"Boolean(globalThis.chrome&&globalThis.chrome.runtime&&typeof globalThis.chrome.runtime.sendMessage==='function')",url:extensionResourceUrl(e,'__aegis_bridge_probe.js')}],
+                  false
+                ));
+                if(bridgeReady)break;
+              }catch(err){lastBridgeError=err}
+            }
+            if(!bridgeReady){
+              this.noteRuntimeError(e.id,'content-script',new Error('Aegis isolated-world bridge was not ready for this document'+(lastBridgeError?': '+String(lastBridgeError?.message||lastBridgeError):'.')));
+            }else{
+              let failures=0;
+              for(const rel of js){
+                try{
+                  const source=fs.readFileSync(this.extensionFile(e,rel),'utf8')+'\n//# sourceURL='+extensionResourceUrl(e,rel);
+                  await contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:source,url:extensionResourceUrl(e,rel)}],false);
+                  scriptRan=true;
+                }catch(err){
+                  failures+=1;
+                  this.noteRuntimeError(e.id,'content-script:'+rel,err);
+                }
+              }
+              scriptOk=failures===0;
+            }
+          }
+          if(scriptRan){done.push(e.id);const health=this.healthFor(e.id);health.lastInjectionAt=new Date().toISOString();}
+          if(scriptOk)this.clearRuntimeErrors(e.id,'content-script');
         }
         const cssParts=[];
         for(const rel of Array.isArray(entry.css)?entry.css:[]){
