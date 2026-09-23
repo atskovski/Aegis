@@ -9,7 +9,7 @@ const { configurePrivacySession, makeTabStats, freshSeed, isRiskyDownload, defau
 const { buildAntiFingerprintScript } = require('./core/fingerprint');
 const { sanitizeSettings, searchTemplateFor, profileDefaults, cloneDefaults, SEARCH_ENGINES } = require('./core/settings');
 const { navigationUrl, navigationIsMainFrame, shouldAllowInternalNavigation, failedHttpsCanOfferHttp } = require('./core/navigation');
-const { applyProxyToSession: applyProxyCore, runConnectivityTest } = require('./core/network');
+const { applyProxyToSession: applyProxyCore, runConnectivityTest, verifyTorRoute } = require('./core/network');
 const { parseFilterRules } = require('./core/filter-rules');
 const { cosmeticCss, buildPagePrivacyScript } = require('./core/content-filter');
 const { TrackerLearner } = require('./core/tracker-learning');
@@ -989,6 +989,7 @@ async function createTab(raw = null, activate = true, waitForNavigation = false,
   });
 
   const startNavigation = async () => {
+    if (options.deferNavigation) return null;
     try {
       if (routeMustSet) await withTimeout(routePromise, 6000, 'Private network route');
       try { await withTimeout(tab.privacyReadyPromise, 5000, 'Privacy preload'); } catch (err) { console.warn('Privacy preload did not complete before navigation (fail-soft):', err.message); }
@@ -1126,26 +1127,78 @@ function applySitePermission(origin, key, value) {
   return true;
 }
 
-function hardenTab(tab) {
+async function hardenTab(tab) {
   if (!tab) return false;
-  tab.shieldsEnabled = true;
-  tab.compatibilityMode = false;
-  tab.allowHttp = false;
   const origin = safeOrigin(tab.url);
+  hardenTabState(tab);
   if (origin) {
     const hardened = { ...(settings.sitePermissions[origin] || {}) };
-    for (const key of ['camera','microphone','geolocation','notifications','clipboardRead','displayCapture','midi','usb','serial','hid']) {
+    for (const key of SENSITIVE_PERMISSION_KEYS) {
       clearTemporaryPermission(tab.id, origin, key);
       hardened[key] = 'block';
     }
     settings.sitePermissions[origin] = hardened;
     saveSettings();
   }
-  applyCosmeticFiltering(tab).finally(emitState);
-  try { tab.view.webContents.reload(); } catch {}
-  toast(origin ? `Hardened ${new URL(origin).hostname}: full shields, HTTPS-first, compatibility off, sensitive permissions blocked.` : 'Current tab hardened.', 'success');
+
+  // Remove state accumulated before hardening so the reloaded page starts from a
+  // genuinely clean compartment instead of inheriting old cookies/cache/storage.
+  try {
+    await tab.privateSession.clearData({ dataTypes:['cookies','localStorage','indexedDB','serviceWorkers','cache','cacheStorage'] });
+    await tab.privateSession.clearCache();
+    await tab.privateSession.closeAllConnections();
+  } catch (err) { console.warn('Harden cleanup warning:', err.message); }
+
+  tab.javascriptEnabled = true;
+  await replaceTabView(tab, true);
+  await applyCosmeticFiltering(tab);
+  emitState();
+  toast(origin
+    ? `Hardened ${new URL(origin).hostname}: Maximum fingerprint defense, all third-party requests blocked, extensions disabled, service workers disabled, permissions blocked, HTTPS-only, and prior site state cleared.`
+    : 'Current tab moved into a hardened compartment.', 'success');
   return true;
 }
+
+async function createAnonymousTab(raw = null) {
+  const torProxy = settings.anonymity?.torProxy || '127.0.0.1:9050';
+  const tab = await createTab(raw || 'https://check.torproject.org/', true, false, {
+    securityDomain:'anonymous',
+    torProxy,
+    disableExtensions:true,
+    deferNavigation:true
+  });
+  if (!tab) return null;
+  try {
+    const route = await applyProxyToSession(tab.privateSession, { freshSession:false }, tab);
+    tab.networkRoute = route;
+    if (!route?.ok) throw new Error(route?.warnings?.join(' | ') || 'Tor proxy route failed.');
+
+    const proof = await verifyTorRoute(tab.privateSession);
+    tab.torVerification = proof;
+    tab.torVerified = Boolean(proof.verified);
+    if (settings.anonymity?.requireTorVerification !== false && !proof.verified) {
+      tab.networkRoute = { ...route, ok:false, warnings:[...(route.warnings || []), proof.error || 'Tor verification failed.'] };
+      await showLoadError(tab, 'https://check.torproject.org/', 'AEGIS_TOR_REQUIRED', 'Anonymous compartment refused to browse because the configured route could not be verified as Tor.');
+      emitState();
+      toast('Anonymous tab is fail-closed: Aegis could not verify the Tor route. Start Tor locally or update the Tor SOCKS address in Settings → Network.', 'danger');
+      return tab;
+    }
+
+    const target = raw || settings.homePage || 'https://duckduckgo.com/';
+    tab.lastNavigationOk = await navigateTab(tab, target);
+    emitState();
+    toast('Anonymous compartment active. Tor route verified, local-network access blocked, extensions disabled, downloads blocked, and maximum fingerprint defenses enabled.', 'success');
+    return tab;
+  } catch (err) {
+    tab.torVerified = false;
+    tab.networkRoute = { ok:false, mode:'socks5', warnings:[err.message] };
+    try { await showLoadError(tab, 'https://check.torproject.org/', 'AEGIS_TOR_REQUIRED', err.message); } catch {}
+    emitState();
+    toast('Anonymous compartment is fail-closed: ' + err.message, 'danger');
+    return tab;
+  }
+}
+
 
 function openBrowserUi(payload) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1307,7 +1360,11 @@ function wireIpc() {
 
   ipcMain.on('site:harden', (event) => {
     if (!assertUiSender(event)) return;
-    hardenTab(activeTab());
+    hardenTab(activeTab()).catch((err) => toast('Could not harden this site: ' + err.message, 'danger'));
+  });
+  ipcMain.on('tab:new-anonymous', (event, raw) => {
+    if (!assertUiSender(event)) return;
+    createAnonymousTab(typeof raw === 'string' ? raw : null).catch((err) => toast('Could not create anonymous tab: ' + err.message, 'danger'));
   });
 
   ipcMain.on('permission:respond', (event, response) => {
