@@ -90,17 +90,18 @@ function hardenedOverrides(globalSettings = {}) {
 }
 
 function anonymousOverrides(globalSettings = {}, torProxy = '127.0.0.1:9050') {
+  const anonymity = globalSettings.anonymity || {};
   return {
     ...hardenedOverrides(globalSettings),
-    blockAllDownloads: true,
-    blockPrivateNetwork: true,
+    blockAllDownloads: anonymity.disableDownloads !== false,
+    blockPrivateNetwork: anonymity.blockPrivateNetwork !== false,
     blockThirdPartyRequests: true,
-    disableExtensions: true,
+    disableExtensions: anonymity.disableExtensions !== false,
     disableWebRtc: true,
     anonymousRouteRequired: true,
     proxy: {
       mode: 'socks5',
-      server: String(torProxy || '127.0.0.1:9050'),
+      server: String(torProxy || anonymity.torProxy || '127.0.0.1:9050'),
       bypassLocal: false,
       failClosedFixedProxy: true
     },
