@@ -976,14 +976,24 @@ class AegisExtensionRuntime{
     const timer=setTimeout(fire,delayMs);this.alarmTimers.set(this.alarmKey(e.id,name),{timer,alarm});return undefined;
   }
   pageArguments(e,context='page'){
-    const enc=(value)=>Buffer.from(JSON.stringify(value),'utf8').toString('base64url');
     return [
       '--aegis-extension-id='+encodeURIComponent(e.id),
-      '--aegis-extension-token='+encodeURIComponent(e.resourceToken),
-      '--aegis-extension-context='+encodeURIComponent(context),
-      '--aegis-extension-manifest='+enc(e.manifest),
-      '--aegis-extension-messages='+enc(localeMessages(e))
+      '--aegis-extension-context='+encodeURIComponent(context)
     ];
+  }
+  pageBootstrapData(sender,id,context='page'){
+    const e=this.extensionFor(String(id||'')),background=this.backgroundHosts.get(e.id);
+    const source=this.getTabs().find((tab)=>tab?.view?.webContents===sender&&tab?.extensionPageExtensionId===e.id);
+    const pageAuthorized=[...this.pageWindows].some((win)=>win.__aegisExtensionId===e.id&&!win.isDestroyed()&&win.webContents===sender);
+    const backgroundAuthorized=Boolean(background&&!background.isDestroyed()&&background.webContents===sender);
+    if(!source&&!pageAuthorized&&!backgroundAuthorized)throw new Error('Extension bootstrap sender is not authorized for '+e.id);
+    return {
+      extensionId:e.id,
+      context:String(context||'page').slice(0,32),
+      resourceToken:e.resourceToken,
+      manifest:e.manifest,
+      messages:localeMessages(e)
+    };
   }
   extensionSession(e){
     if(this.pageSessions.has(e.id))return this.pageSessions.get(e.id);
