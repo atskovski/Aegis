@@ -39,6 +39,9 @@ function networkAllowedByManifest(m,url){
   const patterns=hostPermissions(m);
   return patterns.some((p)=>matchPattern(url,p));
 }
+function extensionVisibleTab(tab){
+  return Boolean(tab && !tab.disableExtensions && tab.securityDomain!=='anonymous' && tab.securityDomain!=='hardened');
+}
 function extensionWorldId(id){
   const h=crypto.createHash('sha256').update(String(id)).digest();
   return 1100 + (h.readUInt32BE(0) % 50000);
@@ -227,7 +230,7 @@ class AegisExtensionRuntime{
     if(m==='runtime.getPlatformInfo')return {os:process.platform==='darwin'?'mac':'unknown',arch:process.arch==='arm64'?'arm':'x86-64'};
     if(m==='permissions.contains'){const set=new Set(permissions(e.manifest));return [...(a[0]?.permissions||[]),...(a[0]?.origins||[])].every((x)=>set.has(x))}
     if(m.startsWith('storage.')){const [,area,op]=m.split('.'),file=path.join(this.dataDir,e.id,'storage.json'),store=area==='local'?readStore(file):(this.sessionStores.get(e.id)||{});this.sessionStores.set(e.id,store);if(op==='get')return getKeys(store,a[0]);if(op==='set')Object.assign(store,a[0]||{});if(op==='remove')for(const k of Array.isArray(a[0])?a[0]:[a[0]])delete store[k];if(op==='clear')for(const k of Object.keys(store))delete store[k];if(area==='local'&&op!=='get')writeStore(file,store);return;}
-    const extensionVisible=(t)=>Boolean(t && !t.disableExtensions && t.securityDomain!=='anonymous' && t.securityDomain!=='hardened');
+    const extensionVisible=extensionVisibleTab;
     const pub=(t)=>({id:t.id,url:t.url||'',title:t.title||'',active:t.id===this.getActiveId(),incognito:true,status:t.loading?'loading':'complete'});
     if(m==='tabs.query')return tabs.filter(extensionVisible).filter((t)=>!a[0]?.active||t.id===this.getActiveId()).map(pub);
     if(m==='tabs.create')return pub(await this.createTab(String(a[0]?.url||'aegis://app/start.html'),a[0]?.active!==false));
@@ -315,4 +318,4 @@ class AegisExtensionRuntime{
   }
   stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear()}
 }
-module.exports={hostPermissions,networkAllowedByManifest,extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
+module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,validateExtractedTree,bootstrap,AegisExtensionRuntime};
