@@ -426,7 +426,7 @@ class AegisExtensionRuntime{
   constructor({rootDir,getTabs,getActiveId,createTab,updateTab,removeTab,BrowserWindow,electronSession,registerProtocols,browserVersion,notifyExtension,getSettings}){
     this.rootDir=rootDir;this.installDir=path.join(rootDir,'extensions');this.indexFile=path.join(this.installDir,'index.json');this.dataDir=path.join(rootDir,'extension-data');
     this.getTabs=getTabs;this.getActiveId=getActiveId||(()=>null);this.createTab=createTab;this.updateTab=updateTab;this.removeTab=removeTab;this.BrowserWindow=BrowserWindow;this.electronSession=electronSession;this.registerProtocols=registerProtocols;this.notifyExtension=typeof notifyExtension==='function'?notifyExtension:null;this.getSettings=typeof getSettings==='function'?getSettings:(()=>({}));
-    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingFrameInjections=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.dnrSessionRules=new Map();this.registeredContentScripts=new Map();this.browserVersion=String(browserVersion||'1.1');
+    this.items=new Map();this.sessionStores=new Map();this.backgroundHosts=new Map();this.pendingMessages=new Map();this.pendingFrameInjections=new Map();this.pendingFrameMessages=new Map();this.ports=new Map();this.pendingInstalls=new Map();this.suspensionReasons=new Set();this.actionState=new Map();this.alarmTimers=new Map();this.pageWindows=new Set();this.pageSessions=new Map();this.activeGrants=new Map();this.cssKeys=new Map();this.runtimeHealth=new Map();this.menuItems=new Map();this.extensionNotifications=new Map();this.dnrSessionRules=new Map();this.registeredContentScripts=new Map();this.browserVersion=String(browserVersion||'1.1');
     fs.mkdirSync(this.installDir,{recursive:true,mode:0o700}); this.load(); this.save();
   }
   load(){let rows=[];try{rows=readJson(this.indexFile)}catch{} for(const row of Array.isArray(rows)?rows:[]){try{const rawManifest=normalizeManifest(readJson(path.join(row.path,'manifest.json'))),manifest=localizeManifest(row.path,rawManifest);this.items.set(row.id,{...row,worldId:row.worldId||extensionWorldId(row.id),resourceToken:row.resourceToken||crypto.randomBytes(18).toString('hex'),manifest,compatibility:compatibility(manifest,row.detectedApis||[])})}catch{}}}
@@ -537,6 +537,52 @@ class AegisExtensionRuntime{
     const processId=Number(senderFrame?.processId),routingId=Number(senderFrame?.routingId);
     if(processId!==pending.processId||routingId!==pending.routingId)return false;
     this.pendingFrameInjections.delete(requestId);pending.resolve(payload);return true;
+  }
+  sendFrameMessage(contents,frame,payload){
+    if(!contents||contents.isDestroyed?.()||!frame||frame.isDestroyed?.())return Promise.resolve({ok:false,error:'Frame is unavailable.'});
+    const requestId=crypto.randomUUID(),processId=Number(frame.processId),routingId=Number(frame.routingId);
+    return new Promise((resolve)=>{
+      const timer=setTimeout(()=>{this.pendingFrameMessages.delete(requestId);resolve({ok:false,error:'Timed out waiting for the subframe message bridge.'})},1500);
+      this.pendingFrameMessages.set(requestId,{resolve:(value)=>{clearTimeout(timer);resolve(value)},contents,processId,routingId,extensionId:String(payload.extensionId||'')});
+      try{contents.sendToFrame([processId,routingId],'extension:frame-message',{...payload,requestId,frameProcessId:processId,frameRoutingId:routingId})}
+      catch(err){clearTimeout(timer);this.pendingFrameMessages.delete(requestId);resolve({ok:false,error:String(err?.message||err)})}
+    });
+  }
+  handleFrameMessageResult(sender,senderFrame,payload={}){
+    const requestId=String(payload.requestId||''),pending=this.pendingFrameMessages.get(requestId);
+    if(!pending||pending.contents!==sender||pending.extensionId!==String(payload.extensionId||''))return false;
+    const processId=Number(senderFrame?.processId),routingId=Number(senderFrame?.routingId);
+    if(processId!==pending.processId||routingId!==pending.routingId)return false;
+    this.pendingFrameMessages.delete(requestId);pending.resolve(payload);return true;
+  }
+  async sendTabMessage(e,tab,message,options={}){
+    if(!tab||!extensionVisibleTab(tab)||!this.canAccessTab(e,tab,{inject:true}))throw new Error('Tab unavailable to this extension');
+    const contents=tab.view?.webContents;if(!contents||contents.isDestroyed())throw new Error('Tab renderer is unavailable');
+    const sender={id:e.id};
+    const source='globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(message)+','+JSON.stringify(sender)+'):undefined';
+    const requested=options&&Number.isFinite(Number(options.frameId))?Number(options.frameId):null;
+    const topResult=async()=>contents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:source}],false);
+    if(requested===0)return topResult();
+    const main=contents.mainFrame,frames=Array.isArray(main?.framesInSubtree)?main.framesInSubtree:[];
+    if(requested!==null){
+      const frame=frames.find((x)=>x!==main&&Number(x?.routingId)===requested&&!x?.isDestroyed?.());
+      if(!frame)throw new Error('Requested extension frame is unavailable.');
+      const result=await this.sendFrameMessage(contents,frame,{extensionId:e.id,worldId:e.worldId||extensionWorldId(e.id),message,sender});
+      if(!result?.ok)throw new Error(String(result?.error||'Frame message failed.'));
+      return result.response;
+    }
+    let first;
+    try{first=await topResult()}catch{}
+    if(this.contentScriptsFor(e).some((entry)=>Boolean(entry?.all_frames??entry?.allFrames))){
+      for(const frame of frames){
+        if(frame===main||frame?.isDestroyed?.())continue;
+        try{
+          const result=await this.sendFrameMessage(contents,frame,{extensionId:e.id,worldId:e.worldId||extensionWorldId(e.id),message,sender});
+          if(first===undefined&&result?.ok&&result.response!==undefined)first=result.response;
+        }catch{}
+      }
+    }
+    return first;
   }
   async injectFrame(tab,frame,phase='idle'){
     if(!extensionVisibleTab(tab)||!frame||frame.isDestroyed?.())return [];
@@ -1182,7 +1228,7 @@ class AegisExtensionRuntime{
     }
     if(m==='tabs.reload'){requireTabs();const target=tabArg(typeof a[0]==='number'?a[0]:undefined);if(!extensionVisibleTab(target))throw new Error('Tab unavailable to extensions');target.view.webContents.reload();return undefined}
     if(m==='tabs.remove'){requireTabs();for(const id of (Array.isArray(a[0])?a[0]:[a[0]])){const target=this.tabById(id);if(!extensionVisibleTab(target))throw new Error('Extensions cannot access hardened or anonymous compartments.');this.removeTab(Number(id))}return undefined}
-    if(m==='tabs.sendMessage'){const t=this.tabById(a[0]);if(!t||!extensionVisibleTab(t)||!this.canAccessTab(e,t,{inject:true}))throw new Error('Tab unavailable to this extension');return t.view.webContents.executeJavaScriptInIsolatedWorld(e.worldId||extensionWorldId(e.id),[{code:'globalThis.__aegisReceiveMessage?globalThis.__aegisReceiveMessage('+JSON.stringify(a[1])+','+JSON.stringify({id:e.id})+'):undefined'}],false)}
+    if(m==='tabs.sendMessage'){const t=this.tabById(a[0]);return this.sendTabMessage(e,t,a[1],a[2]||{})}
     if(m==='tabs.executeScript'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.executeExtensionScript(e,target,details)}
     if(m==='tabs.insertCSS'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.insertExtensionCss(e,target,details)}
     if(m==='tabs.removeCSS'){const target=tabArg(typeof a[0]==='number'?a[0]:undefined),details=typeof a[0]==='number'?(a[1]||{}):(a[0]||{});return this.removeExtensionCss(e,target,details)}
@@ -1364,6 +1410,6 @@ class AegisExtensionRuntime{
     if(!pending||pending.extensionId!==id||!host||host.webContents!==sender)return false;
     this.pendingMessages.delete(String(payload.messageId));pending.resolve(payload.response);return true;
   }
-  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear();for(const pending of this.pendingFrameInjections.values())pending.resolve({ok:false,error:'Extension runtime stopped.'});this.pendingFrameInjections.clear();this.ports.clear()}
+  stopAll(){for(const id of [...this.backgroundHosts.keys()])this.stopBackground(id);for(const win of [...this.pageWindows])try{if(!win.isDestroyed())win.destroy()}catch{}this.pageWindows.clear();for(const id of this.items.keys())this.clearAllAlarms(id);for(const pending of this.pendingMessages.values())pending.resolve(undefined);this.pendingMessages.clear();for(const pending of this.pendingFrameInjections.values())pending.resolve({ok:false,error:'Extension runtime stopped.'});this.pendingFrameInjections.clear();for(const pending of this.pendingFrameMessages.values())pending.resolve({ok:false,error:'Extension runtime stopped.'});this.pendingFrameMessages.clear();this.ports.clear()}
 }
 module.exports={hostPermissions,networkAllowedByManifest,extensionVisibleTab,extensionWorldId,safeRel,normalizeManifest,localizeManifest,packageEcosystem,extensionId,permissions,compatibility,contentScriptPhase,matchPattern,matchingContentScripts,extensionResourceUrl,rewriteCssUrls,installRisk,scanUsedApiRoots,validateExtractedTree,bootstrap,AegisExtensionRuntime};
